@@ -1,0 +1,43 @@
+import { useCallback, useState } from "react";
+import { AppShell } from "@/components/layout/AppShell";
+import { OverviewPage } from "@/features/overview/OverviewPage";
+import { PlatformCenterPage } from "@/features/platform-center/PlatformCenterPage";
+import { GptRadarPage } from "@/features/radar/GptRadarPage";
+import { SettingsPage } from "@/features/settings/SettingsPage";
+import type { NavId, PlatformCenterTarget } from "@/app/navigation";
+
+/**
+ * 主窗口根组件：一级导航切换，默认进入平台中心。
+ * 总览关注项点击后携带 platformId/sourceId 定位到平台中心（v5 交互 2）。
+ */
+export function AppRoot() {
+  const [nav, setNav] = useState<NavId>("platform-center");
+  const [platformTarget, setPlatformTarget] = useState<PlatformCenterTarget | null>(null);
+
+  const openPlatform = useCallback((target: PlatformCenterTarget) => {
+    setPlatformTarget((previous) =>
+      // 同一目标重复点击也重新触发定位
+      previous?.providerId === target.providerId &&
+      previous?.tab === target.tab &&
+      previous?.focusSourceId === target.focusSourceId
+        ? { ...target }
+        : target,
+    );
+    setNav("platform-center");
+  }, []);
+
+  const consumeTarget = useCallback(() => setPlatformTarget(null), []);
+
+  return (
+    <AppShell active={nav} onNavigate={setNav}>
+      {nav === "overview" && (
+        <OverviewPage onOpenPlatform={openPlatform} onOpenRadar={() => setNav("gpt-radar")} />
+      )}
+      {nav === "platform-center" && (
+        <PlatformCenterPage target={platformTarget} onTargetConsumed={consumeTarget} />
+      )}
+      {nav === "gpt-radar" && <GptRadarPage />}
+      {nav === "settings" && <SettingsPage />}
+    </AppShell>
+  );
+}

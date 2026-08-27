@@ -1,0 +1,60 @@
+# AIQuotaMonitor
+
+多模型平台统一额度监控中心。目标平台包括 GPT/Codex、Claude Code、DeepSeek、GLM、Kimi、MiMo、MiniMax，并为后续 GPT 重置雷达和 Tibo 言论监控保留扩展位置。
+
+## 项目策略
+
+本项目采用 **同一仓库、前后端逻辑分离、桌面端一体发布** 的方式：
+
+- 前端负责后台看板、悬浮球、平台卡片、主题和用户交互。
+- 后端核心负责平台接入、凭据、额度查询、刷新调度、缓存、异常隔离和领域计算。
+- 前后端通过明确的数据契约通信，前端不直接调用模型平台，也不保存明文凭据。
+- MVP 不拆成两个独立仓库，也不要求用户分别启动前端和后端。
+
+详细说明见 [架构概览](./docs/architecture/overview.md)、[技术选型决策](./docs/architecture/technology-decision.md) 和 [迁移计划](./docs/architecture/migration-plan.md)。
+
+换机继续开发请先阅读 [跨终端交接](./docs/project/handoff.md)，完整需求见 [产品需求](./docs/product/requirements.md)，阶段进度见 [路线图](./docs/project/roadmap.md)。
+
+## 目录
+
+```text
+AIQuotaMonitor/
+├─ apps/
+│  └─ desktop/
+│     ├─ src/              # React 后台看板、悬浮球和前端组件
+│     └─ src-tauri/src/    # Rust 命令、窗口、存储、刷新和适配器
+├─ docs/
+│  ├─ architecture/        # 架构决策与数据流
+│  └─ ui-design/           # 已确认的 UI 设计稿
+├─ tooling/                # 开发、迁移和打包脚本
+└─ THIRD_PARTY_NOTICES.md  # 迁移代码来源和许可证记录
+```
+
+## 当前状态
+
+- 已建立并实现可构建的阶段一项目骨架。
+- 已归档平台中心 V4 的三张关键设计稿及前端交接说明。
+- 已归档总览、GPT 重置雷达、设置和悬浮球 V5 的六张设计稿及交接说明。
+- 已完成 `DeepSeekMonitorWindows-final` 与 `cc-switch` 代码审计。
+- 已确定 Tauri 2、React/TypeScript、Rust、SQLite 技术路线。
+- 已生成 React/Tauri 业务骨架、静态 ViewModel 和悬浮球迁移代码。
+- 当前尚未接入真实平台 API、SQLite 业务表和安全凭据存储。
+
+## 本地开发
+
+```powershell
+pnpm install
+pnpm --filter @ai-quota-monitor/desktop typecheck
+pnpm --filter @ai-quota-monitor/desktop build
+cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+pnpm --filter @ai-quota-monitor/desktop tauri dev
+```
+
+## 下一步
+
+优先贯通一个 DeepSeek 垂直切片：
+
+1. 配置 API Key / 网页会话。
+2. 后端独立刷新两个 Source。
+3. 写入本地缓存和刷新记录。
+4. 前端展示正常、未配置、部分失败和缓存过期状态。

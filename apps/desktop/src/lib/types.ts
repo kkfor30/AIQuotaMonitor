@@ -1,0 +1,112 @@
+/**
+ * 前后端共享 ViewModel 契约（与 src-tauri/src/domain/view_models.rs 的 serde 输出对齐）。
+ * 阶段一为静态数据；金额均为后端已格式化字符串，前端不做数值计算。
+ */
+
+export type PlatformAggregateStatus = "healthy" | "partial" | "setup_required" | "error";
+
+export type DataFreshness = "fresh" | "stale" | "missing";
+
+export type SourceState = "ready" | "refreshing" | "auth_required" | "error";
+
+export type SourceType = "api_key" | "web_session" | "local_cli" | "oauth";
+
+export interface SourceSummaryViewModel {
+  sourceId: string;
+  sourceType: SourceType;
+  displayName: string;
+  state: SourceState;
+  credentialConfigured: boolean;
+  /** epoch 毫秒 */
+  lastValidatedAt: number | null;
+  /** epoch 毫秒 */
+  lastSuccessAt: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  capabilityIds: string[];
+}
+
+export interface CapabilityDisplayValue {
+  /** money | tokens | percent | trend */
+  kind: string;
+  primary: string | null;
+  secondary: string | null;
+  progress: number | null;
+}
+
+export interface TrendPoint {
+  label: string;
+  value: number;
+}
+
+export interface CapabilitySnapshotViewModel {
+  capabilityId: string;
+  sourceId: string;
+  displayName: string;
+  freshness: DataFreshness;
+  /** epoch 毫秒 */
+  capturedAt: number | null;
+  /** epoch 毫秒 */
+  lastGoodAt: number | null;
+  value: CapabilityDisplayValue;
+  trend: TrendPoint[];
+}
+
+export interface PlatformSummaryViewModel {
+  providerId: string;
+  displayName: string;
+  aggregateStatus: PlatformAggregateStatus;
+  accessSummary: string;
+  sources: SourceSummaryViewModel[];
+  capabilities: CapabilitySnapshotViewModel[];
+}
+
+/** 悬浮球偏好（与 src-tauri/src/storage/mod.rs 对齐） */
+export interface HoverbarAnchorDto {
+  edge: "top" | "right" | "bottom" | "left" | string;
+  ratio: number;
+}
+
+export interface HoverbarPreferencesDto {
+  enabled: boolean;
+  anchor: HoverbarAnchorDto;
+  detailSize: { width: number; height: number };
+}
+
+/** 聚合状态展示元数据：文字 + 颜色 token + 图标名，状态绝不只靠颜色。 */
+export const AGGREGATE_STATUS_META: Record<
+  PlatformAggregateStatus,
+  { label: string; icon: "circle-check" | "circle-alert" | "settings" | "circle-x"; tone: "success" | "warning" | "neutral" | "danger" }
+> = {
+  healthy: { label: "正常", icon: "circle-check", tone: "success" },
+  partial: { label: "部分可用", icon: "circle-alert", tone: "warning" },
+  setup_required: { label: "需配置", icon: "settings", tone: "neutral" },
+  error: { label: "异常", icon: "circle-x", tone: "danger" },
+};
+
+/** 数据新鲜度展示元数据 */
+export const FRESHNESS_META: Record<
+  DataFreshness,
+  { label: string; tone: "success" | "warning" | "neutral" }
+> = {
+  fresh: { label: "实时", tone: "success" },
+  stale: { label: "缓存 · 可能过期", tone: "warning" },
+  missing: { label: "暂无数据", tone: "neutral" },
+};
+
+export const SOURCE_STATE_META: Record<
+  SourceState,
+  { label: string; tone: "success" | "warning" | "neutral" | "danger" | "primary" }
+> = {
+  ready: { label: "运行中", tone: "success" },
+  refreshing: { label: "刷新中", tone: "primary" },
+  auth_required: { label: "待配置", tone: "neutral" },
+  error: { label: "异常", tone: "danger" },
+};
+
+export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
+  api_key: "API Key",
+  web_session: "网页会话",
+  local_cli: "本地 CLI",
+  oauth: "OAuth 订阅",
+};

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+target/
+*.tsbuildinfo
+*.local
+.DS_Store
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+.pnpm-store/
+Thumbs.db

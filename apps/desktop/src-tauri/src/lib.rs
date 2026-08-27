@@ -1,0 +1,57 @@
+//! AIQuotaMonitor 桌面应用 Rust 侧入口。
+//!
+//! 模块职责：
+//! - commands：Tauri IPC 命令（窗口命令 + 平台数据命令）
+//! - domain：前后端共享 ViewModel 契约
+//! - providers：平台 Provider 注册表（阶段一为静态数据）
+//! - storage：本地持久化（阶段一仅悬浮球偏好 JSON）
+//! - windows：悬浮球等特殊窗口的几何与生命周期
+
+mod commands;
+mod domain;
+mod providers;
+mod storage;
+mod windows;
+
+use tauri::Manager;
+
+pub fn run() {
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            commands::platform_commands::get_platform_summaries,
+            commands::window_commands::show_hoverbar_detail,
+            commands::window_commands::request_hide_hoverbar_detail,
+            commands::window_commands::finish_hide_hoverbar_detail,
+            commands::window_commands::set_hoverbar_detail_size,
+            commands::window_commands::set_hoverbar_detail_pointer_inside,
+            commands::window_commands::snap_hoverbar_to_edge,
+            commands::window_commands::open_main_window,
+            commands::window_commands::get_hoverbar_preferences,
+            commands::window_commands::set_hoverbar_enabled,
+        ])
+        .setup(|app| {
+            let prefs = storage::load_preferences(app.handle());
+            app.manage(windows::hoverbar::HoverbarRuntime::new((
+                prefs.detail_size.width,
+                prefs.detail_size.height,
+            )));
+
+            // 主窗口关闭即退出整个应用（阶段一无托盘）
+            if let Some(main_window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                main_window.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                        app_handle.exit(0);
+                    }
+                });
+            }
+
+            if prefs.enabled {
+                windows::hoverbar::ensure_hoverbar_windows(app.handle())?;
+            }
+            windows::hoverbar::start_fullscreen_watcher(app.handle().clone());
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

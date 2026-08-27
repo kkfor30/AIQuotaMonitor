@@ -1,0 +1,107 @@
+/*
+ * AIQuotaMonitor 设计 Token
+ * 视觉方向：浅色晶体玻璃、细描边、轻阴影；蓝色主操作、绿色成功、橙色部分可用。
+ * 所有颜色同时以文字/图标辅助表达状态，禁止仅靠颜色传达信息。
+ */
+
+/* 原始调色板：可被主题层覆盖的语义变量 */
+:root {
+  /* 表面与背景 */
+  --q-bg: #eef3fb;
+  --q-bg-glow-a: rgba(59, 130, 247, 0.1);
+  --q-bg-glow-b: rgba(36, 224, 182, 0.08);
+  --q-surface: rgba(255, 255, 255, 0.78);
+  --q-surface-strong: rgba(255, 255, 255, 0.94);
+  --q-surface-muted: rgba(255, 255, 255, 0.55);
+  --q-surface-hover: rgba(255, 255, 255, 0.92);
+
+  /* 描边 */
+  --q-border: rgba(15, 23, 42, 0.08);
+  --q-border-strong: rgba(15, 23, 42, 0.14);
+  --q-border-selected: rgba(7, 86, 238, 0.45);
+
+  /* 文字 */
+  --q-text-primary: #0f141d;
+  --q-text-secondary: #5a6474;
+  --q-text-muted: #8a93a6;
+  --q-text-inverse: #ffffff;
+
+  /* 主操作（蓝） */
+  --q-primary: #0756ee;
+  --q-primary-hover: #1a66f2;
+  --q-primary-soft: rgba(7, 86, 238, 0.08);
+  --q-primary-softer: rgba(7, 86, 238, 0.05);
+
+  /* 状态：成功（绿） */
+  --q-success: #0ba772;
+  --q-success-strong: #07875d;
+  --q-success-soft: rgba(11, 167, 114, 0.1);
+
+  /* 状态：部分可用 / 缓存（橙） */
+  --q-warning: #d9640f;
+  --q-warning-soft: rgba(217, 100, 15, 0.1);
+
+  /* 状态：失败（红） */
+  --q-danger: #d93025;
+  --q-danger-soft: rgba(217, 48, 37, 0.09);
+
+  /* 状态：未配置（灰蓝） */
+  --q-neutral: #64748b;
+  --q-neutral-soft: rgba(100, 116, 139, 0.1);
+
+  /* 阴影与圆角 */
+  --q-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --q-shadow-md:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px rgba(15, 23, 42, 0.07);
+  --q-shadow-lg:
+    0 2px 6px rgba(15, 23, 42, 0.06),
+    0 16px 40px rgba(15, 23, 42, 0.12);
+  --q-radius-card: 14px;
+  --q-radius-control: 10px;
+  --q-radius-pill: 999px;
+
+  /* 字体 */
+  --q-font:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI",
+    "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC", sans-serif;
+}
+
+/*
+ * Tailwind v4 主题桥接：工具类直接引用语义变量。
+ */
+@theme inline {
+  --color-q-bg: var(--q-bg);
+  --color-q-surface: var(--q-surface);
+  --color-q-surface-strong: var(--q-surface-strong);
+  --color-q-surface-muted: var(--q-surface-muted);
+  --color-q-surface-hover: var(--q-surface-hover);
+  --color-q-border: var(--q-border);
+  --color-q-border-strong: var(--q-border-strong);
+  --color-q-text-primary: var(--q-text-primary);
+  --color-q-text-secondary: var(--q-text-secondary);
+  --color-q-text-muted: var(--q-text-muted);
+  --color-q-primary: var(--q-primary);
+  --color-q-primary-hover: var(--q-primary-hover);
+  --color-q-primary-soft: var(--q-primary-soft);
+  --color-q-primary-softer: var(--q-primary-softer);
+  --color-q-success: var(--q-success);
+  --color-q-success-strong: var(--q-success-strong);
+  --color-q-success-soft: var(--q-success-soft);
+  --color-q-warning: var(--q-warning);
+  --color-q-warning-soft: var(--q-warning-soft);
+  --color-q-danger: var(--q-danger);
+  --color-q-danger-soft: var(--q-danger-soft);
+  --color-q-neutral: var(--q-neutral);
+  --color-q-neutral-soft: var(--q-neutral-soft);
+
+  --font-q: var(--q-font);
+
+  --radius-q-card: var(--q-radius-card);
+  --radius-q-control: var(--q-radius-control);
+  --radius-q-pill: var(--q-radius-pill);
+
+  --shadow-q-sm: var(--q-shadow-sm);
+  --shadow-q-md: var(--q-shadow-md);
+  --shadow-q-lg: var(--q-shadow-lg);
+}

@@ -1,0 +1,151 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/* 全局基础样式 */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--q-font);
+  color: var(--q-text-primary);
+  background: var(--q-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* 文本可选择区域（列表、数值、说明） */
+[data-selectable="true"] {
+  user-select: text;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* 玻璃面板通用样式：低透明白底 + 细描边 + 轻阴影 */
+@utility glass-panel {
+  background: var(--q-surface);
+  border: 1px solid var(--q-border);
+  border-radius: var(--q-radius-card);
+  box-shadow: var(--q-shadow-md);
+  backdrop-filter: blur(18px) saturate(1.35);
+}
+
+@utility glass-inset {
+  background: var(--q-surface-muted);
+  border: 1px solid var(--q-border);
+  border-radius: var(--q-radius-control);
+}
+
+/* 主窗口背景：柔和的双色辉光，避免大面积渐变喧宾夺主 */
+@utility app-backdrop {
+  background:
+    radial-gradient(1200px 600px at 8% -10%, var(--q-bg-glow-a), transparent 55%),
+    radial-gradient(1000px 700px at 105% 115%, var(--q-bg-glow-b), transparent 55%),
+    var(--q-bg);
+}
+
+/* 滚动条：细而低调 */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.14);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.24);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============ 悬浮球窗口专属样式 ============ */
+
+/* 透明窗口：html 上的标记 class 由 main.tsx 分发时添加 */
+html.hoverbar-window,
+html.hoverbar-window body,
+html.hoverbar-window #root {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+/* 锚点小球：40x40 窗口内 32px 球体居中，四边 4px 即窗口嵌入屏幕的安全区 */
+.hoverbar-anchor-root {
+  background: transparent;
+}
+
+.orb-shell:active {
+  transform: scale(0.92);
+}
+
+.orb-active .orb-body {
+  box-shadow:
+    0 0 0 3px rgba(7, 86, 238, 0.18),
+    0 2px 10px rgba(7, 86, 238, 0.45);
+}
+
+/* 详情面板开合动画：按停靠边选择展开原点，透明度与位移同时过渡 */
+.hb-detail-root {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hb-detail-root[data-motion="opening"] {
+  opacity: 0;
+}
+
+.hb-detail-root[data-motion="visible"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.hb-detail-root[data-motion="closing"] {
+  opacity: 0;
+}
+
+.hb-panel {
+  transform: scale(0.92);
+  transform-origin: center;
+  transition:
+    opacity 160ms ease-out,
+    transform 160ms ease-out;
+}
+
+.hb-detail-root[data-motion="visible"] .hb-panel {
+  transform: scale(1);
+}
+
+/* 按停靠边设置面板展开原点（球所在的方向） */
+.hb-detail-root[data-edge="top"] .hb-panel {
+  transform-origin: top center;
+}
+.hb-detail-root[data-edge="bottom"] .hb-panel {
+  transform-origin: bottom center;
+}
+.hb-detail-root[data-edge="left"] .hb-panel {
+  transform-origin: center left;
+}
+.hb-detail-root[data-edge="right"] .hb-panel {
+  transform-origin: center right;
+}
