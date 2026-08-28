@@ -92,7 +92,10 @@ fn real_platform(
         let source = records.iter().find(|source| source.id == template.source_id);
         let snapshot = database.latest_snapshot(template.source_id, template.id)?;
         capabilities.push(match (source, snapshot) {
-            (Some(source), Some(snapshot)) => {
+            (Some(source), Some(snapshot))
+                if template.id != "credits"
+                    || (source.state == "ready" && source.last_validated_at == Some(snapshot.captured_at)) =>
+            {
                 let fresh = source.state == "ready" || source.last_validated_at == Some(snapshot.captured_at);
                 CapabilitySnapshotViewModel {
                     capability_id: snapshot.capability_id,
@@ -187,7 +190,10 @@ fn aggregate_status(
     }
     let has_value = capabilities.iter().any(|value| value.freshness != DataFreshness::Missing);
     let all_ready = configured.iter().all(|source| matches!(source.state, SourceState::Ready));
-    let all_fresh = capabilities.iter().all(|value| value.freshness == DataFreshness::Fresh);
+    let all_fresh = capabilities.iter().all(|value| {
+        value.freshness == DataFreshness::Fresh
+            || (value.capability_id == "credits" && value.freshness == DataFreshness::Missing)
+    });
     if all_ready && all_fresh {
         PlatformAggregateStatus::Healthy
     } else if has_value || configured.iter().any(|source| matches!(source.state, SourceState::Ready | SourceState::Refreshing)) {

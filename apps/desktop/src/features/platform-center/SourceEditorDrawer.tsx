@@ -18,12 +18,14 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
   const queryClient = useQueryClient();
   const [secret, setSecret] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loginStatus, setLoginStatus] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [loginOpened, setLoginOpened] = useState(false);
 
   useEffect(() => {
     setSecret("");
     setError(null);
+    setLoginStatus(null);
     setConfirmClear(false);
     setLoginOpened(false);
   }, [source?.sourceId]);
@@ -34,6 +36,9 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
     const unlisteners: Array<() => void> = [];
     void listen<string>("source-login-error", (event) => {
       setError(event.payload);
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    void listen<string>("source-login-status", (event) => {
+      setLoginStatus(event.payload);
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen("source-login-closed", () => {
       setLoginOpened(false);
@@ -51,9 +56,10 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
   }, [source?.sourceId, source?.supportsInteractiveLogin, onClose]);
 
   const close = () => {
-    if (loginOpened && source) void closeSourceLogin(source.sourceId);
+    if (source?.supportsInteractiveLogin) void closeSourceLogin(source.sourceId);
     setSecret("");
     setError(null);
+    setLoginStatus(null);
     setLoginOpened(false);
     onClose();
   };
@@ -61,8 +67,14 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
     queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
   };
   const saveMutation = useMutation({
-    mutationFn: () => saveSourceCredential(source!.sourceId, secret),
-    onSuccess: (platforms) => { updatePlatforms(platforms); close(); },
+    mutationFn: async () => {
+      const sourceId = source!.sourceId;
+      return { sourceId, platforms: await saveSourceCredential(sourceId, secret) };
+    },
+    onSuccess: (result) => {
+      updatePlatforms(result.platforms);
+      if (source?.sourceId === result.sourceId) close();
+    },
     onError: (cause) => setError(ipcErrorMessage(cause, "保存失败，请检查凭据后重试。")),
   });
   const clearMutation = useMutation({
@@ -90,7 +102,7 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
       <aside className="flex h-full w-full max-w-md flex-col border-l border-q-border bg-q-surface p-5 shadow-xl" role="dialog" aria-modal="true" aria-label={`编辑 ${source.displayName}`} onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div><p className="text-lg font-semibold text-q-text-primary">编辑来源</p><p className="mt-1 text-sm text-q-text-secondary">{source.displayName}</p></div>
-          <Button variant="ghost" size="sm" onClick={close} disabled={busy} aria-label="关闭编辑来源"><X size={16} /></Button>
+          <Button variant="ghost" size="sm" onClick={close} aria-label="关闭编辑来源"><X size={16} /></Button>
         </div>
         <div className="mt-6 flex flex-1 flex-col gap-4">
           {input ? <>
@@ -102,18 +114,19 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
           </> : <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">此本地来源由应用自动检测，无需输入凭据。</p>}
           {source.supportsInteractiveLogin === true && <div className="flex flex-col gap-2">
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => { setError(null); loginMutation.mutate(); }} disabled={busy}>
+              <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? "正在重新加载 DeepSeek 登录页…" : "正在打开 DeepSeek 登录页。若窗口空白，通常是 AWS WAF 静默验证，请等待或重新加载。"); loginMutation.mutate(); }} disabled={busy}>
                 {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
                 {loginOpened ? "重新加载登录页" : "网页登录"}
               </Button>
               {loginOpened && <Button variant="ghost" size="sm" onClick={() => closeLoginMutation.mutate()} disabled={busy}>关闭登录页</Button>}
             </div>
-            <p className="text-xs leading-relaxed text-q-text-muted">登录完成后会自动验证并保存网页会话；关闭抽屉也会关闭登录页。</p>
+            <p className="text-xs leading-relaxed text-q-text-muted">登录完成后会自动验证并保存网页会话；抽屉 X、遮罩、取消和登录窗口 X 都会关闭登录页。</p>
           </div>}
+          {loginStatus && <p className="rounded-q-control border border-q-warning/30 bg-q-warning-soft px-3 py-2 text-xs leading-relaxed text-q-text-secondary">{loginStatus}</p>}
           {error && <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">{error}</p>}
           {source.credentialConfigured && (confirmClear ? <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3"><p className="text-xs leading-relaxed text-q-danger">清除后将无法通过此来源获取对应额度，确定继续？</p><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => clearMutation.mutate()} disabled={busy}>{clearMutation.isPending ? "清除中…" : "确认清除"}</Button><Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)} disabled={busy}>取消</Button></div></div> : <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)} disabled={busy}>清除凭据</Button>)}
         </div>
-        <div className="flex justify-end gap-2 border-t border-q-border pt-4"><Button variant="ghost" onClick={close} disabled={busy}>取消</Button>{input && <Button onClick={() => { setError(null); saveMutation.mutate(); }} disabled={!secret.trim() || busy}>{saveMutation.isPending ? "验证并保存中…" : "验证并保存"}</Button>}</div>
+        <div className="flex justify-end gap-2 border-t border-q-border pt-4"><Button variant="ghost" onClick={close}>取消</Button>{input && <Button onClick={() => { setError(null); saveMutation.mutate(); }} disabled={!secret.trim() || busy}>{saveMutation.isPending ? "验证并保存中…" : "验证并保存"}</Button>}</div>
       </aside>
     </div>
   );

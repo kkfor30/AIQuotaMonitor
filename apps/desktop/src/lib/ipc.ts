@@ -38,8 +38,13 @@ export async function closeSourceLogin(sourceId: string): Promise<void> {
 }
 
 export function ipcErrorMessage(cause: unknown, fallback: string): string {
-  if (cause instanceof Error) return cause.message;
-  if (typeof cause === "string" && cause.trim()) return cause;
+  if (typeof cause === "string" && cause.trim()) return cause.trim();
+  if (cause instanceof Error && cause.message.trim()) return cause.message.trim();
+  if (cause && typeof cause === "object") {
+    const record = cause as { message?: unknown; error?: unknown };
+    if (typeof record.message === "string" && record.message.trim()) return record.message.trim();
+    if (typeof record.error === "string" && record.error.trim()) return record.error.trim();
+  }
   return fallback;
 }
 

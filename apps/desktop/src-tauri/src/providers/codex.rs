@@ -70,7 +70,9 @@ pub fn local_auth_available() -> bool {
 pub async fn fetch(client: &Client) -> SourceRefreshOutput {
     match fetch_app_server().await {
         Ok(capabilities) => SourceRefreshOutput::success(capabilities),
-        Err(AppServerError::Unavailable(_)) | Err(AppServerError::Protocol(_)) => {
+        Err(AppServerError::Unavailable(_))
+        | Err(AppServerError::Protocol(_))
+        | Err(AppServerError::Network(_)) => {
             match fetch_wham(client).await {
                 Ok(capabilities) => SourceRefreshOutput::success(capabilities),
                 Err(error) => SourceRefreshOutput::failure(error),
@@ -81,12 +83,19 @@ pub async fn fetch(client: &Client) -> SourceRefreshOutput {
 }
 
 async fn fetch_app_server() -> Result<Vec<CapabilityData>, AppServerError> {
-    let mut child = Command::new("codex")
+    let mut command = Command::new("codex");
+    command
         .arg("app-server")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command
         .spawn()
         .map_err(|error| AppServerError::Unavailable(format!("无法启动 Codex app-server：{error}")))?;
     let mut stdin = child

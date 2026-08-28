@@ -76,7 +76,7 @@ pub fn clear_source_credential(
 }
 
 #[tauri::command]
-pub fn start_source_login(
+pub async fn start_source_login(
     source_id: String,
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
@@ -91,7 +91,7 @@ pub fn start_source_login(
 }
 
 #[tauri::command]
-pub fn close_source_login(
+pub async fn close_source_login(
     source_id: String,
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,

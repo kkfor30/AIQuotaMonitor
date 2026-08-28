@@ -110,7 +110,10 @@ async fn get_json<T: DeserializeOwned>(client: &Client, url: &str, token: &str) 
             .bearer_auth(token.trim())
             .header("x-app-version", "1.0.0")
             .header("Accept", "*/*")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AIQuotaMonitor/0.1")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            )
             .timeout(Duration::from_secs(15))
             .send()
             .await;

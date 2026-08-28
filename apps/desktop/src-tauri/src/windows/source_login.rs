@@ -15,12 +15,29 @@ use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const WINDOW_LABEL: &str = "deepseek-source-login";
 const TOKEN_TITLE_PREFIX: &str = "AIQM_USAGE_TOKEN:";
-const CAPTURE_SCRIPT: &str = r#"
+const STATUS_TITLE_PREFIX: &str = "AIQM_LOGIN_STATUS:";
+const PAGE_SCRIPT: &str = r#"
 (function() {
-  if (location.hostname !== 'platform.deepseek.com') return;
-  if (!document.body || document.body.innerText.trim().length < 10) return;
-  if (window.__aiqm_token_hook__) return;
-  window.__aiqm_token_hook__ = true;
+  function isWaf() {
+    try {
+      if (window.gokuProps) return true;
+      if (document.getElementById('challenge-container')) return true;
+      if (location.hostname && location.hostname.indexOf('awswaf') !== -1) return true;
+      var scripts = document.getElementsByTagName('script');
+      for (var i = 0; i < scripts.length; i++) {
+        var src = scripts[i].src || '';
+        if (src.indexOf('awswaf.com') !== -1) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+  function reportStatus() {
+    try {
+      if (String(document.title).indexOf('AIQM_USAGE_TOKEN:') === 0) return;
+      var status = isWaf() ? 'waf' : (location.hostname === 'platform.deepseek.com' ? 'ready' : 'loading');
+      document.title = 'AIQM_LOGIN_STATUS:' + status;
+    } catch (_) {}
+  }
   function deliver(token) {
     if (!token || typeof token !== 'string') return;
     token = token.trim();
@@ -32,33 +49,45 @@ const CAPTURE_SCRIPT: &str = r#"
     var match = /Bearer\s+(\S+)/i.exec(String(value));
     if (match && match[1]) deliver(match[1]);
   }
-  var originalFetch = window.fetch;
-  if (typeof originalFetch === 'function') {
-    window.fetch = function(input, init) {
-      try {
-        var headers = (init && init.headers) || (input && input.headers);
-        if (headers) {
-          if (typeof Headers !== 'undefined' && headers instanceof Headers) {
-            fromAuth(headers.get('authorization'));
-          } else if (Array.isArray(headers)) {
-            for (var i = 0; i < headers.length; i++) {
-              if (headers[i] && String(headers[i][0]).toLowerCase() === 'authorization') fromAuth(headers[i][1]);
-            }
-          } else if (typeof headers === 'object') {
-            for (var key in headers) {
-              if (key.toLowerCase() === 'authorization') fromAuth(headers[key]);
+  function installHook() {
+    if (window.__aiqm_token_hook__) return;
+    if (location.hostname !== 'platform.deepseek.com' || isWaf()) return;
+    window.__aiqm_token_hook__ = true;
+    var originalFetch = window.fetch;
+    if (typeof originalFetch === 'function') {
+      window.fetch = function(input, init) {
+        try {
+          var headers = (init && init.headers) || (input && input.headers);
+          if (headers) {
+            if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+              fromAuth(headers.get('authorization'));
+            } else if (Array.isArray(headers)) {
+              for (var i = 0; i < headers.length; i++) {
+                if (headers[i] && String(headers[i][0]).toLowerCase() === 'authorization') fromAuth(headers[i][1]);
+              }
+            } else if (typeof headers === 'object') {
+              for (var key in headers) {
+                if (key.toLowerCase() === 'authorization') fromAuth(headers[key]);
+              }
             }
           }
-        }
-      } catch (_) {}
-      return originalFetch.apply(this, arguments);
+        } catch (_) {}
+        return originalFetch.apply(this, arguments);
+      };
+    }
+    var originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+    XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+      try { if (name && String(name).toLowerCase() === 'authorization') fromAuth(value); } catch (_) {}
+      return originalSetRequestHeader.apply(this, arguments);
     };
   }
-  var originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
-  XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
-    try { if (name && String(name).toLowerCase() === 'authorization') fromAuth(value); } catch (_) {}
-    return originalSetRequestHeader.apply(this, arguments);
-  };
+  reportStatus();
+  installHook();
+  if (document.documentElement && !window.__aiqm_token_observer__) {
+    window.__aiqm_token_observer__ = true;
+    new MutationObserver(function() { reportStatus(); installHook(); })
+      .observe(document.documentElement, { childList: true, subtree: true });
+  }
 })();
 "#;
 
@@ -67,6 +96,7 @@ pub fn open(app: &tauri::AppHandle) -> Result<(), String> {
         let _ = window.show();
         let _ = window.set_focus();
         let _ = window.eval("location.reload();");
+        let _ = app.emit("source-login-status", "正在重新加载 DeepSeek 登录页…");
         return Ok(());
     }
     let url = WebviewUrl::External(
@@ -79,35 +109,51 @@ pub fn open(app: &tauri::AppHandle) -> Result<(), String> {
         .inner_size(480.0, 720.0)
         .min_inner_size(360.0, 480.0)
         .resizable(true)
+        .decorations(true)
+        .skip_taskbar(false)
         .center()
+        .focused(true)
         .visible(true)
         .on_page_load(|window, payload| {
-            if matches!(payload.event(), PageLoadEvent::Finished)
-                && payload
-                    .url()
-                    .host_str()
-                    .is_some_and(|host| host == "platform.deepseek.com")
-            {
-                let _ = window.eval(CAPTURE_SCRIPT);
+            if !matches!(payload.event(), PageLoadEvent::Finished) {
+                return;
+            }
+            let _ = window.eval(PAGE_SCRIPT);
+            let host = payload.url().host_str().unwrap_or_default();
+            if host.contains("awswaf") {
+                let _ = window.app_handle().emit(
+                    "source-login-status",
+                    "DeepSeek 登录页跳转到 AWS WAF 验证。窗口可能暂时空白，这是平台风控页。",
+                );
             }
         })
         .build()
         .map_err(|error| format!("打开 DeepSeek 登录窗口失败：{error}"))?;
     let app_handle = app.clone();
     window.on_window_event(move |event| {
-        if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+        if matches!(
+            event,
+            tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+        ) {
             let _ = app_handle.emit("source-login-closed", deepseek::WEB_SOURCE_ID);
         }
     });
+    let _ = app.emit(
+        "source-login-status",
+        "正在打开 DeepSeek 登录页。若窗口空白，通常是 AWS WAF 静默验证，请等待或重新加载。",
+    );
     start_watcher(app.clone());
     Ok(())
 }
 
 pub fn close(app: &tauri::AppHandle) -> Result<(), String> {
+    let _ = app.emit("source-login-closed", deepseek::WEB_SOURCE_ID);
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
-        window
-            .close()
-            .map_err(|error| format!("关闭 DeepSeek 登录窗口失败：{error}"))?;
+        if window.destroy().is_err() {
+            window
+                .close()
+                .map_err(|error| format!("关闭 DeepSeek 登录窗口失败：{error}"))?;
+        }
     }
     Ok(())
 }
@@ -115,30 +161,27 @@ pub fn close(app: &tauri::AppHandle) -> Result<(), String> {
 fn start_watcher(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(3)).await;
-        for _ in 0..1200 {
+        let mut cache_scan_failed = false;
+        let mut last_status = String::new();
+        let mut saw_waf = false;
+        for tick in 0..1200 {
             let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
                 return;
             };
-            if let Some(token) = find_webview_cached_usage_token() {
-                match capture(&app, &token).await {
-                    Ok(()) => {
-                        let _ = window.close();
-                        let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
-                        return;
-                    }
-                    Err(error) => {
-                        let _ = app.emit("source-login-error", error);
+            if !cache_scan_failed {
+                if let Some(token) = find_webview_cached_usage_token() {
+                    match capture(&app, &token).await {
+                        Ok(()) => {
+                            let _ = window.destroy().or_else(|_| window.close());
+                            let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
+                            return;
+                        }
+                        Err(error) => {
+                            cache_scan_failed = true;
+                            let _ = app.emit("source-login-error", error);
+                        }
                     }
                 }
-            }
-            let is_deepseek = window
-                .url()
-                .ok()
-                .and_then(|url| url.host_str().map(str::to_string))
-                .is_some_and(|host| host == "platform.deepseek.com");
-            if !is_deepseek {
-                tokio::time::sleep(Duration::from_millis(1500)).await;
-                continue;
             }
             if let Ok(title) = window.title() {
                 if let Some(token) = title.strip_prefix(TOKEN_TITLE_PREFIX) {
@@ -146,7 +189,7 @@ fn start_watcher(app: tauri::AppHandle) {
                     let _ = window.set_title("DeepSeek 账号登录");
                     match capture(&app, &token).await {
                         Ok(()) => {
-                            let _ = window.close();
+                            let _ = window.destroy().or_else(|_| window.close());
                             let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
                             return;
                         }
@@ -154,10 +197,34 @@ fn start_watcher(app: tauri::AppHandle) {
                             let _ = app.emit("source-login-error", error);
                         }
                     }
+                } else if let Some(status) = title.strip_prefix(STATUS_TITLE_PREFIX) {
+                    if status != last_status {
+                        last_status = status.to_string();
+                        let message = match status {
+                            "waf" => {
+                                saw_waf = true;
+                                Some("DeepSeek 登录页正在进行 AWS WAF 验证。窗口可能暂时空白，这是平台风控页而不是应用卡死。请等待完成，或点「重新加载登录页」。")
+                            }
+                            "ready" => Some("已打开 DeepSeek 平台，请完成登录。登录成功后会自动验证并保存网页会话。"),
+                            "loading" => Some("正在加载 DeepSeek 登录页…"),
+                            _ => None,
+                        };
+                        if let Some(message) = message {
+                            let _ = app.emit("source-login-status", message);
+                        }
+                    }
+                    let _ = window.set_title("DeepSeek 账号登录");
                 }
+            }
+            if saw_waf && last_status == "waf" && tick == 8 {
+                let _ = app.emit(
+                    "source-login-status",
+                    "AWS WAF 验证仍未完成，登录窗口可能持续空白。可重新加载登录页；若仍无表单，请改用手动粘贴 usage token，不要当作登录成功。",
+                );
             }
             tokio::time::sleep(Duration::from_millis(1500)).await;
         }
+        let _ = app.emit("source-login-error", "DeepSeek 网页登录等待超时，请关闭后重试或手动粘贴 usage token。");
     });
 }
 
