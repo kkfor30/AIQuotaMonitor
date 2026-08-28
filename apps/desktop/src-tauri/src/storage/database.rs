@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -102,6 +102,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
         .map_err(|err| format!("开始 SQLite 迁移失败: {err}"))?;
     if previous_version < 1 {
         migrate_v1(&transaction)?;
+    }
+    if previous_version < 2 {
+        migrate_v2(&transaction)?;
     }
     transaction
         .commit()
@@ -198,6 +201,44 @@ fn migrate_v1(transaction: &Transaction<'_>) -> Result<(), String> {
             "#,
         )
         .map_err(|err| format!("执行 SQLite v1 迁移失败: {err}"))
+}
+
+fn migrate_v2(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            CREATE TABLE user_platforms (
+                platform_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                api_base_url TEXT,
+                sort_index INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            INSERT INTO user_platforms(platform_id, display_name, notes, api_base_url, sort_index, created_at, updated_at)
+            SELECT a.platform_id,
+                   CASE a.platform_id
+                     WHEN 'deepseek' THEN 'DeepSeek'
+                     WHEN 'openai' THEN 'GPT / Codex'
+                     ELSE a.display_name
+                   END,
+                   '',
+                   CASE a.platform_id WHEN 'deepseek' THEN 'https://api.deepseek.com' ELSE NULL END,
+                   COALESCE((SELECT sort_index FROM platform_order WHERE platform_id = a.platform_id), 0),
+                   a.created_at,
+                   a.updated_at
+            FROM accounts a
+            WHERE EXISTS (
+                SELECT 1 FROM sources s
+                WHERE s.account_id = a.id
+                  AND (s.secret_ref IS NOT NULL OR s.last_success_at IS NOT NULL)
+            );
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (2, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v2 迁移失败: {err}"))
 }
 
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {

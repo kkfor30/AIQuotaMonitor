@@ -25,7 +25,7 @@
 | `03-platform-center-deepseek-partial-stale.png` | 单 Source 失败；成功数据保留，失败数据使用上次成功快照并明确标记 |
 | `10-platform-center-empty.png` | 尚未添加任何平台；空目录与「添加平台」引导 |
 | `11-platform-center-add-catalog.png` | 从产品注册表勾选要监控的平台，不是自定义中转 URL |
-| `12-platform-center-setup-apikey.png` | 添加平台后立刻展示该平台表单：API Key、「验证连接」、未验证时保存不可用 |
+| `12-platform-center-setup-apikey.png` | 添加平台后立刻展示接入表单。设计稿只画了 API Key；实现须同时保留 cc-switch 同款字段：供应商名称、备注、官网链接、获取 API Key、官方 API 请求地址（完整 URL） |
 
 ## 页面职责
 
@@ -51,6 +51,7 @@
 - 每个 Source 独立保存：来源类型、凭据状态、最后验证、最后成功、当前错误、能力覆盖。
 - 编辑使用右侧覆盖抽屉；打开抽屉时主内容尺寸不变化。
 - 保存前先验证；验证成功后保存配置并触发该 Source 刷新。
+- 接入表单保留官网链接和官方 API 请求地址（预填完整 URL）；「管理与测速」打开官网，不做代理测速。
 - 清除凭据是高风险操作，需要二次确认，并说明会失去哪些能力。
 
 ### GPT 重置雷达

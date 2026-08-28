@@ -38,6 +38,7 @@ AIQuotaMonitor/
 - 已完成 `DeepSeekMonitorWindows-final` 与 `cc-switch` 代码审计。
 - 已确定 Tauri 2、React/TypeScript、Rust、SQLite 技术路线。
 - 已接入 SQLite v1、Windows Credential Manager、Source 级刷新协调器和真实 ViewModel。
+- 平台中心从注册表添加平台；接入表单预填官网链接和官方 API 请求地址。
 - DeepSeek 已支持官方余额、网页用量与网页登录；GPT/Codex 已支持本地 app-server 优先、WHAM 回退的窗口额度查询。
 - 未配置或查询失败时继续使用 missing/stale，不再展示阶段一静态示例额度。
 
@@ -55,7 +56,8 @@ pnpm --filter @ai-quota-monitor/desktop tauri dev
 
 先完成阶段二真实账号验收，再进入扩展平台：
 
-1. 配置 DeepSeek API Key 和网页会话，确认余额与用量快照。
-2. 使用本机 Codex OAuth 登录确认 GPT 5 小时/7 天窗口与可选 Credits。
-3. 验证单 Source 失败时其他数据和最后成功快照仍保留。
-4. 继续接入 Kimi、GLM、MiniMax、MiMo 与 Claude Code。
+1. 从平台中心添加 DeepSeek，确认接入表单预填官网和 `https://api.deepseek.com`，填写 API Key 并验证保存。
+2. 配置网页会话，确认余额与用量快照。
+3. 使用本机 Codex OAuth 登录确认 GPT 5 小时/7 天窗口与可选 Credits。
+4. 验证单 Source 失败时其他数据和最后成功快照仍保留。
+5. 继续接入 Kimi、GLM、MiniMax、MiMo 与 Claude Code。

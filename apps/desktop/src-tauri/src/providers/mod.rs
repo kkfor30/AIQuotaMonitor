@@ -1,5 +1,6 @@
 //! 平台模板注册、真实 ViewModel 聚合与 Source adapter 路由。
 
+pub mod catalog;
 pub mod codex;
 pub mod deepseek;
 
@@ -42,15 +43,105 @@ const CODEX_CAPABILITIES: &[CapabilityTemplate] = &[
 ];
 
 pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryViewModel>, String> {
-    Ok(vec![
-        real_platform(database, "deepseek", "DeepSeek", "https://platform.deepseek.com", DEEPSEEK_CAPABILITIES)?,
-        real_platform(database, "openai", "GPT / Codex", "https://chatgpt.com/codex", CODEX_CAPABILITIES)?,
-        setup_required_placeholder("claude_code", "Claude Code"),
-        setup_required_placeholder("glm", "GLM"),
-        setup_required_placeholder("kimi", "Kimi"),
-        setup_required_placeholder("mimo", "MiMo"),
-        setup_required_placeholder("minimax", "MiniMax"),
-    ])
+    let mut platforms = Vec::new();
+    for added in database.list_user_platforms()? {
+        let entry = catalog::entry(&added.platform_id);
+        let official_url = entry.map(|item| item.official_url).unwrap_or("");
+        let display_name = if added.display_name.trim().is_empty() {
+            entry.map(|item| item.display_name).unwrap_or(added.platform_id.as_str())
+        } else {
+            added.display_name.as_str()
+        };
+        match added.platform_id.as_str() {
+            "deepseek" => platforms.push(real_platform(
+                database,
+                "deepseek",
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                DEEPSEEK_CAPABILITIES,
+            )?),
+            "openai" => platforms.push(real_platform(
+                database,
+                "openai",
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                CODEX_CAPABILITIES,
+            )?),
+            id => platforms.push(real_platform(
+                database,
+                id,
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                &[],
+            )?),
+        }
+    }
+    Ok(platforms)
+}
+
+pub fn catalog_items(database: &Database) -> Result<Vec<catalog::PlatformCatalogItem>, String> {
+    let added = database.list_user_platforms()?;
+    Ok(catalog::CATALOG
+        .iter()
+        .map(|entry| {
+            let mut item = catalog::PlatformCatalogItem::from(entry);
+            item.added = added.iter().any(|platform| platform.platform_id == entry.id);
+            item
+        })
+        .collect())
+}
+
+pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::PlatformSetupViewModel, String> {
+    let entry = catalog::entry(platform_id).ok_or_else(|| "该平台不在可添加注册表中".to_string())?;
+    let added = database.user_platform(platform_id)?;
+    let sources = database.list_sources(platform_id)?;
+    let api_key_source = sources.iter().find(|source| source.source_type == "api_key");
+    Ok(catalog::PlatformSetupViewModel {
+        platform_id: entry.id.into(),
+        display_name: added
+            .as_ref()
+            .map(|item| item.display_name.clone())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| entry.display_name.into()),
+        notes: added.as_ref().map(|item| item.notes.clone()).unwrap_or_default(),
+        official_url: entry.official_url.into(),
+        api_key_url: entry.api_key_url.map(str::to_string),
+        api_base_url: added
+            .as_ref()
+            .and_then(|item| item.api_base_url.clone())
+            .or_else(|| entry.api_base_url.map(str::to_string))
+            .unwrap_or_default(),
+        official_api_base_url: entry.api_base_url.map(str::to_string).unwrap_or_default(),
+        api_endpoint_hint: entry.api_endpoint_hint.into(),
+        api_key_source_id: api_key_source.map(|source| source.id.clone()),
+        api_key_configured: api_key_source.is_some_and(source_configured),
+        needs_api_key: entry.needs_api_key,
+        needs_web_login: entry.needs_web_login,
+        needs_local_cli: entry.needs_local_cli,
+    })
+}
+
+pub fn add_platforms(database: &Database, platform_ids: &[String]) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    for platform_id in platform_ids {
+        let entry = catalog::entry(platform_id).ok_or_else(|| format!("不支持添加平台：{platform_id}"))?;
+        match platform_id.as_str() {
+            "deepseek" => {}
+            "openai" => {}
+            "kimi" => database.ensure_account_source("kimi-default", "kimi", "kimi-coding-plan", "api_key", "Coding Plan", "默认账户")?,
+            "glm" => database.ensure_account_source("glm-default", "glm", "glm-coding-plan", "api_key", "Coding Plan", "默认账户")?,
+            "glm_intl" => database.ensure_account_source("glm-intl-default", "glm_intl", "glm-intl-coding-plan", "api_key", "Coding Plan", "默认账户")?,
+            "minimax" => database.ensure_account_source("minimax-default", "minimax", "minimax-coding-plan", "api_key", "Coding Plan", "默认账户")?,
+            "minimax_intl" => database.ensure_account_source("minimax-intl-default", "minimax_intl", "minimax-intl-coding-plan", "api_key", "Coding Plan", "默认账户")?,
+            "claude_code" => database.ensure_account_source("claude-code-default", "claude_code", "claude-code-local", "local_cli", "本地 Claude 订阅", "本地账户")?,
+            "mimo" => database.ensure_account_source("mimo-default", "mimo", "mimo-web-session", "web_session", "网页会话", "默认账户")?,
+            _ => return Err(format!("不支持添加平台：{platform_id}")),
+        }
+        database.add_user_platform(entry.id, entry.display_name, entry.api_base_url)?;
+    }
+    platform_summaries(database)
 }
 
 fn real_platform(
@@ -58,6 +149,7 @@ fn real_platform(
     provider_id: &str,
     display_name: &str,
     official_url: &str,
+    api_base_url: Option<&str>,
     templates: &[CapabilityTemplate],
 ) -> Result<PlatformSummaryViewModel, String> {
     let records = database.list_sources(provider_id)?;
@@ -85,7 +177,7 @@ fn real_platform(
                 .filter(|value| value.source_id == source.id)
                 .map(|value| value.id.to_string())
                 .collect(),
-            credential_input: credential_input(&source.id),
+            credential_input: credential_input(&source.id, &source.source_type),
             supports_interactive_login: source.id == deepseek::WEB_SOURCE_ID,
         });
     }
@@ -164,6 +256,7 @@ fn real_platform(
         display_name: display_name.into(),
         aggregate_status,
         official_url: Some(official_url.into()),
+        api_base_url: api_base_url.map(str::to_string),
         access_summary,
         sources,
         capabilities,
@@ -206,7 +299,7 @@ fn aggregate_status(
     }
 }
 
-fn credential_input(source_id: &str) -> Option<CredentialInputViewModel> {
+fn credential_input(source_id: &str, source_type: &str) -> Option<CredentialInputViewModel> {
     match source_id {
         deepseek::BALANCE_SOURCE_ID => Some(CredentialInputViewModel {
             label: "DeepSeek API Key".into(),
@@ -219,6 +312,12 @@ fn credential_input(source_id: &str) -> Option<CredentialInputViewModel> {
             placeholder: "粘贴 Bearer token，或使用网页登录".into(),
             help_text: "用于平台网页内部用量接口；Token 只进入 Windows Credential Manager。".into(),
             secret_kind: "bearer_token".into(),
+        }),
+        _ if source_type == "api_key" => Some(CredentialInputViewModel {
+            label: "API Key".into(),
+            placeholder: "sk-…".into(),
+            help_text: "先点「验证连接」，通过后再保存。密钥只进入 Windows Credential Manager。".into(),
+            secret_kind: "api_key".into(),
         }),
         _ => None,
     }
@@ -244,17 +343,4 @@ fn source_state(value: &str) -> SourceState {
 
 fn millis(value: Option<i64>) -> Option<u64> {
     value.and_then(|value| u64::try_from(value).ok())
-}
-
-fn setup_required_placeholder(provider_id: &str, display_name: &str) -> PlatformSummaryViewModel {
-    PlatformSummaryViewModel {
-        provider_id: provider_id.into(),
-        display_name: display_name.into(),
-        aggregate_status: PlatformAggregateStatus::SetupRequired,
-        official_url: None,
-        access_summary: "尚未接入".into(),
-        sources: vec![],
-        capabilities: vec![],
-        refresh_history: vec![],
-    }
 }

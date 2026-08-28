@@ -55,8 +55,11 @@ impl RefreshCoordinator {
         for (source, secret) in configured {
             let generation = database.begin_source_refresh(&source.id)?;
             let client = self.client.clone();
+            let api_base_url = database
+                .user_platform(&source.platform_id)?
+                .and_then(|platform| platform.api_base_url);
             tasks.spawn(async move {
-                let output = fetch_source(&client, &source, secret.as_deref()).await;
+                let output = fetch_source(&client, &source, secret.as_deref(), api_base_url.as_deref()).await;
                 (source, generation, output)
             });
         }
@@ -74,10 +77,19 @@ impl RefreshCoordinator {
         source: &SourceRecord,
         secret: &str,
     ) -> Result<SourceRefreshOutput, String> {
+        self.validate_secret_at(source, secret, None).await
+    }
+
+    pub async fn validate_secret_at(
+        &self,
+        source: &SourceRecord,
+        secret: &str,
+        api_base_url: Option<&str>,
+    ) -> Result<SourceRefreshOutput, String> {
         if secret.trim().is_empty() {
             return Err("凭据不能为空".into());
         }
-        let output = fetch_source(&self.client, source, Some(secret)).await;
+        let output = fetch_source(&self.client, source, Some(secret), api_base_url).await;
         if let Some(error) = &output.error {
             if error.auth_required || output.capabilities.is_empty() {
                 return Err(error.message.clone());
@@ -111,10 +123,15 @@ impl RefreshCoordinator {
     }
 }
 
-async fn fetch_source(client: &Client, source: &SourceRecord, secret: Option<&str>) -> SourceRefreshOutput {
+async fn fetch_source(
+    client: &Client,
+    source: &SourceRecord,
+    secret: Option<&str>,
+    api_base_url: Option<&str>,
+) -> SourceRefreshOutput {
     match source.id.as_str() {
         deepseek::BALANCE_SOURCE_ID => match secret {
-            Some(secret) => deepseek::balance::fetch(client, secret).await,
+            Some(secret) => deepseek::balance::fetch(client, secret, api_base_url).await,
             None => missing_secret("DeepSeek API Key 未配置"),
         },
         deepseek::WEB_SOURCE_ID => match secret {

@@ -1,18 +1,56 @@
 //! 平台数据、刷新与凭据 Tauri Commands。前端只接收脱敏 ViewModel。
 
+use crate::domain::refresh::SourceRefreshOutput;
 use crate::domain::PlatformSummaryViewModel;
 use crate::providers;
+use crate::providers::catalog::{self, PlatformCatalogItem, PlatformSetupViewModel};
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use crate::storage::legacy_import::{self, LegacyConfigInspection, LegacyImportResult};
+use crate::storage::repository::SourceRecord;
 use crate::storage::vault;
+use serde::Deserialize;
 use tauri::State;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformSetupInput {
+    pub platform_id: String,
+    pub display_name: String,
+    pub notes: String,
+    pub api_base_url: String,
+    pub source_id: Option<String>,
+    pub secret: String,
+}
 
 #[tauri::command]
 pub fn get_platform_summaries(
     database: State<'_, Database>,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     providers::platform_summaries(&database)
+}
+
+#[tauri::command]
+pub fn list_platform_catalog(
+    database: State<'_, Database>,
+) -> Result<Vec<PlatformCatalogItem>, String> {
+    providers::catalog_items(&database)
+}
+
+#[tauri::command]
+pub fn get_platform_setup(
+    platform_id: String,
+    database: State<'_, Database>,
+) -> Result<PlatformSetupViewModel, String> {
+    providers::setup_view(&database, &platform_id)
+}
+
+#[tauri::command]
+pub fn add_user_platforms(
+    platform_ids: Vec<String>,
+    database: State<'_, Database>,
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    providers::add_platforms(&database, &platform_ids)
 }
 
 #[tauri::command]
@@ -29,14 +67,21 @@ pub async fn refresh_platform(
 pub async fn validate_source_credential(
     source_id: String,
     secret: String,
+    api_base_url: Option<String>,
     database: State<'_, Database>,
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<String, String> {
     let source = database.source(&source_id)?;
-    if source.platform_id != "deepseek" {
+    if source.source_type != "api_key" {
         return Err("此来源不接受手动凭据".into());
     }
-    let output = coordinator.validate_secret(&source, secret.trim()).await?;
+    let api_base_url = match api_base_url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => Some(catalog::normalize_api_base_url(value)?),
+        None => None,
+    };
+    let output = coordinator
+        .validate_secret_at(&source, secret.trim(), api_base_url.as_deref())
+        .await?;
     let summary = output
         .capabilities
         .iter()
@@ -46,30 +91,84 @@ pub async fn validate_source_credential(
 }
 
 #[tauri::command]
+pub async fn save_platform_setup(
+    input: PlatformSetupInput,
+    database: State<'_, Database>,
+    coordinator: State<'_, RefreshCoordinator>,
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    let display_name = input.display_name.trim();
+    if display_name.is_empty() {
+        return Err("请填写供应商名称".into());
+    }
+    let entry = catalog::entry(&input.platform_id).ok_or_else(|| "该平台不在可添加注册表中".to_string())?;
+    let api_base_url = if entry.needs_api_key {
+        Some(catalog::normalize_api_base_url(&input.api_base_url)?)
+    } else {
+        None
+    };
+    if entry.needs_api_key {
+        let source = resolve_api_key_source(&database, &input)?;
+        let stored_url = database
+            .user_platform(&input.platform_id)?
+            .and_then(|platform| platform.api_base_url);
+        let new_secret = input.secret.trim();
+        let secret_changed = !new_secret.is_empty();
+        let url_changed = stored_url.as_deref() != api_base_url.as_deref();
+        let already_configured = source.secret_ref.as_deref().and_then(|reference| vault::get(reference).ok().flatten()).is_some();
+        if !already_configured && !secret_changed {
+            return Err("请填写 API Key".into());
+        }
+        if secret_changed || url_changed || !already_configured {
+            let secret = if secret_changed {
+                new_secret.to_string()
+            } else {
+                let reference = source
+                    .secret_ref
+                    .clone()
+                    .unwrap_or_else(|| vault::secret_ref(&source.account_id, &source.id));
+                vault::get(&reference)?.ok_or_else(|| "请填写 API Key".to_string())?
+            };
+            let output = coordinator
+                .validate_secret_at(&source, &secret, api_base_url.as_deref())
+                .await?;
+            if secret_changed {
+                persist_secret(&database, &coordinator, &source, &secret, &output)?;
+            } else if let Err(error) = coordinator.persist_validated(&database, &source, &output) {
+                return Err(error);
+            }
+        }
+    }
+    database.save_user_platform_setup(
+        &input.platform_id,
+        display_name,
+        input.notes.trim(),
+        api_base_url.as_deref(),
+    )?;
+    providers::platform_summaries(&database)
+}
+
+#[tauri::command]
 pub async fn save_source_credential(
     source_id: String,
     secret: String,
+    api_base_url: Option<String>,
     database: State<'_, Database>,
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     let source = database.source(&source_id)?;
-    if source.platform_id != "deepseek" {
+    if source.source_type != "api_key" {
         return Err("此来源不接受手动凭据".into());
     }
-    let output = coordinator.validate_secret(&source, secret.trim()).await?;
-    let reference = vault::secret_ref(&source.account_id, &source.id);
-    let previous_secret = vault::get(&reference)?;
-    vault::set(&reference, secret.trim())?;
-    if let Err(error) = database.save_secret_ref(&source.id, &reference) {
-        restore_vault(&reference, previous_secret.as_deref());
-        return Err(error);
-    }
-    if let Err(error) = coordinator.persist_validated(&database, &source, &output) {
-        restore_vault(&reference, previous_secret.as_deref());
-        if source.secret_ref.is_none() {
-            let _ = database.clear_secret_ref(&source.id);
-        }
-        return Err(error);
+    let api_base_url = match api_base_url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => Some(catalog::normalize_api_base_url(value)?),
+        None => None,
+    };
+    let output = coordinator
+        .validate_secret_at(&source, secret.trim(), api_base_url.as_deref())
+        .await?;
+    persist_secret(&database, &coordinator, &source, secret.trim(), &output)?;
+    if let Some(api_base_url) = api_base_url.as_deref() {
+        database.save_user_platform_api_base(&source.platform_id, Some(api_base_url))?;
     }
     providers::platform_summaries(&database)
 }
@@ -185,4 +284,47 @@ fn restore_vault(reference: &str, previous: Option<&str>) {
     } else {
         let _ = vault::delete(reference);
     }
+}
+
+fn resolve_api_key_source(database: &Database, input: &PlatformSetupInput) -> Result<SourceRecord, String> {
+    let source = if let Some(source_id) = input.source_id.as_deref().filter(|value| !value.is_empty()) {
+        database.source(source_id)?
+    } else {
+        database
+            .list_sources(&input.platform_id)?
+            .into_iter()
+            .find(|source| source.source_type == "api_key")
+            .ok_or_else(|| "该平台没有 API Key 来源".to_string())?
+    };
+    if source.platform_id != input.platform_id {
+        return Err("来源与平台不匹配".into());
+    }
+    if source.source_type != "api_key" {
+        return Err("此来源不接受手动凭据".into());
+    }
+    Ok(source)
+}
+
+fn persist_secret(
+    database: &Database,
+    coordinator: &RefreshCoordinator,
+    source: &SourceRecord,
+    secret: &str,
+    output: &SourceRefreshOutput,
+) -> Result<(), String> {
+    let reference = vault::secret_ref(&source.account_id, &source.id);
+    let previous_secret = vault::get(&reference)?;
+    vault::set(&reference, secret)?;
+    if let Err(error) = database.save_secret_ref(&source.id, &reference) {
+        restore_vault(&reference, previous_secret.as_deref());
+        return Err(error);
+    }
+    if let Err(error) = coordinator.persist_validated(database, source, output) {
+        restore_vault(&reference, previous_secret.as_deref());
+        if source.secret_ref.is_none() {
+            let _ = database.clear_secret_ref(&source.id);
+        }
+        return Err(error);
+    }
+    Ok(())
 }

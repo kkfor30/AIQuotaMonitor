@@ -20,8 +20,12 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::platform_commands::get_platform_summaries,
+            commands::platform_commands::list_platform_catalog,
+            commands::platform_commands::get_platform_setup,
+            commands::platform_commands::add_user_platforms,
             commands::platform_commands::refresh_platform,
             commands::platform_commands::validate_source_credential,
+            commands::platform_commands::save_platform_setup,
             commands::platform_commands::save_source_credential,
             commands::platform_commands::clear_source_credential,
             commands::platform_commands::start_source_login,

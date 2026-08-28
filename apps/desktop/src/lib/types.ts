@@ -83,6 +83,35 @@ export interface CapabilitySnapshotViewModel {
   trend: TrendPoint[];
 }
 
+export interface PlatformCatalogItem {
+  id: string;
+  displayName: string;
+  officialUrl: string;
+  apiBaseUrl: string | null;
+  apiKeyUrl: string | null;
+  accessHint: string;
+  needsApiKey: boolean;
+  needsWebLogin: boolean;
+  needsLocalCli: boolean;
+  added: boolean;
+}
+
+export interface PlatformSetupViewModel {
+  platformId: string;
+  displayName: string;
+  notes: string;
+  officialUrl: string;
+  apiKeyUrl: string | null;
+  apiBaseUrl: string;
+  officialApiBaseUrl: string;
+  apiEndpointHint: string;
+  apiKeySourceId: string | null;
+  apiKeyConfigured: boolean;
+  needsApiKey: boolean;
+  needsWebLogin: boolean;
+  needsLocalCli: boolean;
+}
+
 export interface PlatformSummaryViewModel {
   providerId: string;
   displayName: string;
@@ -90,6 +119,7 @@ export interface PlatformSummaryViewModel {
   accessSummary: string;
   /** 阶段一预览对象可能缺失；真实后端始终返回。 */
   officialUrl?: string | null;
+  apiBaseUrl?: string | null;
   sources: SourceSummaryViewModel[];
   capabilities: CapabilitySnapshotViewModel[];
   refreshHistory?: RefreshHistoryEntry[];

@@ -38,4 +38,4 @@ V1 不直接访问 X，使用独立的 `CodexRadarSource` 从 Codex Radar 公开
 
 ## D010：用户从注册表添加平台；默认 API Key，网页登录只补官方缺口
 
-平台目录只显示用户已添加的平台。可添加项来自产品维护的注册表（优先覆盖 cc-switch 已能查询余额/Token Plan 的平台），不开放任意 Base URL。默认接入动作是填写 API Key 并验证。GPT / Claude Code 检测本机 CLI/OAuth。仅当目标字段没有官方接口时才用隔离登录窗，例如 DeepSeek 网页用量与缓存、GLM 个人余额、MiMo 网页会话。不复制 cc-switch 的 Provider 路由、代理或 MCP。
+平台目录只显示用户已添加的平台。可添加项来自产品维护的注册表（优先覆盖 cc-switch 已能查询余额/Token Plan 的平台），不开放注册表以外的供应商。接入表单必须展示官网链接和官方 API 请求地址（预填完整 URL），让用户看见额度查询打到哪里。默认动作是填写 API Key 并验证。GPT / Claude Code 检测本机 CLI/OAuth。仅当目标字段没有官方接口时才用隔离登录窗，例如 DeepSeek 网页用量与缓存、GLM 个人余额、MiMo 网页会话。不复制 cc-switch 的 Provider 路由、测速代理或 MCP。

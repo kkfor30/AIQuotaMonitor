@@ -7,11 +7,25 @@ import type {
   HoverbarPreferencesDto,
   LegacyConfigInspection,
   LegacyImportResult,
+  PlatformCatalogItem,
+  PlatformSetupViewModel,
   PlatformSummaryViewModel,
 } from "./types";
 
 export async function fetchPlatformSummaries(): Promise<PlatformSummaryViewModel[]> {
   return invoke<PlatformSummaryViewModel[]>("get_platform_summaries");
+}
+
+export async function fetchPlatformCatalog(): Promise<PlatformCatalogItem[]> {
+  return invoke<PlatformCatalogItem[]>("list_platform_catalog");
+}
+
+export async function fetchPlatformSetup(platformId: string): Promise<PlatformSetupViewModel> {
+  return invoke<PlatformSetupViewModel>("get_platform_setup", { platformId });
+}
+
+export async function addUserPlatforms(platformIds: string[]): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("add_user_platforms", { platformIds });
 }
 
 export async function refreshPlatform(providerId: string): Promise<PlatformSummaryViewModel[]> {
@@ -21,15 +35,28 @@ export async function refreshPlatform(providerId: string): Promise<PlatformSumma
 export async function validateSourceCredential(
   sourceId: string,
   secret: string,
+  apiBaseUrl?: string,
 ): Promise<string> {
-  return invoke<string>("validate_source_credential", { sourceId, secret });
+  return invoke<string>("validate_source_credential", { sourceId, secret, apiBaseUrl });
+}
+
+export async function savePlatformSetup(input: {
+  platformId: string;
+  displayName: string;
+  notes: string;
+  apiBaseUrl: string;
+  sourceId?: string | null;
+  secret: string;
+}): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("save_platform_setup", { input });
 }
 
 export async function saveSourceCredential(
   sourceId: string,
   secret: string,
+  apiBaseUrl?: string,
 ): Promise<PlatformSummaryViewModel[]> {
-  return invoke<PlatformSummaryViewModel[]>("save_source_credential", { sourceId, secret });
+  return invoke<PlatformSummaryViewModel[]>("save_source_credential", { sourceId, secret, apiBaseUrl });
 }
 
 export async function clearSourceCredential(sourceId: string): Promise<PlatformSummaryViewModel[]> {

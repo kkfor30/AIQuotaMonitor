@@ -23,12 +23,14 @@ const SOURCE_TYPE_ICON: Record<string, LucideIcon> = {
 export function SourceCard({
   source,
   focused = false,
+  apiBaseUrl,
   onEdit,
   onRefresh,
   refreshing = false,
 }: {
   source: SourceSummaryViewModel;
   focused?: boolean;
+  apiBaseUrl?: string | null;
   onEdit: () => void;
   onRefresh?: () => void;
   refreshing?: boolean;
@@ -71,6 +73,14 @@ export function SourceCard({
             {source.capabilityIds.length > 0 ? `${source.capabilityIds.length} 项能力` : "—"}
           </dd>
         </div>
+        {source.sourceType === "api_key" && apiBaseUrl ? (
+          <div className="col-span-2">
+            <dt className="text-q-text-muted">API 请求地址</dt>
+            <dd className="mt-0.5 truncate text-q-text-primary" title={apiBaseUrl}>
+              {apiBaseUrl}
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt className="text-q-text-muted">最后验证</dt>
           <dd className="mt-0.5 text-q-text-primary">{formatDateTime(source.lastValidatedAt)}</dd>

@@ -9,6 +9,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone)]
+pub struct UserPlatformRecord {
+    pub platform_id: String,
+    pub display_name: String,
+    pub notes: String,
+    pub api_base_url: Option<String>,
+    #[allow(dead_code)]
+    pub sort_index: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct SourceRecord {
     pub id: String,
     pub account_id: String,
@@ -52,6 +62,130 @@ struct StoredTrendPointDto {
 }
 
 impl Database {
+    pub fn list_user_platforms(&self) -> Result<Vec<UserPlatformRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT platform_id, display_name, notes, api_base_url, sort_index
+                 FROM user_platforms ORDER BY sort_index, created_at, platform_id",
+            )
+            .map_err(|err| format!("准备已添加平台查询失败: {err}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(UserPlatformRecord {
+                    platform_id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    notes: row.get(2)?,
+                    api_base_url: row.get(3)?,
+                    sort_index: row.get(4)?,
+                })
+            })
+            .map_err(|err| format!("查询已添加平台失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取已添加平台失败: {err}"))
+    }
+
+    pub fn user_platform(&self, platform_id: &str) -> Result<Option<UserPlatformRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT platform_id, display_name, notes, api_base_url, sort_index FROM user_platforms WHERE platform_id = ?1",
+                params![platform_id],
+                |row| {
+                    Ok(UserPlatformRecord {
+                        platform_id: row.get(0)?,
+                        display_name: row.get(1)?,
+                        notes: row.get(2)?,
+                        api_base_url: row.get(3)?,
+                        sort_index: row.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|err| format!("读取已添加平台失败: {err}"))
+    }
+
+    pub fn ensure_account_source(
+        &self,
+        account_id: &str,
+        platform_id: &str,
+        source_id: &str,
+        source_type: &str,
+        source_name: &str,
+        account_name: &str,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        let now = epoch_ms();
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO accounts(id, platform_id, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+                params![account_id, platform_id, account_name, now],
+            )
+            .map_err(|err| format!("初始化账户失败: {err}"))?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO sources(id, account_id, source_type, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                params![source_id, account_id, source_type, source_name, now],
+            )
+            .map_err(|err| format!("初始化来源失败: {err}"))?;
+        Ok(())
+    }
+
+    pub fn add_user_platform(&self, platform_id: &str, display_name: &str, api_base_url: Option<&str>) -> Result<(), String> {
+        let connection = self.connect()?;
+        let now = epoch_ms();
+        let next_index: i64 = connection
+            .query_row("SELECT COALESCE(MAX(sort_index), -1) + 1 FROM user_platforms", [], |row| row.get(0))
+            .unwrap_or(0);
+        connection
+            .execute(
+                "INSERT INTO user_platforms(platform_id, display_name, notes, api_base_url, sort_index, created_at, updated_at)
+                 VALUES (?1, ?2, '', ?3, ?4, ?5, ?5)
+                 ON CONFLICT(platform_id) DO NOTHING",
+                params![platform_id, display_name, api_base_url, next_index, now],
+            )
+            .map(|_| ())
+            .map_err(|err| format!("添加平台失败: {err}"))
+    }
+
+    pub fn save_user_platform_setup(
+        &self,
+        platform_id: &str,
+        display_name: &str,
+        notes: &str,
+        api_base_url: Option<&str>,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        let changed = connection
+            .execute(
+                "UPDATE user_platforms
+                 SET display_name = ?2, notes = ?3, api_base_url = ?4, updated_at = ?5
+                 WHERE platform_id = ?1",
+                params![platform_id, display_name, notes, api_base_url, epoch_ms()],
+            )
+            .map_err(|err| format!("保存平台接入信息失败: {err}"))?;
+        if changed == 0 {
+            Err("未添加该平台".into())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn save_user_platform_api_base(&self, platform_id: &str, api_base_url: Option<&str>) -> Result<(), String> {
+        let connection = self.connect()?;
+        let changed = connection
+            .execute(
+                "UPDATE user_platforms SET api_base_url = ?2, updated_at = ?3 WHERE platform_id = ?1",
+                params![platform_id, api_base_url, epoch_ms()],
+            )
+            .map_err(|err| format!("保存 API 请求地址失败: {err}"))?;
+        if changed == 0 {
+            Err("未添加该平台".into())
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn setting_bool(&self, key: &str) -> Result<bool, String> {
         let connection = self.connect()?;
         let value = connection

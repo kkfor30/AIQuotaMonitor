@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AddPlatformDialog } from "./AddPlatformDialog";
+import { PlatformSetupForm } from "./PlatformSetupForm";
 import { PlatformTabs, type PlatformTabId } from "./PlatformTabs";
 import { ProviderHeader } from "./ProviderHeader";
 import { ProviderRail } from "./ProviderRail";
 import { SourcesView } from "./SourcesView";
 import { UsageView } from "./UsageView";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { fetchPlatformSummaries, ipcErrorMessage, refreshPlatform } from "@/lib/ipc";
 import { listen } from "@tauri-apps/api/event";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
@@ -32,6 +36,7 @@ export function PlatformCenterPage({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<PlatformTabId>("usage");
   const [focusSourceId, setFocusSourceId] = useState<string | undefined>(undefined);
+  const [addOpen, setAddOpen] = useState(false);
 
   // 消费总览下发的定位目标（一次性）
   useEffect(() => {
@@ -91,15 +96,33 @@ export function PlatformCenterPage({
 
   if (!platform) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-q-text-muted">
-        暂无平台模板
+      <div className="flex min-h-0 flex-1">
+        <ProviderRail platforms={[]} selectedId={null} onSelect={handleSelect} onAdd={() => setAddOpen(true)} />
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col p-5">
+          <EmptyState
+            title="还没有监控任何平台"
+            description="从产品提供的平台列表中添加。大多数平台填写官方 API Key 并验证连接即可；个别没有官方额度接口的能力再使用网页登录。"
+            action={<Button onClick={() => setAddOpen(true)}>添加平台</Button>}
+          />
+        </main>
+        <AddPlatformDialog
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          onAdded={(ids) => {
+            const next = ids[0];
+            if (next) {
+              setSelectedId(next);
+              setTab("sources");
+            }
+          }}
+        />
       </div>
     );
   }
 
   return (
     <div className="flex min-h-0 flex-1">
-      <ProviderRail platforms={platforms} selectedId={platform.providerId} onSelect={handleSelect} />
+      <ProviderRail platforms={platforms} selectedId={platform.providerId} onSelect={handleSelect} onAdd={() => setAddOpen(true)} />
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 p-5">
         <ProviderHeader
@@ -116,13 +139,27 @@ export function PlatformCenterPage({
         {tab === "usage" ? (
           <UsageView key={`${platform.providerId}-usage`} platform={platform} />
         ) : (
-          <SourcesView
-            key={`${platform.providerId}-sources`}
-            platform={platform}
-            focusSourceId={focusSourceId}
-          />
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
+            <PlatformSetupForm key={`${platform.providerId}-setup`} platformId={platform.providerId} />
+            <SourcesView
+              key={`${platform.providerId}-sources`}
+              platform={platform}
+              focusSourceId={focusSourceId}
+            />
+          </div>
         )}
       </main>
+      <AddPlatformDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onAdded={(ids) => {
+          const next = ids[0];
+          if (next) {
+            setSelectedId(next);
+            setTab("sources");
+          }
+        }}
+      />
     </div>
   );
 }

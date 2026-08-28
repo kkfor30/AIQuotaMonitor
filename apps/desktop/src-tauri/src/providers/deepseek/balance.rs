@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::str::FromStr;
 use std::time::Duration;
 
-const ENDPOINT: &str = "https://api.deepseek.com/user/balance";
+const DEFAULT_BASE: &str = "https://api.deepseek.com";
 
 #[derive(Debug, Deserialize)]
 struct BalanceResponse {
@@ -26,18 +26,32 @@ struct BalanceInfo {
     topped_up_balance: String,
 }
 
-pub async fn fetch(client: &Client, api_key: &str) -> SourceRefreshOutput {
-    match fetch_inner(client, api_key).await {
+pub async fn fetch(client: &Client, api_key: &str, base_url: Option<&str>) -> SourceRefreshOutput {
+    match fetch_inner(client, api_key, base_url).await {
         Ok(capabilities) => SourceRefreshOutput::success(capabilities),
         Err(error) => SourceRefreshOutput::failure(error),
     }
 }
 
-async fn fetch_inner(client: &Client, api_key: &str) -> Result<Vec<CapabilityData>, RefreshError> {
+fn balance_url(base_url: Option<&str>) -> String {
+    let base = base_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_BASE)
+        .trim_end_matches('/');
+    if base.ends_with("/user/balance") {
+        base.to_string()
+    } else {
+        format!("{base}/user/balance")
+    }
+}
+
+async fn fetch_inner(client: &Client, api_key: &str, base_url: Option<&str>) -> Result<Vec<CapabilityData>, RefreshError> {
+    let endpoint = balance_url(base_url);
     let mut last_transport = None;
     for attempt in 0..2 {
         let response = client
-            .get(ENDPOINT)
+            .get(&endpoint)
             .bearer_auth(api_key.trim())
             .timeout(Duration::from_secs(15))
             .send()

@@ -65,6 +65,8 @@ pub struct PlatformSummaryViewModel {
     pub display_name: String,
     pub aggregate_status: PlatformAggregateStatus,
     pub official_url: Option<String>,
+    /// 当前用于额度查询的官方 API 请求地址；未配置时为空。
+    pub api_base_url: Option<String>,
     /// 平台接入方式摘要，例如「API Key + 网页会话」
     pub access_summary: String,
     pub sources: Vec<SourceSummaryViewModel>,

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle, X } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, Link2, LoaderCircle, X } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/Button";
 import {
   clearSourceCredential,
   closeSourceLogin,
+  fetchPlatformSetup,
   ipcErrorMessage,
   saveSourceCredential,
   startSourceLogin,
@@ -15,9 +16,23 @@ import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { SourceSummaryViewModel } from "@/lib/types";
 
 /** 右侧覆盖式来源配置抽屉；秘密仅在该组件的瞬时内存中存在。 */
-export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryViewModel | null; onClose: () => void }) {
+export function SourceEditorDrawer({
+  source,
+  platformId,
+  onClose,
+}: {
+  source: SourceSummaryViewModel | null;
+  platformId: string;
+  onClose: () => void;
+}) {
   const queryClient = useQueryClient();
+  const setupQuery = useQuery({
+    queryKey: ["platform-setup", platformId],
+    queryFn: () => fetchPlatformSetup(platformId),
+    enabled: Boolean(source),
+  });
   const [secret, setSecret] = useState("");
+  const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loginStatus, setLoginStatus] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -27,13 +42,14 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
 
   useEffect(() => {
     setSecret("");
+    setApiBaseUrl(setupQuery.data?.apiBaseUrl ?? "");
     setError(null);
     setLoginStatus(null);
     setConfirmClear(false);
     setLoginOpened(false);
     setVerifiedSecret(null);
     setVerifyMessage(null);
-  }, [source?.sourceId]);
+  }, [source?.sourceId, setupQuery.data?.apiBaseUrl]);
 
   useEffect(() => {
     if (!source?.supportsInteractiveLogin) return;
@@ -74,7 +90,7 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
     queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
   };
   const verifyMutation = useMutation({
-    mutationFn: () => validateSourceCredential(source!.sourceId, secret),
+    mutationFn: () => validateSourceCredential(source!.sourceId, secret, apiBaseUrl || undefined),
     onSuccess: (message) => {
       setError(null);
       setVerifiedSecret(secret);
@@ -89,7 +105,7 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
   const saveMutation = useMutation({
     mutationFn: async () => {
       const sourceId = source!.sourceId;
-      return { sourceId, platforms: await saveSourceCredential(sourceId, secret) };
+      return { sourceId, platforms: await saveSourceCredential(sourceId, secret, apiBaseUrl || undefined) };
     },
     onSuccess: (result) => {
       updatePlatforms(result.platforms);
@@ -116,7 +132,9 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
   if (!source) return null;
   const input = source.credentialInput ?? null;
   const busy = verifyMutation.isPending || saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending;
-  const canSave = Boolean(input && secret.trim() && verifiedSecret === secret && !busy);
+  const setup = setupQuery.data;
+  const showApiUrl = source.sourceType === "api_key";
+  const canSave = Boolean(input && secret.trim() && verifiedSecret === secret && (!showApiUrl || apiBaseUrl.trim()) && !busy);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20" role="presentation" onMouseDown={close}>
@@ -126,13 +144,50 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
           <Button variant="ghost" size="sm" onClick={close} aria-label="关闭编辑来源"><X size={16} /></Button>
         </div>
         <div className="mt-6 flex flex-1 flex-col gap-4">
+          {setup?.officialUrl && (
+            <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
+              官网链接
+              <div className="flex gap-2">
+                <input readOnly value={setup.officialUrl} className="h-10 min-w-0 flex-1 rounded-q-control border border-q-border bg-q-neutral-soft px-3 text-sm font-normal text-q-text-primary" />
+                <Button type="button" variant="secondary" size="sm" onClick={() => window.open(setup.officialUrl, "_blank", "noopener,noreferrer")}>
+                  <ExternalLink size={14} aria-hidden />
+                  打开
+                </Button>
+              </div>
+            </label>
+          )}
           {input ? <>
             <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
               {input.label}
               <input type="password" autoComplete="off" value={secret} onChange={(event) => { setSecret(event.target.value); setVerifiedSecret(null); setVerifyMessage(null); }} placeholder={input.placeholder} className="h-10 rounded-q-control border border-q-border bg-q-surface px-3 text-sm font-normal text-q-text-primary outline-none focus:border-q-primary" />
             </label>
+            {setup?.apiKeyUrl && source.sourceType === "api_key" && (
+              <button type="button" className="self-start text-xs text-q-primary" onClick={() => window.open(setup.apiKeyUrl!, "_blank", "noopener,noreferrer")}>
+                获取 API Key
+              </button>
+            )}
             <p className="text-xs leading-relaxed text-q-text-muted">{input.helpText}</p>
           </> : <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">此本地来源由应用自动检测，无需输入凭据。</p>}
+          {showApiUrl && (
+            <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
+              <span className="flex items-center gap-2">
+                API 请求地址
+                <span className="inline-flex items-center gap-1 rounded-full border border-q-border bg-q-neutral-soft px-2 py-0.5 text-[11px] font-medium text-q-text-secondary">
+                  <Link2 size={12} aria-hidden />
+                  完整 URL
+                </span>
+              </span>
+              <input
+                value={apiBaseUrl}
+                onChange={(event) => { setApiBaseUrl(event.target.value); setVerifiedSecret(null); setVerifyMessage(null); }}
+                placeholder={setup?.officialApiBaseUrl || "https://api.deepseek.com"}
+                className="h-10 rounded-q-control border border-q-border bg-q-surface px-3 text-sm font-normal text-q-text-primary outline-none focus:border-q-primary"
+              />
+              <span className="text-xs font-normal leading-relaxed text-q-text-muted">
+                {setup?.apiEndpointHint || "默认预填官方端点，用于查询余额或 Token Plan。"}
+              </span>
+            </label>
+          )}
           {source.supportsInteractiveLogin === true && <div className="flex flex-col gap-2">
             <div className="flex gap-2">
               <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? "正在打开 DeepSeek 用量页并同步…" : "请在登录窗口完成登录并打开用量页。同步成功后会刷新 Token 与缓存。"); loginMutation.mutate(); }} disabled={busy}>
@@ -152,7 +207,7 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
           <Button variant="ghost" onClick={close}>取消</Button>
           {input && (
             <>
-              <Button variant="secondary" onClick={() => { setError(null); verifyMutation.mutate(); }} disabled={!secret.trim() || busy}>
+              <Button variant="secondary" onClick={() => { setError(null); verifyMutation.mutate(); }} disabled={!secret.trim() || (showApiUrl && !apiBaseUrl.trim()) || busy}>
                 {verifyMutation.isPending ? "验证中…" : "验证连接"}
               </Button>
               <Button onClick={() => { setError(null); saveMutation.mutate(); }} disabled={!canSave}>

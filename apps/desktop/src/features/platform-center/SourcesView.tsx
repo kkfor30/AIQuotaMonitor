@@ -48,7 +48,8 @@ export function SourcesView({
   });
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+    <div className="space-y-4">
+      <p className="text-sm font-medium text-q-text-primary">数据来源</p>
       {legacyQuery.data?.available && (
         <div className="mb-4 rounded-q-card border border-q-warning/30 bg-q-warning-soft p-4">
           <p className="text-sm font-medium text-q-text-primary">检测到旧版 DeepSeek 配置</p>
@@ -84,6 +85,7 @@ export function SourcesView({
             key={source.sourceId}
             source={source}
             focused={source.sourceId === focusSourceId}
+            apiBaseUrl={platform.apiBaseUrl}
             onEdit={() => setEditingSourceId(source.sourceId)}
             onRefresh={source.sourceType === "local_cli" ? () => refreshMutation.mutate() : undefined}
             refreshing={refreshMutation.isPending}
@@ -98,7 +100,11 @@ export function SourcesView({
       {platform.sources.length === 0 && (
         <p className="px-1 py-3 text-xs text-q-text-muted">该平台暂未提供可配置来源。</p>
       )}
-      <SourceEditorDrawer source={editingSource} onClose={() => setEditingSourceId(null)} />
+      <SourceEditorDrawer
+        source={editingSource}
+        platformId={platform.providerId}
+        onClose={() => setEditingSourceId(null)}
+      />
     </div>
   );
 }
