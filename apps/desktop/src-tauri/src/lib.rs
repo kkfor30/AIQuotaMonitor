@@ -30,6 +30,10 @@ pub fn run() {
             commands::window_commands::set_hoverbar_enabled,
         ])
         .setup(|app| {
+            let database = storage::database::Database::initialize(app.handle())
+                .map_err(std::io::Error::other)?;
+            app.manage(database);
+
             let prefs = storage::load_preferences(app.handle());
             app.manage(windows::hoverbar::HoverbarRuntime::new((
                 prefs.detail_size.width,

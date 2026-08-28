@@ -1,7 +1,10 @@
 //! 存储层。
 //!
-//! 阶段一仅持久化悬浮球窗口偏好（JSON 文件），业务数据库（SQLite）与
-//! 凭据存储在后续阶段接入，此处不预建任何业务表结构。
+//! 悬浮球偏好继续使用轻量 JSON；业务数据进入 SQLite，秘密进入 Windows
+//! Credential Manager。SQLite 永不保存 API Key、Token 或 Cookie 明文。
+
+pub mod database;
+pub mod vault;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
