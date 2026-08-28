@@ -55,9 +55,10 @@ pub async fn save_source_credential(
 }
 
 #[tauri::command]
-pub fn clear_source_credential(
+pub async fn clear_source_credential(
     source_id: String,
     database: State<'_, Database>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     let source = database.source(&source_id)?;
     let reference = source
@@ -71,6 +72,9 @@ pub fn clear_source_credential(
             let _ = vault::set(&reference, secret);
         }
         return Err(error);
+    }
+    if source.id == crate::providers::deepseek::WEB_SOURCE_ID {
+        crate::windows::source_login::clear_session(&app)?;
     }
     providers::platform_summaries(&database)
 }

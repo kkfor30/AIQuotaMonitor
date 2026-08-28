@@ -12,6 +12,10 @@ const CAPABILITY_ICON: Record<string, LucideIcon> = {
   model_usage_v4_flash: Flame,
   model_usage_v4_pro: Flame,
   cache_hit_rate: Gauge,
+  cache_hit_tokens: Gauge,
+  cache_miss_tokens: Gauge,
+  prompt_tokens: Gauge,
+  response_tokens: Gauge,
   usage_trend: TrendingUp,
 };
 

@@ -114,13 +114,13 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
           </> : <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">此本地来源由应用自动检测，无需输入凭据。</p>}
           {source.supportsInteractiveLogin === true && <div className="flex flex-col gap-2">
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? "正在重新加载 DeepSeek 登录页…" : "请在登录窗口完成 DeepSeek 账号登录。登录成功后会自动验证并保存网页会话。"); loginMutation.mutate(); }} disabled={busy}>
+              <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? "正在打开 DeepSeek 用量页并同步…" : "请在登录窗口完成登录并打开用量页。同步成功后会刷新 Token 与缓存。"); loginMutation.mutate(); }} disabled={busy}>
                 {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
                 {loginOpened ? "重新加载登录页" : "网页登录"}
               </Button>
               {loginOpened && <Button variant="ghost" size="sm" onClick={() => closeLoginMutation.mutate()} disabled={busy}>关闭登录页</Button>}
             </div>
-            <p className="text-xs leading-relaxed text-q-text-muted">登录完成后会自动验证并保存网页会话；抽屉 X、遮罩、取消和登录窗口 X 都会关闭登录页。</p>
+            <p className="text-xs leading-relaxed text-q-text-muted">会打开 DeepSeek 用量页并同步 Token 与缓存。清除凭据会退出网页登录态；下次需要重新登录，不会静默复用旧会话。</p>
           </div>}
           {loginStatus && <p className="rounded-q-control border border-q-warning/30 bg-q-warning-soft px-3 py-2 text-xs leading-relaxed text-q-text-secondary">{loginStatus}</p>}
           {error && <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">{error}</p>}

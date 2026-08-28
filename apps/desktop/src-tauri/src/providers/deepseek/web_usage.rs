@@ -71,6 +71,7 @@ struct TokenBreakdown {
     hit: u64,
     miss: u64,
     response: u64,
+    prompt: u64,
 }
 
 pub async fn fetch_current_month(client: &Client, token: &str) -> SourceRefreshOutput {
@@ -200,28 +201,34 @@ fn amount_capabilities(amount: &AmountResp) -> Result<Vec<CapabilityData>, Refre
         all.hit = all.hit.saturating_add(values.hit);
         all.miss = all.miss.saturating_add(values.miss);
         all.response = all.response.saturating_add(values.response);
+        all.prompt = all.prompt.saturating_add(values.prompt);
         let entry = per_model.entry(model.model.clone()).or_default();
         entry.total = entry.total.saturating_add(values.total);
         entry.requests = entry.requests.saturating_add(values.requests);
         entry.hit = entry.hit.saturating_add(values.hit);
         entry.miss = entry.miss.saturating_add(values.miss);
         entry.response = entry.response.saturating_add(values.response);
+        entry.prompt = entry.prompt.saturating_add(values.prompt);
     }
     let flash = per_model.get("deepseek-v4-flash").copied().unwrap_or_default();
     let pro = per_model.get("deepseek-v4-pro").copied().unwrap_or_default();
     let cache_total = all.hit.saturating_add(all.miss);
+    let prompt = if all.prompt > 0 { all.prompt } else { cache_total };
     let cache_ratio = if cache_total == 0 { None } else { Some(all.hit as f64 / cache_total as f64) };
     Ok(vec![
         tokens_capability("model_usage_v4_flash", "V4 Flash 用量", flash.total),
         tokens_capability("model_usage_v4_pro", "V4 Pro 用量", pro.total),
         tokens_capability("request_count", "请求数", all.requests),
+        tokens_capability("prompt_tokens", "输入 Token", prompt),
+        tokens_capability("cache_hit_tokens", "输入（命中缓存）", all.hit),
+        tokens_capability("cache_miss_tokens", "输入（未命中缓存）", all.miss),
         tokens_capability("response_tokens", "输出 Token", all.response),
         CapabilityData {
             capability_id: "cache_hit_rate".into(),
             display_name: "缓存命中率".into(),
             value_kind: "percent".into(),
             primary_value: cache_ratio.map(|ratio| format!("{:.1}%", ratio * 100.0)),
-            secondary_value: Some(format!("命中 {} · 未命中 {}", format_count(all.hit), format_count(all.miss))),
+            secondary_value: Some(format!("命中 {} / 输入 {}", format_count(all.hit), format_count(cache_total))),
             progress: cache_ratio,
             trend: vec![],
         },
@@ -282,7 +289,10 @@ fn token_breakdown(entries: &[Entry]) -> Result<TokenBreakdown, RefreshError> {
             "PROMPT_CACHE_HIT_TOKEN" => values.hit = value,
             "PROMPT_CACHE_MISS_TOKEN" => values.miss = value,
             "RESPONSE_TOKEN" => values.response = value,
-            "PROMPT_TOKEN" => prompt = Some(value),
+            "PROMPT_TOKEN" => {
+                prompt = Some(value);
+                values.prompt = value;
+            }
             _ => {}
         }
     }

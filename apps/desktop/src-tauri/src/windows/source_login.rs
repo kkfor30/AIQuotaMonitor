@@ -66,33 +66,18 @@ const CAPTURE_SCRIPT: &str = r#"
 "#;
 
 pub async fn open(app: &tauri::AppHandle) -> Result<(), String> {
-    if let Some(token) = find_webview_cached_usage_token() {
-        match capture(app, &token, true).await {
-            Ok(()) => {
-                if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
-                    let _ = window.close();
-                }
-                let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
-                return Ok(());
-            }
-            Err(error) => {
-                let _ = app.emit("source-login-error", error);
-            }
-        }
-    }
-
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.set_focus();
-        let _ = window.eval("location.reload();");
-        let _ = app.emit("source-login-status", "正在重新加载 DeepSeek 登录页…");
+        let _ = window.eval("location.href = 'https://platform.deepseek.com/usage';");
+        let _ = app.emit("source-login-status", "正在打开 DeepSeek 用量页并同步…");
         return Ok(());
     }
 
     let url = WebviewUrl::External(
-        "https://platform.deepseek.com"
+        "https://platform.deepseek.com/usage"
             .parse()
-            .map_err(|_| "DeepSeek 登录地址无效".to_string())?,
+            .map_err(|_| "DeepSeek 用量地址无效".to_string())?,
     );
     let window = WebviewWindowBuilder::new(app, WINDOW_LABEL, url)
         .title("DeepSeek 账号登录")
@@ -125,10 +110,37 @@ pub async fn open(app: &tauri::AppHandle) -> Result<(), String> {
     });
     let _ = app.emit(
         "source-login-status",
-        "请在登录窗口完成 DeepSeek 账号登录。登录成功后会自动验证并保存网页会话。",
+        "请在登录窗口完成 DeepSeek 登录并打开用量页。同步成功后会自动保存会话并刷新 Token 与缓存。",
     );
     start_watcher(app.clone());
     Ok(())
+}
+
+pub fn clear_session(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
+        let _ = window.clear_all_browsing_data();
+        let _ = window.destroy().or_else(|_| window.close());
+        return Ok(());
+    }
+    let url = WebviewUrl::External(
+        "https://platform.deepseek.com"
+            .parse()
+            .map_err(|_| "DeepSeek 登录地址无效".to_string())?,
+    );
+    let window = WebviewWindowBuilder::new(app, "deepseek-session-clear", url)
+        .visible(false)
+        .build()
+        .map_err(|error| format!("清理 DeepSeek 登录会话失败：{error}"))?;
+    let _ = window.clear_all_browsing_data();
+    let _ = window.destroy().or_else(|_| window.close());
+    Ok(())
+}
+
+fn is_usage_page(window: &tauri::WebviewWindow) -> bool {
+    window
+        .url()
+        .ok()
+        .is_some_and(|url| url.path().starts_with("/usage"))
 }
 
 pub fn close(app: &tauri::AppHandle) -> Result<(), String> {
@@ -151,14 +163,16 @@ fn start_watcher(app: tauri::AppHandle) {
             let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
                 return;
             };
+            let allow_blank = is_usage_page(&window);
             if !cache_scan_failed {
                 if let Some(token) = find_webview_cached_usage_token() {
-                    match capture(&app, &token, true).await {
+                    match capture(&app, &token, allow_blank).await {
                         Ok(()) => {
                             let _ = window.close();
                             let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
                             return;
                         }
+                        Err(error) if error.contains("尚未就绪") => {}
                         Err(error) => {
                             cache_scan_failed = true;
                             let _ = app.emit("source-login-error", error);
@@ -170,7 +184,7 @@ fn start_watcher(app: tauri::AppHandle) {
                 if let Some(token) = title.strip_prefix(TOKEN_TITLE_PREFIX) {
                     let token = token.trim().to_string();
                     let _ = window.set_title("DeepSeek 账号登录");
-                    match capture(&app, &token, false).await {
+                    match capture(&app, &token, allow_blank).await {
                         Ok(()) => {
                             let _ = window.close();
                             let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
@@ -258,9 +272,13 @@ fn usage_is_blank(output: &SourceRefreshOutput) -> bool {
         "usage_trend" => true,
         "cache_hit_rate" => matches!(capability.primary_value.as_deref(), None | Some("0%") | Some("0.0%")),
         "today_spend" | "month_spend" => matches!(capability.primary_value.as_deref(), None | Some("¥0.00")),
-        "model_usage_v4_flash" | "model_usage_v4_pro" | "request_count" | "response_tokens" => {
-            matches!(capability.primary_value.as_deref(), None | Some("0"))
-        }
+        "model_usage_v4_flash"
+        | "model_usage_v4_pro"
+        | "request_count"
+        | "prompt_tokens"
+        | "cache_hit_tokens"
+        | "cache_miss_tokens"
+        | "response_tokens" => matches!(capability.primary_value.as_deref(), None | Some("0")),
         _ => true,
     })
 }
