@@ -8,11 +8,14 @@ use reqwest::{Client, StatusCode};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, ChildStdout, Command};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 pub const SOURCE_ID: &str = "openai-codex-local";
 
@@ -26,6 +29,16 @@ enum AppServerError {
 }
 
 impl AppServerError {
+    fn message(&self) -> &str {
+        match self {
+            Self::Unavailable(message)
+            | Self::Protocol(message)
+            | Self::Network(message)
+            | Self::Credential(message)
+            | Self::Unsupported(message) => message,
+        }
+    }
+
     fn into_refresh(self) -> RefreshError {
         match self {
             Self::Unavailable(message) | Self::Network(message) => {
@@ -61,6 +74,8 @@ struct CodexAuth {
     auth_mode: Option<String>,
     #[serde(default, rename = "OPENAI_API_KEY")]
     openai_api_key: Option<String>,
+    #[serde(default)]
+    last_refresh: Option<String>,
 }
 
 pub fn local_auth_available() -> bool {
@@ -70,20 +85,156 @@ pub fn local_auth_available() -> bool {
 pub async fn fetch(client: &Client) -> SourceRefreshOutput {
     match fetch_app_server().await {
         Ok(capabilities) => SourceRefreshOutput::success(capabilities),
-        Err(AppServerError::Unavailable(_))
-        | Err(AppServerError::Protocol(_))
-        | Err(AppServerError::Network(_)) => {
-            match fetch_wham(client).await {
-                Ok(capabilities) => SourceRefreshOutput::success(capabilities),
-                Err(error) => SourceRefreshOutput::failure(error),
-            }
+        Err(error @ (AppServerError::Credential(_) | AppServerError::Unsupported(_))) => {
+            SourceRefreshOutput::failure(error.into_refresh())
         }
-        Err(error) => SourceRefreshOutput::failure(error.into_refresh()),
+        Err(app_error) => match fetch_wham(client).await {
+            Ok(capabilities) => SourceRefreshOutput::success(capabilities),
+            Err(wham_error) => SourceRefreshOutput::failure(combine_codex_errors(app_error, wham_error)),
+        },
     }
 }
 
+pub async fn login_cli() -> Result<(), String> {
+    let program = resolve_codex_program().map_err(|error| error.message().to_string())?;
+    let mut command = Command::new(&program);
+    command.arg("login").kill_on_drop(false);
+    #[cfg(windows)]
+    {
+        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+        command.creation_flags(CREATE_NEW_CONSOLE);
+    }
+    let status = command
+        .status()
+        .await
+        .map_err(|error| format!("无法启动 Codex 登录：{error}"))?;
+    if !status.success() {
+        return Err("Codex 登录未完成或已取消".into());
+    }
+    if !local_auth_available() {
+        return Err("登录窗口已关闭，但仍未检测到 Codex ChatGPT 登录".into());
+    }
+    Ok(())
+}
+
+pub fn logout_cli() -> Result<(), String> {
+    if let Ok(program) = resolve_codex_program() {
+        let mut command = std::process::Command::new(program);
+        command.arg("logout");
+        #[cfg(windows)]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+        let _ = command.output();
+    }
+    if local_auth_available() {
+        archive_auth()?;
+    }
+    if local_auth_available() {
+        return Err("本机 Codex 登录仍存在，未能清除。可在终端执行 `codex logout` 后重试。".into());
+    }
+    Ok(())
+}
+
+fn combine_codex_errors(app_error: AppServerError, mut wham_error: RefreshError) -> RefreshError {
+    let app = app_error.message().to_string();
+    let stale = token_stale_hint();
+    if wham_error.code == "network_error" {
+        wham_error.message = format!(
+            "GPT 额度未刷新：chatgpt.com 当前无法连接。本机 Codex app-server 也未能读取额度（{app}）。请检查代理/网络{}，或在接入与来源中重新登录 Codex CLI。",
+            stale.unwrap_or_default()
+        );
+    } else {
+        wham_error.message = format!(
+            "{}。本机 Codex app-server：{app}{}",
+            wham_error.message,
+            stale.unwrap_or_default()
+        );
+    }
+    wham_error
+}
+
+fn token_stale_hint() -> Option<String> {
+    let auth = read_auth().ok()?;
+    let last_refresh = auth.last_refresh.as_deref()?;
+    is_codex_token_stale(last_refresh).then(|| "；本机登录距上次刷新已超过 8 天，建议重新登录".into())
+}
+
+fn is_codex_token_stale(last_refresh: &str) -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    chrono::DateTime::parse_from_rfc3339(last_refresh)
+        .ok()
+        .is_some_and(|time| now.saturating_sub(time.timestamp().max(0) as u64) > 8 * 24 * 3600)
+}
+
+fn archive_auth() -> Result<(), String> {
+    let path = auth_path().map_err(|error| error.message)?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let backup = path.with_file_name(format!("auth.json.bak-{stamp}"));
+    std::fs::rename(&path, backup).map_err(|error| format!("备份 Codex 本机登录失败：{error}"))
+}
+
+fn resolve_codex_program() -> Result<PathBuf, AppServerError> {
+    if let Some(explicit) = std::env::var_os("CODEX_BIN") {
+        let path = PathBuf::from(explicit);
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+    for dir in codex_search_dirs() {
+        if let Some(path) = find_codex_in_dir(&dir) {
+            return Ok(path);
+        }
+    }
+    Err(AppServerError::Unavailable(
+        "未找到 Codex CLI。请确认终端里可以运行 `codex`，或设置 CODEX_BIN 指向可执行文件。".into(),
+    ))
+}
+
+fn find_codex_in_dir(dir: &Path) -> Option<PathBuf> {
+    let names = if cfg!(windows) {
+        ["codex.cmd", "codex.exe", "codex.bat"].as_slice()
+    } else {
+        ["codex"].as_slice()
+    };
+    names.iter().map(|name| dir.join(name)).find(|path| path.is_file())
+}
+
+fn codex_search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path));
+    }
+    for extra in [
+        std::env::var_os("NVM_SYMLINK").map(PathBuf::from),
+        std::env::var_os("NVM_HOME").map(|home| PathBuf::from(home).join("nodejs")),
+        std::env::var_os("APPDATA").map(|home| PathBuf::from(home).join("npm")),
+        std::env::var_os("LOCALAPPDATA").map(|home| PathBuf::from(home).join("pnpm")),
+        std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join(".cargo").join("bin")),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if extra.is_dir() && !dirs.iter().any(|dir| dir == &extra) {
+            dirs.push(extra);
+        }
+    }
+    dirs
+}
+
 async fn fetch_app_server() -> Result<Vec<CapabilityData>, AppServerError> {
-    let mut command = Command::new("codex");
+    let program = resolve_codex_program()?;
+    let mut command = Command::new(&program);
     command
         .arg("app-server")
         .stdin(std::process::Stdio::piped())
@@ -95,9 +246,12 @@ async fn fetch_app_server() -> Result<Vec<CapabilityData>, AppServerError> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    let mut child = command
-        .spawn()
-        .map_err(|error| AppServerError::Unavailable(format!("无法启动 Codex app-server：{error}")))?;
+    let mut child = command.spawn().map_err(|error| {
+        AppServerError::Unavailable(format!(
+            "无法启动 Codex app-server（{}）：{error}",
+            program.display()
+        ))
+    })?;
     let mut stdin = child
         .stdin
         .take()
@@ -163,7 +317,7 @@ async fn rpc_call(
         request.insert("params".into(), params);
     }
     write_json_line(stdin, &Value::Object(request)).await?;
-    tokio::time::timeout(Duration::from_secs(5), read_response(stdout, id, method))
+    tokio::time::timeout(Duration::from_secs(15), read_response(stdout, id, method))
         .await
         .map_err(|_| {
             if startup_stage {
@@ -557,5 +711,24 @@ mod tests {
         append_plan_and_credits(&mut values, Some("plus"), &body);
         assert_eq!(values[0].primary_value.as_deref(), Some("62.5%"));
         assert!(values.iter().any(|value| value.capability_id == "credits"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prefers_windows_cmd_shim_over_unix_script() {
+        let dir = std::env::temp_dir().join(format!("codex-shim-{}-{}", std::process::id(), epoch_for_test()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        std::fs::write(dir.join("codex"), "#!/bin/sh\n").expect("unix shim");
+        std::fs::write(dir.join("codex.cmd"), "@echo off\n").expect("cmd shim");
+        let found = find_codex_in_dir(&dir).expect("should prefer cmd");
+        assert_eq!(found.file_name().and_then(|name| name.to_str()), Some("codex.cmd"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn epoch_for_test() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
     }
 }

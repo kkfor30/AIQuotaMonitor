@@ -8,6 +8,7 @@ import {
   closeSourceLogin,
   fetchPlatformSetup,
   ipcErrorMessage,
+  refreshPlatform,
   saveSourceCredential,
   startSourceLogin,
   validateSourceCredential,
@@ -120,8 +121,20 @@ export function SourceEditorDrawer({
   });
   const loginMutation = useMutation({
     mutationFn: () => startSourceLogin(source!.sourceId),
-    onSuccess: () => setLoginOpened(true),
-    onError: (cause) => setError(ipcErrorMessage(cause, "无法启动网页登录。")),
+    onSuccess: async () => {
+      if (source?.sourceType === "local_cli") {
+        setLoginStatus("Codex 登录完成，正在检测额度…");
+        try {
+          updatePlatforms(await refreshPlatform(platformId));
+          setLoginStatus("已重新连接本机 Codex 登录。");
+        } catch (cause) {
+          setError(ipcErrorMessage(cause, "登录已完成，但刷新额度失败。"));
+        }
+        return;
+      }
+      setLoginOpened(true);
+    },
+    onError: (cause) => setError(ipcErrorMessage(cause, source?.sourceType === "local_cli" ? "无法启动 Codex 登录。" : "无法启动网页登录。")),
   });
   const closeLoginMutation = useMutation({
     mutationFn: () => closeSourceLogin(source!.sourceId),
@@ -167,7 +180,14 @@ export function SourceEditorDrawer({
               </button>
             )}
             <p className="text-xs leading-relaxed text-q-text-muted">{input.helpText}</p>
-          </> : <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">此本地来源由应用自动检测，无需输入凭据。</p>}
+          </> : source.sourceType === "local_cli" ? (
+            <div className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2">
+              <p className="text-sm text-q-text-secondary">GPT / Codex 使用本机 Codex CLI 的 ChatGPT 登录，不把 Token 复制进本应用。</p>
+              <p className="mt-1 text-xs leading-relaxed text-q-text-muted">刷新优先走 `codex app-server`；只有 CLI 读不到额度时才回退 chatgpt.com。网络失败时请检查代理，或重新登录后再检测。</p>
+            </div>
+          ) : (
+            <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">此本地来源由应用自动检测，无需输入凭据。</p>
+          )}
           {showApiUrl && (
             <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
               <span className="flex items-center gap-2">
@@ -188,6 +208,23 @@ export function SourceEditorDrawer({
               </span>
             </label>
           )}
+          {source.sourceType === "local_cli" && (
+            <div className="flex flex-col gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setError(null);
+                  setLoginStatus("请在弹出的 Codex 登录窗口完成 ChatGPT 登录。完成后会自动检测额度。");
+                  loginMutation.mutate();
+                }}
+                disabled={busy}
+              >
+                {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
+                {loginMutation.isPending ? "等待 Codex 登录…" : "重新登录 Codex CLI"}
+              </Button>
+            </div>
+          )}
           {source.supportsInteractiveLogin === true && <div className="flex flex-col gap-2">
             <div className="flex gap-2">
               <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? "正在打开 DeepSeek 用量页并同步…" : "请在登录窗口完成登录并打开用量页。同步成功后会刷新 Token 与缓存。"); loginMutation.mutate(); }} disabled={busy}>
@@ -201,7 +238,27 @@ export function SourceEditorDrawer({
           {verifyMessage && <p className="rounded-q-control border border-q-success/25 bg-q-success-soft px-3 py-2 text-xs text-q-success">{verifyMessage}</p>}
           {loginStatus && <p className="rounded-q-control border border-q-warning/30 bg-q-warning-soft px-3 py-2 text-xs leading-relaxed text-q-text-secondary">{loginStatus}</p>}
           {error && <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">{error}</p>}
-          {source.credentialConfigured && (confirmClear ? <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3"><p className="text-xs leading-relaxed text-q-danger">清除后将无法通过此来源获取对应额度，确定继续？</p><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => clearMutation.mutate()} disabled={busy}>{clearMutation.isPending ? "清除中…" : "确认清除"}</Button><Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)} disabled={busy}>取消</Button></div></div> : <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)} disabled={busy}>清除凭据</Button>)}
+          {(source.credentialConfigured || source.sourceType === "local_cli") && (confirmClear ? (
+            <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3">
+              <p className="text-xs leading-relaxed text-q-danger">
+                {source.sourceType === "local_cli"
+                  ? "将退出本机 Codex CLI 的 ChatGPT 登录。Codex 命令行也需要重新登录，确定继续？"
+                  : "清除后将无法通过此来源获取对应额度，确定继续？"}
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" onClick={() => clearMutation.mutate()} disabled={busy}>
+                  {clearMutation.isPending ? "清除中…" : "确认清除"}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)} disabled={busy}>
+                  取消
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)} disabled={busy}>
+              {source.sourceType === "local_cli" ? "清除本机登录" : "清除凭据"}
+            </Button>
+          ))}
         </div>
         <div className="flex justify-end gap-2 border-t border-q-border pt-4">
           <Button variant="ghost" onClick={close}>取消</Button>

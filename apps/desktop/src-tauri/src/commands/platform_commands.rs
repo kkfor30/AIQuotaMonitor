@@ -184,6 +184,11 @@ pub async fn clear_source_credential(
         .secret_ref
         .clone()
         .unwrap_or_else(|| vault::secret_ref(&source.account_id, &source.id));
+    if source.id == crate::providers::codex::SOURCE_ID {
+        crate::providers::codex::logout_cli()?;
+        database.clear_secret_ref(&source.id)?;
+        return providers::platform_summaries(&database);
+    }
     let previous_secret = vault::get(&reference)?;
     vault::delete(&reference)?;
     if let Err(error) = database.clear_secret_ref(&source.id) {
@@ -207,10 +212,13 @@ pub async fn start_source_login(
     if window.label() != "main" {
         return Err("仅主窗口可以打开来源登录".into());
     }
-    if source_id != crate::providers::deepseek::WEB_SOURCE_ID {
-        return Err("此来源不支持网页登录".into());
+    match source_id.as_str() {
+        id if id == crate::providers::deepseek::WEB_SOURCE_ID => {
+            crate::windows::source_login::open(&app).await
+        }
+        id if id == crate::providers::codex::SOURCE_ID => crate::providers::codex::login_cli().await,
+        _ => Err("此来源不支持登录".into()),
     }
-    crate::windows::source_login::open(&app).await
 }
 
 #[tauri::command]

@@ -161,6 +161,7 @@ pub struct PlatformSetupViewModel {
     pub api_endpoint_hint: String,
     pub api_key_source_id: Option<String>,
     pub api_key_configured: bool,
+    pub local_cli_source_id: Option<String>,
     pub needs_api_key: bool,
     pub needs_web_login: bool,
     pub needs_local_cli: bool,

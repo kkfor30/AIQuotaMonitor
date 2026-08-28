@@ -118,6 +118,10 @@ pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::Pla
         api_endpoint_hint: entry.api_endpoint_hint.into(),
         api_key_source_id: api_key_source.map(|source| source.id.clone()),
         api_key_configured: api_key_source.is_some_and(source_configured),
+        local_cli_source_id: sources
+            .iter()
+            .find(|source| source.source_type == "local_cli")
+            .map(|source| source.id.clone()),
         needs_api_key: entry.needs_api_key,
         needs_web_login: entry.needs_web_login,
         needs_local_cli: entry.needs_local_cli,

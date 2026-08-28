@@ -106,8 +106,12 @@ export function SourceCard({
         </div>
       )}
 
-      <div className="mt-auto flex items-center gap-2">
-        {source.credentialInput && <Button variant="secondary" size="sm" onClick={onEdit}>编辑来源</Button>}
+      <div className="mt-auto flex flex-wrap items-center gap-2">
+        {(source.credentialInput || source.sourceType === "local_cli") && (
+          <Button variant="secondary" size="sm" onClick={onEdit}>
+            {source.sourceType === "local_cli" ? "管理来源" : "编辑来源"}
+          </Button>
+        )}
         {source.sourceType === "local_cli" && onRefresh && (
           <Button variant="secondary" size="sm" onClick={onRefresh} disabled={refreshing}>
             {refreshing ? "检测中…" : "检测并刷新"}

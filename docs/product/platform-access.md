@@ -117,8 +117,8 @@ DeepSeek 被用户添加后，应同时出现「官方余额（API Key）」和�
 
 - 展示该平台注册表声明的全部 Source 卡片，含待配置。
 - 默认动作是「编辑来源」填 API Key 并验证保存。
-- `web_session` 显示网页登录；`local_cli` 显示检测并刷新。
-- 清除凭据、移除平台都要二次确认。
+- `web_session` 显示网页登录；`local_cli` 显示检测并刷新、重新登录和清除本机登录。
+- 清除凭据、移除平台都要二次确认。GPT 的清除会退出本机 Codex CLI 登录。
 
 ## 5. GPT 刷新失败怎么理解
 
@@ -126,7 +126,9 @@ GPT 被添加后走本机 Codex OAuth，不是 ChatGPT 网页登录。
 
 刷新：`codex app-server` → 不行再回退 `https://chatgpt.com/backend-api/wham/usage`。
 
-报错 `error sending request for url (https://chatgpt.com/backend-api/wham/usage)` 表示本机 app-server 没给出窗口额度，且 WHAM 请求没发出去（网络/代理/TLS）。这不是要改成网页抓 ChatGPT。
+若只看到 chatgpt.com 连不上，说明本机 app-server 也没读到额度，并且 WHAM 请求没发出去（网络/代理/TLS）。错误文案会同时带上 app-server 失败原因。这不是要改成网页抓 ChatGPT。
+
+Windows 上必须启动 `codex.cmd`，不能误跑 PATH 里那个无扩展名的 Unix 脚本。`接入与来源` 提供「重新登录 Codex CLI」和「清除本机登录」。
 
 ## 6. 明确不做
 

@@ -107,6 +107,7 @@ export interface PlatformSetupViewModel {
   apiEndpointHint: string;
   apiKeySourceId: string | null;
   apiKeyConfigured: boolean;
+  localCliSourceId: string | null;
   needsApiKey: boolean;
   needsWebLogin: boolean;
   needsLocalCli: boolean;

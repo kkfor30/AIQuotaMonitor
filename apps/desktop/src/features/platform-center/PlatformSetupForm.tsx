@@ -3,9 +3,12 @@ import { ExternalLink, Link2, Zap } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
 import {
+  clearSourceCredential,
   fetchPlatformSetup,
   ipcErrorMessage,
+  refreshPlatform,
   savePlatformSetup,
+  startSourceLogin,
   validateSourceCredential,
 } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
@@ -32,6 +35,7 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
   const [verifiedSecret, setVerifiedSecret] = useState<string | null>(null);
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmCliClear, setConfirmCliClear] = useState(false);
 
   useEffect(() => {
     if (!setup) return;
@@ -46,6 +50,7 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
     setVerifiedSecret(null);
     setVerifyMessage(null);
     setError(null);
+    setConfirmCliClear(false);
   }
 
   const verifyMutation = useMutation({
@@ -79,6 +84,39 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
     },
     onError: (cause) => setError(ipcErrorMessage(cause, "保存失败，请检查后重试。")),
   });
+  const cliLoginMutation = useMutation({
+    mutationFn: async () => {
+      await startSourceLogin(setup!.localCliSourceId!);
+      return refreshPlatform(platformId);
+    },
+    onSuccess: (platforms) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
+      void queryClient.invalidateQueries({ queryKey: ["platform-setup", platformId] });
+      setError(null);
+      setVerifyMessage("已重新连接本机 Codex 登录。");
+    },
+    onError: (cause) => setError(ipcErrorMessage(cause, "无法启动 Codex 登录。")),
+  });
+  const cliRefreshMutation = useMutation({
+    mutationFn: () => refreshPlatform(platformId),
+    onSuccess: (platforms) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
+      setError(null);
+      setVerifyMessage("已检测本机 Codex 登录并刷新。");
+    },
+    onError: (cause) => setError(ipcErrorMessage(cause, "检测本机 Codex 登录失败。")),
+  });
+  const cliClearMutation = useMutation({
+    mutationFn: () => clearSourceCredential(setup!.localCliSourceId!),
+    onSuccess: (platforms) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
+      void queryClient.invalidateQueries({ queryKey: ["platform-setup", platformId] });
+      setConfirmCliClear(false);
+      setError(null);
+      setVerifyMessage("已退出本机 Codex 登录。");
+    },
+    onError: (cause) => setError(ipcErrorMessage(cause, "清除本机 Codex 登录失败。")),
+  });
 
   if (setupQuery.isLoading) {
     return <p className="text-sm text-q-text-muted">正在加载接入表单…</p>;
@@ -91,7 +129,12 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
     );
   }
 
-  const busy = verifyMutation.isPending || saveMutation.isPending;
+  const busy =
+    verifyMutation.isPending
+    || saveMutation.isPending
+    || cliLoginMutation.isPending
+    || cliRefreshMutation.isPending
+    || cliClearMutation.isPending;
   const replacingKey = Boolean(secret.trim());
   const keyReady =
     !setup.needsApiKey || (replacingKey ? verifiedSecret === secret : setup.apiKeyConfigured);
@@ -213,9 +256,36 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
       )}
 
       {setup.needsLocalCli && (
-        <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">
-          此平台检测本机 CLI 登录，无需填写 API Key。添加后可在下方来源中点「检测并刷新」。
-        </p>
+        <div className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-3">
+          <p className="text-sm text-q-text-secondary">此平台检测本机 Codex CLI 的 ChatGPT 登录，无需填写 API Key。</p>
+          <p className="mt-1 text-xs leading-relaxed text-q-text-muted">
+            刷新优先走本机 `codex app-server`。只有 CLI 读不到额度时才连接 chatgpt.com；连不上时请检查代理，或重新登录后再检测。
+          </p>
+          {setup.localCliSourceId && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" disabled={busy} onClick={() => cliLoginMutation.mutate()}>
+                {cliLoginMutation.isPending ? "等待登录…" : "重新登录 Codex CLI"}
+              </Button>
+              <Button variant="secondary" size="sm" disabled={busy} onClick={() => cliRefreshMutation.mutate()}>
+                {cliRefreshMutation.isPending ? "检测中…" : "检测并刷新"}
+              </Button>
+              {confirmCliClear ? (
+                <>
+                  <Button size="sm" disabled={busy} onClick={() => cliClearMutation.mutate()}>
+                    {cliClearMutation.isPending ? "清除中…" : "确认退出本机登录"}
+                  </Button>
+                  <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmCliClear(false)}>
+                    取消
+                  </Button>
+                </>
+              ) : (
+                <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmCliClear(true)}>
+                  清除本机登录
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       )}
       {setup.needsWebLogin && (
         <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">

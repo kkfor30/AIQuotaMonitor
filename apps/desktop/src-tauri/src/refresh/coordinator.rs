@@ -20,7 +20,8 @@ pub struct RefreshCoordinator {
 impl RefreshCoordinator {
     pub fn new() -> Result<Self, String> {
         let client = Client::builder()
-            .connect_timeout(Duration::from_secs(8))
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(20))
             .build()
             .map_err(|err| format!("初始化平台网络客户端失败: {err}"))?;
         Ok(Self {
