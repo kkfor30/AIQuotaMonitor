@@ -23,6 +23,9 @@
 | `01-platform-center-deepseek-usage.png` | DeepSeek 正常态；额度、余额、消费、Token 与缓存统计如何组织 |
 | `02-platform-center-deepseek-sources.png` | 数据来源拆分；编辑来源时使用覆盖式右侧抽屉 |
 | `03-platform-center-deepseek-partial-stale.png` | 单 Source 失败；成功数据保留，失败数据使用上次成功快照并明确标记 |
+| `10-platform-center-empty.png` | 尚未添加任何平台；空目录与「添加平台」引导 |
+| `11-platform-center-add-catalog.png` | 从产品注册表勾选要监控的平台，不是自定义中转 URL |
+| `12-platform-center-added-apikey.png` | 刚添加 GLM；接入与来源默认填 API Key 并验证保存 |
 
 ## 页面职责
 
