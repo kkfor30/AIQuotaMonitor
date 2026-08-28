@@ -49,7 +49,7 @@ AIQuotaMonitor 是一个 Windows 多模型平台统一额度监控中心。用�
 - GLM/Kimi/MiniMax：Token Plan 或 Coding Plan 窗口。
 - MiMo：网页登录来源与余额/额度能力。
 
-接入规则见 [平台接入需求](./platform-access.md)：有官方接口或本机 CLI 可读额度时参考 cc-switch 做官方查询；只有官方不开放对应字段时才用网页登录抓取。平台列表由产品模板固定，不在平台中心提供「添加平台」。未配置平台也必须显示可配置 Source 卡片和接入引导。
+接入规则见 [平台接入需求](./platform-access.md)：用户从产品注册表选择添加哪些平台，目录只显示已添加项。大多数平台填 API Key 即可，实现参考 cc-switch；只有官方不开放对应字段时才用网页登录。GPT / Claude Code 检测本机登录。不支持添加注册表以外的中转站。
 
 ### GPT 重置雷达
 

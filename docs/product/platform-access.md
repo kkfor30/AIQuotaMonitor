@@ -1,117 +1,131 @@
 # 平台接入需求
 
-本文说明平台中心如何接入数据来源。它不改变产品定位：本应用是额度监控中心，不是 Provider 路由、代理或「添加任意模型服务商」工具。
+本应用是额度监控中心，不是 Provider 路由或 API 代理。用户从**产品提供的平台注册表**里选择要监控哪些平台，而不是启动后默认铺满全部平台，也不是任意粘贴中转 Base URL。
 
-## 1. 平台中心现在的问题
+## 1. 产品要改成什么样
 
-当前左侧平台目录是产品模板，这是对的。问题在接入交互：
+当前实现把 DeepSeek、GPT、Claude、GLM、Kimi、MiMo、MiniMax 全部写死在平台目录里。未接入的项没有 Source 卡片，看起来像坏了。
 
-1. GLM、Kimi、MiMo、MiniMax、Claude Code 仍是空占位：`接入与来源` 没有 Source 卡片，文案是「该平台暂未提供可配置来源」。用户无法开始接入。
-2. 未配置平台缺少接入引导：没有说明要填 API Key、检测本地 CLI，还是打开网页登录。
-3. GPT 刷新失败会把整页打成「异常」。本次本机错误是 `chatgpt.com/backend-api/wham/usage` 发不出请求；这是 Codex 本地协议失败后的 WHAM 回退网络失败，不是「平台中心不会加平台」。
-4. DeepSeek 网页用量属于「无官方接口、靠登录抓字段」。不能把这种抓取扩成任意平台的通用脚本。
+正确交互：
 
-平台目录不提供「添加平台」。接入发生在某个已有平台的 `接入与来源` 里，按 Source 配置。
+1. 平台目录只显示用户已经添加的平台。
+2. 用户点「添加平台」，从注册表勾选要监控的平台。
+3. 添加后进入该平台的 `接入与来源`，按 Source 完成凭据。
+4. 大多数平台填 API Key、保存前验证即可。
+5. 个别能力没有官方接口时，再用网页登录抓字段。
+6. GPT / Claude Code 这类本机 CLI 订阅，检测本机登录，不在本应用再做网页登录。
+
+移除已添加的平台需要二次确认，并说明会失去该平台快照和凭据引用。
 
 ## 2. 两条接入路径
 
-每个 Source 只走其中一条。前端只渲染脱敏 ViewModel，不解析平台原始响应。
+每个 Source 只走一条。前端只渲染脱敏 ViewModel。
 
-### A. 官方查询（默认）
+### A. 官方查询（默认，填 API Key 或检测本地登录）
 
-有官方或准官方额度/余额接口，或本机 CLI 已登录可读额度时，用这条路径。
-
-实现参考只读仓库 `D:\AIproject\cc-switch`：
+有官方余额、Token Plan 或本机 CLI/OAuth 可读额度时用这条路径。实现参考只读仓库 `D:\AIproject\cc-switch`：
 
 | 能力 | cc-switch 文件 |
 | --- | --- |
-| DeepSeek 等官方余额 | `src-tauri/src/services/balance.rs` |
-| Kimi / GLM Coding Plan / MiniMax Token Plan | `src-tauri/src/services/coding_plan.rs` |
-| Codex / Claude 等本地订阅额度 | `src-tauri/src/services/subscription.rs` |
+| DeepSeek、硅基流动、OpenRouter 等官方余额 | `src-tauri/src/services/balance.rs` |
+| Kimi / GLM / MiniMax Token Plan | `src-tauri/src/services/coding_plan.rs` |
+| Codex / Claude / Gemini 本地订阅 | `src-tauri/src/services/subscription.rs` |
 
-改造要求：
+用户侧：选中平台 → 填该平台 API Key → 验证成功后保存并刷新。端点由注册表写死，不让用户填任意 Base URL。
 
-- 拆成 `Platform → Account → Source → Capability → Snapshot`，不复制 cc-switch 的 Provider 路由、代理、MCP、Skills、配置接管。
-- 金额用 Decimal/文本定点，禁止 `f64` 汇总。
-- 凭据进 Windows Credential Manager；本地 CLI/OAuth 只读本机登录态，不把完整 Token 拷进本应用数据库。
-- 瞬时失败保留最后成功快照并标 stale；确定性失败展示结构化错误。
+金额用 Decimal/文本定点。凭据进 Windows Credential Manager。失败时保留最后成功快照。
 
-凭据形态：`api_key`、`local_cli`、`oauth`。
+### B. 会话抓取（仅无官方接口的字段）
 
-### B. 会话抓取（仅无官方接口时）
+官方没有对应额度、余额、用量或缓存字段时才用隔离登录窗。
 
-官方没有开放对应额度、余额、用量或缓存字段时，才用隔离登录窗抓会话。
+已知需要这条路径的能力：
 
-当前已知需要这条路径的能力：
+- DeepSeek 模型 Token、请求数、缓存命中、消费趋势
+- GLM 个人账户余额（官方 Coding Plan 不覆盖时）
+- MiMo 网页会话余额（没有官方余额接口时）
 
-- DeepSeek 模型 Token、请求数、缓存命中/未命中、消费趋势（平台网页 `amount/cost`，不是官方 API Key）。
-- GLM 个人账户余额（若官方 Coding Plan 接口不覆盖个人余额）。
-- MiMo 网页会话余额（若没有可用官方余额接口）。
+规则：登录窗没有主窗口 Tauri IPC；验证成功再写入凭据；登录中途空用量不得覆盖上次成功快照；不开放任意用量脚本。
 
-规则：
+## 3. 可添加的平台注册表
 
-- 登录窗没有主窗口 Tauri IPC。
-- 只抓当前平台需要的字段；验证成功后再写入 Credential Manager。
-- 登录中途的临时会话若用量全空，不得覆盖上次成功快照。
-- 不开放任意 JavaScript 用量脚本，不扫其他应用的浏览器缓存。
+注册表由产品维护。用户只能添加表中的平台，不能自定义未知供应商。同一平台可有多个 Source。
 
-凭据形态：`web_session`。
+### 填 API Key 即可（优先按 cc-switch 接入）
 
-## 3. 首批平台的 Source 模板
+| 平台 | 查询内容 | cc-switch 依据 |
+| --- | --- | --- |
+| DeepSeek | 账户余额 | `balance.rs` → `api.deepseek.com/user/balance` |
+| Kimi | Coding Plan 窗口 | `coding_plan.rs` → `api.kimi.com/coding` |
+| GLM 国内 | Coding Plan 窗口 | `coding_plan.rs` → `open.bigmodel.cn` quota |
+| GLM 国际 | Coding Plan 窗口 | `coding_plan.rs` → `api.z.ai` quota |
+| MiniMax 国内 | Token Plan | `coding_plan.rs` → `api.minimaxi.com` |
+| MiniMax 国际 | Token Plan | `coding_plan.rs` → `api.minimax.io` |
+| SiliconFlow 国内/国际 | 账户余额 | `balance.rs` |
+| StepFun | 账户余额 | `balance.rs` |
+| OpenRouter | Credits | `balance.rs` |
+| Novita | 账户余额 | `balance.rs` |
+| ZenMux | Token Plan | `coding_plan.rs` |
+| 火山方舟 Coding/Agent Plan | Token Plan | `coding_plan.rs` |
 
-平台列表由产品固定，启动时写入模板。未配置时也要在 `接入与来源` 显示这些卡片和接入动作。
+首批要先做完、并出现在「添加平台」里的：DeepSeek、Kimi、GLM、MiniMax。其余按阶段 3 陆续加入同一注册表。
 
-| 平台 | Source | 路径 | 能力 | 接入动作 |
-| --- | --- | --- | --- | --- |
-| DeepSeek | 官方余额 | A，cc-switch/DeepSeek `user/balance` | 账户余额 | 填写并验证 API Key |
-| DeepSeek | 网页用量与缓存 | B，网页登录 | Token、请求数、缓存命中、消费、趋势 | 网页登录或粘贴 usage token |
-| GPT / Codex | 本地订阅 | A，cc-switch Codex 订阅；app-server 优先，WHAM 回退 | 5 小时/7 天窗口、计划、接口返回的 Credits | 检测本机 Codex OAuth，无需在本应用再登录 ChatGPT |
-| Claude Code | 本地 `/usage` | A，cc-switch/Claude 订阅思路 | 会话窗口、周窗口 | 检测本机 Claude Code 登录 |
-| GLM | Coding Plan | A，cc-switch `open.bigmodel.cn` / `api.z.ai` quota | Token Plan 窗口 | 填写 API Key（国内/国际按模板区分） |
-| GLM | 个人余额 | B，仅当官方接口没有个人余额 | 个人账户余额 | 网页登录 |
-| Kimi | 官方余额 | A，cc-switch Moonshot 余额 | 账户余额 | 填写 API Key |
-| Kimi | Coding Plan | A，cc-switch `api.kimi.com/coding` | Token Plan 窗口 | 填写 API Key |
-| MiniMax | Coding Plan | A，cc-switch 国内 `minimaxi.com` / 国际 `minimax.io` | Token Plan 窗口 | 填写 API Key，按模板区分国内/国际 |
-| MiMo | 网页会话或官方余额 | 有官方余额走 A，否则走 B | 余额/额度 | 对应填写 Key 或网页登录 |
+### 检测本机登录（不是网页登录）
 
-一个平台可以同时有 A 和 B。DeepSeek 已是样板：余额走官方 Key，用量走网页登录。
+| 平台 | 查询内容 | 说明 |
+| --- | --- | --- |
+| GPT / Codex | 5 小时/7 天窗口、计划、接口返回的 Credits | `codex app-server` 优先，WHAM 回退；本机 Codex OAuth |
+| Claude Code | 会话/周窗口 | 本机 Claude 登录与 `/usage` |
+| Gemini CLI | 订阅窗口 | 有本机凭据时再开放 |
+
+### 需要网页登录补字段
+
+| 平台 | 额外 Source | 说明 |
+| --- | --- | --- |
+| DeepSeek | 网页用量与缓存 | API Key 只覆盖余额；Token/缓存/消费走网页会话 |
+| GLM | 个人账户余额 | 仅官方 quota 没有个人余额时启用 |
+| MiMo | 网页会话余额 | 无官方余额接口时启用 |
+
+DeepSeek 被用户添加后，应同时出现「官方余额（API Key）」和「网页用量（登录）」两张 Source 卡片。用户可以只配其中一张。
 
 ## 4. 平台中心交互
 
-骨架保持现有双 Tab，不按平台复制整页。
+骨架仍是双 Tab + 按能力渲染，不按平台复制整页。
+
+### 平台目录
+
+- 只列出用户已添加的平台。
+- 空目录显示「添加要监控的平台」。
+- 提供「添加平台」：打开注册表多选；已添加的项标记为已接入，不可重复添加。
+- 目录项仍显示聚合状态：正常、部分可用、需配置、异常。
 
 ### 额度与用量
 
-- 只展示已有快照的能力。
-- 未配置：空态 + 引导到 `接入与来源`，不出现「添加平台」。
+- 只展示该平台已有快照。
+- 已添加但未配凭据：空态，引导到 `接入与来源`。
 - 刷新只打已配置 Source。
-- 单 Source 失败不影响其他 Source；有上次成功值则 stale，没有则 missing。
+- 单 Source 失败不影响其他 Source。
 
 ### 接入与来源
 
-- 每个产品平台至少一张 Source 卡片，状态可以是待配置。
-- 卡片展示来源类型、凭据状态、最后成功、当前错误、覆盖哪些能力。
-- 动作按来源类型区分：验证并保存 API Key、网页登录、检测并刷新本地 CLI。
-- 编辑仍用右侧抽屉；保存前验证；清除凭据要二次确认。
-- 不提供自定义 Base URL 的通用 Provider 表单，不接入 cc-switch 的「添加供应商」。
+- 展示该平台注册表声明的全部 Source 卡片，含待配置。
+- 默认动作是「编辑来源」填 API Key 并验证保存。
+- `web_session` 显示网页登录；`local_cli` 显示检测并刷新。
+- 清除凭据、移除平台都要二次确认。
 
 ## 5. GPT 刷新失败怎么理解
 
-GPT Source 是本地 Codex OAuth，不是网页登录 ChatGPT。
+GPT 被添加后走本机 Codex OAuth，不是 ChatGPT 网页登录。
 
-刷新顺序：`codex app-server` → 仅当 CLI/协议/网络不可用时回退 `https://chatgpt.com/backend-api/wham/usage`。
+刷新：`codex app-server` → 不行再回退 `https://chatgpt.com/backend-api/wham/usage`。
 
-当前报错 `error sending request for url (https://chatgpt.com/backend-api/wham/usage)` 表示：
-
-1. 本机 app-server 没有给出可用窗口额度；
-2. 回退 WHAM 时请求没有发出去（TLS/代理/DNS/无法访问 chatgpt.com），还没到 HTTP 状态码。
-
-这不是「要像 DeepSeek 那样再做一个 ChatGPT 网页登录」。V1 继续用本机 Codex 登录。若本机访问不了 chatgpt.com，WHAM 回退会失败，需要先让 app-server 可用，或具备访问 ChatGPT 的网络。
+报错 `error sending request for url (https://chatgpt.com/backend-api/wham/usage)` 表示本机 app-server 没给出窗口额度，且 WHAM 请求没发出去（网络/代理/TLS）。这不是要改成网页抓 ChatGPT。
 
 ## 6. 明确不做
 
-- 用户任意添加平台或粘贴第三方中转 Base URL。
-- 把本应用做成 cc-switch 式 Provider 切换器或 API 代理。
+- 任意粘贴第三方中转 Base URL，或添加注册表以外的平台。
+- 把本应用做成 cc-switch 式 Provider 切换器、代理或 MCP 管理。
 - 用网页登录去抓已经有官方接口的余额/Token Plan。
-- 用设计稿数字或登录成功假数据填额度。
+- 启动时默认创建全部平台账户。
+- 用设计稿数字填额度。
 - 登录窗读取其他浏览器或其他应用的缓存。
