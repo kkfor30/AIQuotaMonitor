@@ -123,6 +123,11 @@ export function sortHoverbarPlatforms<T extends { providerId: string }>(
   });
 }
 
+/** 悬浮详情只展示已配置凭据的平台，未接入的留在平台中心。 */
+export function filterHoverbarPlatforms<T extends { aggregateStatus: string }>(platforms: T[]): T[] {
+  return platforms.filter((platform) => platform.aggregateStatus !== "setup_required");
+}
+
 /** 悬浮球头部状态文案：成功/部分/失败同时用文字表达。 */
 export function summarizeHoverbarStatus(
   platforms: PlatformSummaryViewModel[],

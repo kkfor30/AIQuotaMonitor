@@ -36,9 +36,9 @@ export function AddPlatformDialog({
   const items = catalogQuery.data ?? [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6" role="presentation" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" role="presentation" onMouseDown={onClose}>
       <div
-        className="flex max-h-[80vh] w-full max-w-xl flex-col rounded-q-card border border-q-border bg-q-surface p-5 shadow-xl"
+        className="flex max-h-[80vh] w-full max-w-xl flex-col rounded-q-card border border-q-border bg-q-surface-solid p-5 shadow-xl"
         role="dialog"
         aria-label="添加平台"
         onMouseDown={(event) => event.stopPropagation()}

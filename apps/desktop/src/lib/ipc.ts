@@ -28,6 +28,28 @@ export async function addUserPlatforms(platformIds: string[]): Promise<PlatformS
   return invoke<PlatformSummaryViewModel[]>("add_user_platforms", { platformIds });
 }
 
+export async function removeUserPlatform(platformId: string): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("remove_user_platform", { platformId });
+}
+
+export async function revealSourceSecret(sourceId: string): Promise<string> {
+  return invoke<string>("reveal_source_secret", { sourceId });
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  return invoke<void>("open_external_url", { url });
+}
+
+export type EndpointLatencyView = {
+  url: string;
+  latencyMs: number | null;
+  error: string | null;
+};
+
+export async function testApiEndpoints(urls: string[]): Promise<EndpointLatencyView[]> {
+  return invoke<EndpointLatencyView[]>("test_api_endpoints", { urls });
+}
+
 export async function addCodexAccount(): Promise<PlatformSummaryViewModel[]> {
   return invoke<PlatformSummaryViewModel[]>("add_codex_account");
 }
@@ -108,6 +130,118 @@ export async function setHoverbarEnabled(enabled: boolean): Promise<void> {
 
 export async function openMainWindow(): Promise<void> {
   return invoke<void>("open_main_window");
+}
+
+export type RadarSnapshot = {
+  sourceStatus: string;
+  lastSyncedAt: number | null;
+  posts: RadarPost[];
+  latest: RadarPost | null;
+  checks: RadarCheck[];
+  analysis: RadarAnalysis | null;
+  models: RadarModelOption[];
+  cut: RadarPost | null;
+};
+
+export type RadarPost = {
+  id: string;
+  url: string;
+  text: string;
+  postedAt: number;
+  kind: string;
+  badge: string;
+  filter: string;
+  explicitReset: boolean;
+  isReply: boolean;
+  replies: number;
+  reposts: number;
+  likes: number;
+  syncedAt: number;
+};
+
+export type RadarCheck = {
+  id: string;
+  startedAt: number;
+  finishedAt: number | null;
+  status: string;
+  syncStatus: string | null;
+  parseStatus: string | null;
+  analyzeStatus: string | null;
+  errorMessage: string | null;
+  postCount: number;
+};
+
+export type RadarAnalysis = {
+  id: string;
+  createdAt: number;
+  rangeKey: string;
+  cutPostId: string | null;
+  cutLabel: string | null;
+  sourceId: string | null;
+  model: string | null;
+  conclusion: string | null;
+  confidence: string | null;
+  citations: string[];
+  support: string[];
+  against: string[];
+  uncertainty: string[];
+  errorMessage: string | null;
+};
+
+export type RadarModelOption = {
+  sourceId: string;
+  platformId: string;
+  displayName: string;
+  model: string;
+  ready: boolean;
+};
+
+export async function fetchRadarSnapshot(): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("get_radar_snapshot");
+}
+
+export async function runRadarCheck(input: {
+  analyze: boolean;
+  rangeKey?: string;
+  sourceId?: string | null;
+  model?: string | null;
+}): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("run_radar_check", input);
+}
+
+export type AppSettingsView = {
+  theme: string;
+  autostart: boolean;
+  refreshIntervalMinutes: number;
+  hoverbarSortMode: "manual" | "smart" | string;
+};
+
+export async function fetchAppSettings(): Promise<AppSettingsView> {
+  return invoke<AppSettingsView>("get_app_settings");
+}
+
+export async function setAppTheme(theme: string): Promise<AppSettingsView> {
+  return invoke<AppSettingsView>("set_app_theme", { theme });
+}
+
+export async function setRefreshInterval(minutes: number): Promise<AppSettingsView> {
+  return invoke<AppSettingsView>("set_refresh_interval", { minutes });
+}
+
+export async function setAutostart(enabled: boolean): Promise<AppSettingsView> {
+  return invoke<AppSettingsView>("set_autostart", { enabled });
+}
+
+export async function reorderPlatforms(platformIds: string[]): Promise<void> {
+  return invoke<void>("reorder_platforms", { platformIds });
+}
+
+export async function setHoverbarSortMode(mode: "manual" | "smart"): Promise<AppSettingsView> {
+  return invoke<AppSettingsView>("set_hoverbar_sort_mode", { mode });
+}
+
+export async function clearLocalCache(): Promise<void> {
+  return invoke<void>("clear_local_cache");
 }
 
 /** 悬浮详情窗口事件名（迁移自旧项目，保持不变） */

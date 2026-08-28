@@ -79,6 +79,33 @@ const gptPlatform: PlatformSummaryViewModel = {
       errorCode: null,
       errorMessage: null,
       capabilityIds: ["quota_window_5h", "quota_window_7d", "credits", "plan_level"],
+      accessMode: "local_cli",
+    },
+    {
+      sourceId: "openai-codex-extra-2",
+      sourceType: "local_cli",
+      displayName: "额外 ChatGPT 账号 2",
+      state: "ready",
+      credentialConfigured: true,
+      lastValidatedAt: null,
+      lastSuccessAt: null,
+      errorCode: null,
+      errorMessage: null,
+      capabilityIds: ["quota_window_5h", "quota_window_7d", "credits", "plan_level"],
+      accessMode: "local_cli",
+    },
+    {
+      sourceId: "openai-codex-extra-3",
+      sourceType: "local_cli",
+      displayName: "额外 ChatGPT 账号 3",
+      state: "ready",
+      credentialConfigured: true,
+      lastValidatedAt: null,
+      lastSuccessAt: null,
+      errorCode: null,
+      errorMessage: null,
+      capabilityIds: ["quota_window_5h", "quota_window_7d", "plan_level"],
+      accessMode: "local_cli",
     },
   ],
   capabilities: [
@@ -122,6 +149,76 @@ const gptPlatform: PlatformSummaryViewModel = {
       value: { kind: "text", primary: "Plus", secondary: "ChatGPT / Codex 订阅", progress: null },
       trend: [],
     },
+    {
+      capabilityId: "quota_window_5h",
+      sourceId: "openai-codex-extra-2",
+      displayName: "额外账号 · 5 小时窗口",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "percent", primary: "40.0%", secondary: "已使用 60.0%", progress: 0.4 },
+      trend: [],
+    },
+    {
+      capabilityId: "quota_window_7d",
+      sourceId: "openai-codex-extra-2",
+      displayName: "额外账号 · 7 天窗口",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "percent", primary: "66.0%", secondary: "已使用 34.0%", progress: 0.66 },
+      trend: [],
+    },
+    {
+      capabilityId: "plan_level",
+      sourceId: "openai-codex-extra-2",
+      displayName: "额外账号 · 订阅计划",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "text", primary: "Pro", secondary: null, progress: null },
+      trend: [],
+    },
+    {
+      capabilityId: "credits",
+      sourceId: "openai-codex-extra-2",
+      displayName: "额外账号 · Credits",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "credits", primary: "3.21", secondary: null, progress: null },
+      trend: [],
+    },
+    {
+      capabilityId: "quota_window_5h",
+      sourceId: "openai-codex-extra-3",
+      displayName: "额外账号 · 5 小时窗口",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "percent", primary: "18.0%", secondary: "已使用 82.0%", progress: 0.18 },
+      trend: [],
+    },
+    {
+      capabilityId: "quota_window_7d",
+      sourceId: "openai-codex-extra-3",
+      displayName: "额外账号 · 7 天窗口",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "percent", primary: "44.0%", secondary: "已使用 56.0%", progress: 0.44 },
+      trend: [],
+    },
+    {
+      capabilityId: "plan_level",
+      sourceId: "openai-codex-extra-3",
+      displayName: "额外账号 · 订阅计划",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "text", primary: "Free", secondary: null, progress: null },
+      trend: [],
+    },
   ],
 };
 
@@ -142,41 +239,88 @@ const errorPlatform: PlatformSummaryViewModel = {
   })),
 };
 
-function setupRequiredPlatform(
-  providerId: string,
-  displayName: string,
-): PlatformSummaryViewModel {
-  return {
-    providerId,
-    displayName,
-    aggregateStatus: "setup_required",
-    accessSummary: "尚未接入",
-    sources: [
-      {
-        sourceId: `preview-${providerId}`,
-        sourceType: "api_key",
-        displayName: "默认来源",
-        state: "auth_required",
-        credentialConfigured: false,
-        lastValidatedAt: null,
-        lastSuccessAt: null,
-        errorCode: null,
-        errorMessage: null,
-        capabilityIds: [],
-      },
-    ],
-    capabilities: [],
-  };
-}
+const glmDualPlatform: PlatformSummaryViewModel = {
+  providerId: "glm",
+  displayName: "GLM 国内",
+  aggregateStatus: "healthy",
+  accessSummary: "Token Plan + 个人余额",
+  sources: [
+    {
+      sourceId: "glm-coding-plan",
+      sourceType: "api_key",
+      displayName: "Coding Plan",
+      state: "ready",
+      credentialConfigured: true,
+      lastValidatedAt: null,
+      lastSuccessAt: null,
+      errorCode: null,
+      errorMessage: null,
+      capabilityIds: ["quota_window_5h", "quota_window_7d", "plan_level"],
+      accessMode: "coding_plan",
+    },
+    {
+      sourceId: "glm-web-balance",
+      sourceType: "web_session",
+      displayName: "网页个人余额",
+      state: "ready",
+      credentialConfigured: true,
+      lastValidatedAt: null,
+      lastSuccessAt: null,
+      errorCode: null,
+      errorMessage: null,
+      capabilityIds: ["balance"],
+      accessMode: "personal_balance",
+    },
+  ],
+  capabilities: [
+    {
+      capabilityId: "quota_window_5h",
+      sourceId: "glm-coding-plan",
+      displayName: "5 小时窗口",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "percent", primary: "72%", secondary: null, progress: 0.72 },
+      trend: [],
+    },
+    {
+      capabilityId: "quota_window_7d",
+      sourceId: "glm-coding-plan",
+      displayName: "周窗口",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "percent", primary: "80%", secondary: null, progress: 0.8 },
+      trend: [],
+    },
+    {
+      capabilityId: "plan_level",
+      sourceId: "glm-coding-plan",
+      displayName: "订阅计划",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "text", primary: "Pro", secondary: "官方 Coding Plan", progress: null },
+      trend: [],
+    },
+    {
+      capabilityId: "balance",
+      sourceId: "glm-web-balance",
+      displayName: "账户余额",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "money", primary: "¥88.10", secondary: "网页个人余额", progress: null },
+      trend: [],
+    },
+  ],
+};
 
 const previewPlatforms: PlatformSummaryViewModel[] = [
+  gptPlatform,
+  glmDualPlatform,
+  healthyPlatform,
   errorPlatform,
-  setupRequiredPlatform("openai", "GPT / Codex"),
-  setupRequiredPlatform("claude_code", "Claude Code"),
-  setupRequiredPlatform("glm", "GLM"),
-  setupRequiredPlatform("kimi", "Kimi"),
-  setupRequiredPlatform("mimo", "MiMo"),
-  setupRequiredPlatform("minimax", "MiniMax"),
 ];
 
 function OrbState({
@@ -225,7 +369,7 @@ function HoverbarPreview() {
       </div>
 
       <section className="hb-preview-detail-section">
-        <h2>完整详情面板</h2>
+        <h2>方案 A：一张卡多行，5 小时窗口 / 套餐 / Credits</h2>
         <div className="hb-preview-detail-frame">
           <div className="hb-detail-root" data-edge="right" data-motion="visible">
             <section className="hb-panel">

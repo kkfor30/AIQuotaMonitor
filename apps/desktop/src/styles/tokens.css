@@ -12,6 +12,7 @@
   --q-bg-glow-b: rgba(36, 224, 182, 0.08);
   --q-surface: rgba(255, 255, 255, 0.78);
   --q-surface-strong: rgba(255, 255, 255, 0.94);
+  --q-surface-solid: #ffffff;
   --q-surface-muted: rgba(255, 255, 255, 0.55);
   --q-surface-hover: rgba(255, 255, 255, 0.92);
 
@@ -91,7 +92,25 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    --q-bg: #101722;
+    --q-bg-glow-a: rgba(59, 130, 247, 0.14);
+    --q-bg-glow-b: rgba(36, 224, 182, 0.08);
+    --q-surface: rgba(24, 32, 46, 0.86);
+    --q-surface-strong: rgba(30, 40, 56, 0.94);
+    --q-surface-solid: #1b2433;
+    --q-surface-muted: rgba(255, 255, 255, 0.05);
+    --q-surface-hover: rgba(255, 255, 255, 0.08);
+    --q-border: rgba(255, 255, 255, 0.08);
+    --q-border-strong: rgba(255, 255, 255, 0.14);
+    --q-border-selected: rgba(117, 165, 255, 0.55);
+    --q-text-primary: #f2f5fa;
+    --q-text-secondary: #a8b2c3;
+    --q-text-muted: #7b8699;
+    --q-primary: #5b8cff;
+    --q-primary-hover: #7aa0ff;
+    --q-primary-soft: rgba(91, 140, 255, 0.16);
+    --q-primary-softer: rgba(91, 140, 255, 0.1);
     --q-hoverbar-panel-bg:
       radial-gradient(120% 74% at 50% -24%, rgba(74, 129, 172, 0.42), transparent 58%),
       linear-gradient(142deg, rgba(24, 36, 52, 0.98), rgba(8, 17, 28, 0.99));
@@ -114,6 +133,27 @@
     --q-hoverbar-orb-ring: rgba(95, 232, 209, 0.38);
     --q-hoverbar-empty-bg: rgba(13, 25, 38, 0.52);
   }
+}
+
+:root[data-theme="dark"] {
+  --q-bg: #101722;
+  --q-bg-glow-a: rgba(59, 130, 247, 0.14);
+  --q-bg-glow-b: rgba(36, 224, 182, 0.08);
+  --q-surface: rgba(24, 32, 46, 0.86);
+  --q-surface-strong: rgba(30, 40, 56, 0.94);
+  --q-surface-solid: #1b2433;
+  --q-surface-muted: rgba(255, 255, 255, 0.05);
+  --q-surface-hover: rgba(255, 255, 255, 0.08);
+  --q-border: rgba(255, 255, 255, 0.08);
+  --q-border-strong: rgba(255, 255, 255, 0.14);
+  --q-border-selected: rgba(117, 165, 255, 0.55);
+  --q-text-primary: #f2f5fa;
+  --q-text-secondary: #a8b2c3;
+  --q-text-muted: #7b8699;
+  --q-primary: #5b8cff;
+  --q-primary-hover: #7aa0ff;
+  --q-primary-soft: rgba(91, 140, 255, 0.16);
+  --q-primary-softer: rgba(91, 140, 255, 0.1);
 }
 
 /* 悬浮详情手动主题优先于系统偏好；只覆盖 hoverbar 语义 Token。 */
@@ -172,10 +212,12 @@
   --color-q-bg: var(--q-bg);
   --color-q-surface: var(--q-surface);
   --color-q-surface-strong: var(--q-surface-strong);
+  --color-q-surface-solid: var(--q-surface-solid);
   --color-q-surface-muted: var(--q-surface-muted);
   --color-q-surface-hover: var(--q-surface-hover);
   --color-q-border: var(--q-border);
   --color-q-border-strong: var(--q-border-strong);
+  --color-q-border-selected: var(--q-border-selected);
   --color-q-text-primary: var(--q-text-primary);
   --color-q-text-secondary: var(--q-text-secondary);
   --color-q-text-muted: var(--q-text-muted);

@@ -15,6 +15,8 @@ import { AppRoot } from "@/app/AppRoot";
 import { HoverbarAnchorApp } from "@/features/hoverbar/HoverbarAnchorApp";
 import { HoverbarDetailApp } from "@/features/hoverbar/HoverbarDetailApp";
 import { createQueryClient } from "@/lib/query-client";
+import { useAppTheme } from "@/lib/theme";
+import { useBackendQuerySync } from "@/lib/use-backend-sync";
 import "@/styles/global.css";
 
 declare global {
@@ -34,6 +36,8 @@ if (isHoverbarAnchor || isHoverbarDetail) {
 const queryClient = createQueryClient();
 
 function RootApp() {
+  useBackendQuerySync();
+  useAppTheme();
   if (isHoverbarAnchor) return <HoverbarAnchorApp />;
   if (isHoverbarDetail) return <HoverbarDetailApp />;
   return <AppRoot />;

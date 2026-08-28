@@ -18,6 +18,10 @@ pub struct RefreshCoordinator {
 }
 
 impl RefreshCoordinator {
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
     pub fn new() -> Result<Self, String> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(15))
@@ -79,6 +83,13 @@ impl RefreshCoordinator {
             let _ = database.complete_source_refresh(&run_id, &current, generation, &output)?;
         }
         database.finish_refresh_run(&run_id)
+    }
+
+    pub async fn refresh_all(&self, database: &Database) -> Result<(), String> {
+        for platform in database.list_user_platforms()? {
+            let _ = self.refresh_platform(database, &platform.platform_id).await;
+        }
+        Ok(())
     }
 
     pub async fn validate_secret(

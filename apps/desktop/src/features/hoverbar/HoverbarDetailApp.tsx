@@ -14,12 +14,13 @@ import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { fetchPlatformSummaries, openMainWindow } from "@/lib/ipc";
-import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
+import { fetchAppSettings, fetchPlatformSummaries, openMainWindow } from "@/lib/ipc";
+import { APP_SETTINGS_QUERY_KEY, PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import { HoverbarPlatformCard } from "./HoverbarPlatformCard";
 import { useHoverbarTheme } from "./hoverbar-theme";
 import {
   DEFAULT_HOVERBAR_PROVIDER_ORDER,
+  filterHoverbarPlatforms,
   HOVERBAR_EXIT_ANIMATION_MS,
   measureHoverbar,
   normalizeHoverbarAnchor,
@@ -43,6 +44,11 @@ export function HoverbarDetailApp() {
   const { data: platforms = [], isFetching, refetch } = useQuery({
     queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
     queryFn: fetchPlatformSummaries,
+  });
+  const { data: settings } = useQuery({
+    queryKey: APP_SETTINGS_QUERY_KEY,
+    queryFn: fetchAppSettings,
+    retry: false,
   });
 
   const setMotion = useCallback((phase: HoverbarMotionPhase) => {
@@ -124,10 +130,12 @@ export function HoverbarDetailApp() {
       .catch((error) => console.error("无法调整悬浮详情尺寸", error));
   }, [anchor.edge, contentHeight]);
 
+  const providerOrder =
+    platforms.length > 0 ? platforms.map((platform) => platform.providerId) : DEFAULT_HOVERBAR_PROVIDER_ORDER;
   const orderedPlatforms = sortHoverbarPlatforms(
-    platforms,
-    DEFAULT_HOVERBAR_PROVIDER_ORDER,
-    "manual",
+    filterHoverbarPlatforms(platforms),
+    providerOrder,
+    settings?.hoverbarSortMode === "smart" ? "smart" : "manual",
   );
   const latestUpdate = platforms
     .flatMap((p) => p.capabilities.map((c) => c.capturedAt ?? 0))
@@ -136,7 +144,7 @@ export function HoverbarDetailApp() {
 
   return (
     <div
-      className="hb-detail-root h-full w-full select-none"
+      className="hb-detail-root h-full w-full"
       data-edge={anchor.edge}
       data-motion={motionPhase}
       onMouseEnter={() => void invoke("set_hoverbar_detail_pointer_inside", { inside: true })}

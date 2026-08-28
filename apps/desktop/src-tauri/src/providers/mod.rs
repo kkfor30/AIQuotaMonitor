@@ -367,6 +367,7 @@ fn real_platform(
             credential_input: credential_input(&source.id, &source.source_type),
             supports_interactive_login: is_web_login_source(&source.id),
             supports_cli_login: codex::is_codex_source(&source.id),
+            access_mode: access_mode(&source.id, &source.source_type),
         });
     }
 
@@ -434,9 +435,9 @@ fn real_platform(
             }
         }
         "kimi" => kimi_access_summary(&sources),
-        "glm" => glm_access_summary(&sources),
+        "glm" | "glm_intl" => glm_access_summary(&sources),
         "mimo" if configured_count > 0 => "网页会话".to_string(),
-        "glm_intl" | "minimax" | "minimax_intl" if configured_count > 0 => "API Key".to_string(),
+        "minimax" | "minimax_intl" if configured_count > 0 => "Token Plan".to_string(),
         _ => "尚未接入".to_string(),
     };
     let refresh_history = database
@@ -498,19 +499,52 @@ fn aggregate_status(
     if configured.is_empty() {
         return PlatformAggregateStatus::SetupRequired;
     }
-    let has_value = capabilities.iter().any(|value| value.freshness != DataFreshness::Missing);
+    let configured_ids = configured
+        .iter()
+        .map(|source| source.source_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let relevant = capabilities
+        .iter()
+        .filter(|value| configured_ids.contains(value.source_id.as_str()))
+        .collect::<Vec<_>>();
+    let has_value = relevant.iter().any(|value| value.freshness != DataFreshness::Missing);
     let all_ready = configured.iter().all(|source| matches!(source.state, SourceState::Ready));
-    let all_fresh = capabilities.iter().all(|value| {
+    let all_fresh = relevant.iter().all(|value| {
         value.freshness == DataFreshness::Fresh
             || (matches!(value.capability_id.as_str(), "credits" | "plan_level" | "quota_window_7d")
                 && value.freshness == DataFreshness::Missing)
     });
     if all_ready && all_fresh {
         PlatformAggregateStatus::Healthy
-    } else if has_value || configured.iter().any(|source| matches!(source.state, SourceState::Ready | SourceState::Refreshing)) {
+    } else if has_value
+        || configured
+            .iter()
+            .any(|source| matches!(source.state, SourceState::Ready | SourceState::Refreshing))
+    {
         PlatformAggregateStatus::Partial
     } else {
         PlatformAggregateStatus::Error
+    }
+}
+
+fn access_mode(source_id: &str, source_type: &str) -> String {
+    if coding_plan::is_coding_plan_source(source_id) {
+        return if matches!(
+            source_id,
+            coding_plan::KIMI_SOURCE_ID | coding_plan::GLM_SOURCE_ID | coding_plan::GLM_INTL_SOURCE_ID
+        ) {
+            "coding_plan".into()
+        } else {
+            "token_plan".into()
+        };
+    }
+    match source_id {
+        deepseek::BALANCE_SOURCE_ID | kimi::BALANCE_SOURCE_ID | glm::WEB_BALANCE_SOURCE_ID | mimo::SOURCE_ID => {
+            "personal_balance".into()
+        }
+        deepseek::WEB_SOURCE_ID => "web_usage".into(),
+        _ if source_type == "local_cli" || source_type == "oauth" => "local_cli".into(),
+        _ => "personal_balance".into(),
     }
 }
 
@@ -568,12 +602,17 @@ fn kimi_access_summary(sources: &[SourceSummaryViewModel]) -> String {
 }
 
 fn glm_access_summary(sources: &[SourceSummaryViewModel]) -> String {
-    let coding = sources.iter().any(|source| source.source_id == coding_plan::GLM_SOURCE_ID && source.credential_configured);
+    let coding = sources.iter().any(|source| {
+        matches!(
+            source.source_id.as_str(),
+            coding_plan::GLM_SOURCE_ID | coding_plan::GLM_INTL_SOURCE_ID
+        ) && source.credential_configured
+    });
     let balance = sources.iter().any(|source| source.source_id == glm::WEB_BALANCE_SOURCE_ID && source.credential_configured);
     match (coding, balance) {
-        (true, true) => "API Key + 网页会话".into(),
-        (true, false) => "API Key".into(),
-        (false, true) => "网页会话".into(),
+        (true, true) => "Token Plan + 个人余额".into(),
+        (true, false) => "Token Plan".into(),
+        (false, true) => "个人余额".into(),
         (false, false) => "尚未接入".into(),
     }
 }
@@ -598,4 +637,81 @@ fn source_state(value: &str) -> SourceState {
 
 fn millis(value: Option<i64>) -> Option<u64> {
     value.and_then(|value| u64::try_from(value).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{CapabilityDisplayValue, DataFreshness, SourceState, SourceType};
+
+    fn source(id: &str, configured: bool, state: SourceState) -> SourceSummaryViewModel {
+        SourceSummaryViewModel {
+            source_id: id.into(),
+            source_type: SourceType::ApiKey,
+            display_name: id.into(),
+            state,
+            credential_configured: configured,
+            last_validated_at: None,
+            last_success_at: None,
+            error_code: None,
+            error_message: None,
+            capability_ids: vec![],
+            credential_input: None,
+            supports_interactive_login: false,
+            supports_cli_login: false,
+            access_mode: "token_plan".into(),
+        }
+    }
+
+    fn capability(id: &str, source_id: &str, freshness: DataFreshness) -> CapabilitySnapshotViewModel {
+        CapabilitySnapshotViewModel {
+            capability_id: id.into(),
+            source_id: source_id.into(),
+            display_name: id.into(),
+            freshness,
+            captured_at: None,
+            last_good_at: None,
+            value: CapabilityDisplayValue {
+                kind: "percent".into(),
+                primary: (freshness != DataFreshness::Missing).then(|| "80%".into()),
+                secondary: None,
+                progress: None,
+            },
+            trend: vec![],
+        }
+    }
+
+    #[test]
+    fn unconfigured_optional_source_does_not_make_platform_partial() {
+        let sources = vec![
+            source("glm-coding-plan", true, SourceState::Ready),
+            source("glm-web-balance", false, SourceState::AuthRequired),
+        ];
+        let capabilities = vec![
+            capability("quota_window_5h", "glm-coding-plan", DataFreshness::Fresh),
+            capability("quota_window_7d", "glm-coding-plan", DataFreshness::Fresh),
+            capability("plan_level", "glm-coding-plan", DataFreshness::Fresh),
+            capability("balance", "glm-web-balance", DataFreshness::Missing),
+        ];
+        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Healthy);
+    }
+
+    #[test]
+    fn mixed_configured_source_health_is_partial() {
+        let sources = vec![
+            source("glm-coding-plan", true, SourceState::Ready),
+            source("glm-web-balance", true, SourceState::Error),
+        ];
+        let capabilities = vec![
+            capability("quota_window_5h", "glm-coding-plan", DataFreshness::Fresh),
+            capability("balance", "glm-web-balance", DataFreshness::Stale),
+        ];
+        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Partial);
+    }
+
+    #[test]
+    fn no_configured_source_is_setup_required() {
+        let sources = vec![source("glm-coding-plan", false, SourceState::AuthRequired)];
+        assert_eq!(aggregate_status(&sources, &[]), PlatformAggregateStatus::SetupRequired);
+    }
 }

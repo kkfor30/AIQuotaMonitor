@@ -11,6 +11,13 @@ export type SourceState = "ready" | "refreshing" | "auth_required" | "error";
 
 export type SourceType = "api_key" | "web_session" | "local_cli" | "oauth";
 
+export type SourceAccessMode =
+  | "coding_plan"
+  | "token_plan"
+  | "personal_balance"
+  | "web_usage"
+  | "local_cli";
+
 export type CredentialInput = {
   label: string;
   placeholder: string;
@@ -56,6 +63,7 @@ export interface SourceSummaryViewModel {
   credentialInput?: CredentialInput | null;
   supportsInteractiveLogin?: boolean;
   supportsCliLogin?: boolean;
+  accessMode?: SourceAccessMode;
 }
 
 export interface CapabilityDisplayValue {
@@ -175,4 +183,12 @@ export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
   web_session: "网页会话",
   local_cli: "本地 CLI",
   oauth: "OAuth 订阅",
+};
+
+export const ACCESS_MODE_LABEL: Record<SourceAccessMode, string> = {
+  coding_plan: "Coding Plan",
+  token_plan: "Token Plan",
+  personal_balance: "个人余额",
+  web_usage: "网页用量",
+  local_cli: "本机 CLI",
 };

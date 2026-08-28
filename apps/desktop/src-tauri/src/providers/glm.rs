@@ -11,7 +11,10 @@ use serde_json::Value;
 use std::time::Duration;
 
 pub const WEB_BALANCE_SOURCE_ID: &str = "glm-web-balance";
-const BALANCE_URL: &str = "https://open.bigmodel.cn/api/biz/account/query-customer-account-report";
+const BALANCE_URLS: &[&str] = &[
+    "https://open.bigmodel.cn/api/biz/account/query-customer-account-report",
+    "https://open.bigmodel.cn/api/biz/customer/getCustomerInfo",
+];
 const REFERER: &str = "https://open.bigmodel.cn/usercenter/financialoverview";
 
 pub async fn fetch(client: &Client, secret: &str) -> SourceRefreshOutput {
@@ -55,19 +58,54 @@ fn authorization_token(secret: &str) -> Result<String, RefreshError> {
 
 async fn fetch_inner(client: &Client, secret: &str) -> Result<Vec<CapabilityData>, RefreshError> {
     let token = authorization_token(secret)?;
+    let cookie = cookie_header(secret, &token);
+    let mut last_error = None;
+    for url in BALANCE_URLS {
+        match request_balance(client, url, &token, cookie.as_deref()).await {
+            Ok(body) => match parse(&body) {
+                Ok(capabilities) => return Ok(capabilities),
+                Err(error) => last_error = Some(error),
+            },
+            Err(error) if error.auth_required => return Err(error),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        RefreshError::new("network_error", "GLM 余额服务暂时无法连接", false, true)
+    }))
+}
+
+fn cookie_header(secret: &str, token: &str) -> Option<String> {
+    let trimmed = secret.trim();
+    if trimmed.contains('=') {
+        Some(trimmed.to_string())
+    } else if !token.is_empty() {
+        Some(format!("bigmodel_token_production={token}"))
+    } else {
+        None
+    }
+}
+
+async fn request_balance(
+    client: &Client,
+    url: &str,
+    token: &str,
+    cookie: Option<&str>,
+) -> Result<Value, RefreshError> {
     let mut last_transport = None;
     for attempt in 0..2 {
-        let response = client
-            .get(BALANCE_URL)
-            .header("Authorization", &token)
+        let mut request = client
+            .get(url)
+            .header("Authorization", token)
             .header("Accept", "application/json")
             .header("User-Agent", WEB_UA)
             .header("Origin", "https://open.bigmodel.cn")
             .header("Referer", REFERER)
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await;
-        let response = match response {
+            .timeout(Duration::from_secs(15));
+        if let Some(cookie) = cookie {
+            request = request.header("Cookie", cookie);
+        }
+        let response = match request.send().await {
             Ok(response) => response,
             Err(error) => {
                 last_transport = Some(error);
@@ -109,10 +147,9 @@ async fn fetch_inner(client: &Client, secret: &str) -> Result<Vec<CapabilityData
             }
             _ => {}
         }
-        let body: Value = response.json().await.map_err(|_| {
+        return response.json().await.map_err(|_| {
             RefreshError::new("response_shape_changed", "GLM 余额返回格式发生变化", false, false)
-        })?;
-        return parse(&body);
+        });
     }
     Err(RefreshError::new(
         "network_error",
@@ -124,9 +161,41 @@ async fn fetch_inner(client: &Client, secret: &str) -> Result<Vec<CapabilityData
     ))
 }
 
+fn json_code(body: &Value) -> Option<i64> {
+    let value = body.get("code")?;
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
+        .or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()))
+}
+
+fn business_message(body: &Value) -> &str {
+    body.get("msg")
+        .or_else(|| body.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+}
+
+fn glm_response_ok(body: &Value) -> bool {
+    let code = json_code(body);
+    if code == Some(1001) {
+        return false;
+    }
+    let message = business_message(body);
+    if message.contains("Authorization") || message.contains("未登录") || message.contains("过期") {
+        return false;
+    }
+    if body.get("success").and_then(Value::as_bool) == Some(true) {
+        return true;
+    }
+    if matches!(code, Some(0) | Some(200)) {
+        return true;
+    }
+    message.contains("成功") && !message.contains("失败")
+}
+
 fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
-    let code = body.get("code").and_then(Value::as_i64);
-    let success = body.get("success").and_then(Value::as_bool);
+    let code = json_code(body);
     if code == Some(1001) {
         return Err(RefreshError::new(
             "session_expired",
@@ -135,12 +204,9 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
             false,
         ));
     }
-    if success == Some(false) || (code.is_some() && code != Some(0)) {
-        let message = body
-            .get("msg")
-            .or_else(|| body.get("message"))
-            .and_then(Value::as_str)
-            .unwrap_or("平台返回业务错误");
+    if !glm_response_ok(body) {
+        let message = business_message(body);
+        let message = if message.is_empty() { "平台返回业务错误" } else { message };
         if message.contains("Authorization") {
             return Err(RefreshError::new(
                 "session_expired",
@@ -188,24 +254,31 @@ fn pick_balance(body: &Value) -> Option<rust_decimal::Decimal> {
         "available_balance",
         "currentBalance",
         "current_balance",
-        "balance",
+        "cashBalance",
+        "cash_balance",
         "totalBalance",
         "accountBalance",
+        "balanceAmount",
+        "balance",
     ];
-    if let Some(amount) = pick_decimal(body, KEYS) {
-        return Some(amount);
-    }
-    let data = body.get("data")?;
-    if let Some(object) = data.as_object() {
-        for value in object.values() {
-            if value.is_object() {
-                if let Some(amount) = pick_decimal(value, KEYS) {
-                    return Some(amount);
+    fn walk(value: &Value, depth: usize) -> Option<rust_decimal::Decimal> {
+        if depth > 4 {
+            return None;
+        }
+        match value {
+            Value::Object(map) => {
+                for key in KEYS {
+                    if let Some(amount) = map.get(*key).and_then(super::money::decimal_from_json) {
+                        return Some(amount);
+                    }
                 }
+                map.values().find_map(|nested| walk(nested, depth + 1))
             }
+            Value::Array(items) => items.iter().find_map(|item| walk(item, depth + 1)),
+            _ => None,
         }
     }
-    None
+    walk(body, 0).or_else(|| pick_decimal(body, KEYS))
 }
 
 #[cfg(test)]
@@ -227,6 +300,17 @@ mod tests {
             authorization_token("a=1; access_token=eyJhbGciOiJIUzI1NiJ9.payload.sig").unwrap(),
             "eyJhbGciOiJIUzI1NiJ9.payload.sig"
         );
+    }
+
+    #[test]
+    fn parses_deeper_nested_wallet() {
+        let values = parse(&json!({
+            "success": true,
+            "code": 0,
+            "data": { "profile": { "wallet": { "available_balance": "3.50" } } }
+        }))
+        .expect("deep glm balance");
+        assert_eq!(values[0].primary_value.as_deref(), Some("¥3.50"));
     }
 
     #[test]
@@ -264,6 +348,29 @@ mod tests {
         let error = parse(&json!({"success": false, "code": 1001, "msg": "未收到Authorization"})).unwrap_err();
         assert_eq!(error.code, "session_expired");
         assert!(error.auth_required);
+    }
+
+    #[test]
+    fn treats_code_200_operation_success_as_ok() {
+        let values = parse(&json!({
+            "success": true,
+            "code": 200,
+            "msg": "操作成功",
+            "data": { "availableBalance": "16.80", "giveAmount": 1.2 }
+        }))
+        .expect("glm code 200");
+        assert_eq!(values[0].primary_value.as_deref(), Some("¥16.80"));
+    }
+
+    #[test]
+    fn treats_string_code_200_as_ok() {
+        let values = parse(&json!({
+            "code": "200",
+            "msg": "操作成功",
+            "data": { "currentBalance": "4.00" }
+        }))
+        .expect("glm string code");
+        assert_eq!(values[0].primary_value.as_deref(), Some("¥4.00"));
     }
 
     #[test]

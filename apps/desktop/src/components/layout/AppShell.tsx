@@ -20,7 +20,7 @@ export function AppShell({
       <WindowTitleBar />
       <div className="flex min-h-0 flex-1">
         <SidebarNavigation active={active} onSelect={onNavigate} />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col p-4 pl-0">{children}</div>
+        <div className="app-content flex min-h-0 min-w-0 flex-1 flex-col p-4 pl-0">{children}</div>
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ const VARIANT_CLASS: Record<Variant, string> = {
   primary:
     "bg-q-primary text-white border border-transparent hover:bg-q-primary-hover shadow-q-sm",
   secondary:
-    "bg-q-surface-strong text-q-text-primary border border-q-border-strong hover:bg-white hover:border-q-border-selected hover:text-q-primary",
+    "bg-q-surface-strong text-q-text-primary border border-q-border-strong hover:bg-q-surface-hover hover:border-q-border-selected hover:text-q-primary",
   ghost:
     "bg-transparent text-q-text-secondary border border-transparent hover:bg-q-primary-softer hover:text-q-primary",
 };

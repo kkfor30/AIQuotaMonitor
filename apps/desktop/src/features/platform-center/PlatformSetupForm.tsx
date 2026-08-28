@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import { ExternalLink, Link2, Zap } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
+import { SecretField } from "@/components/ui/SecretField";
+import { EndpointSpeedPanel } from "./EndpointSpeedPanel";
 import {
   clearSourceCredential,
   fetchPlatformSetup,
   ipcErrorMessage,
+  openExternalUrl,
   refreshPlatform,
+  revealSourceSecret,
   savePlatformSetup,
   startSourceLogin,
   validateSourceCredential,
@@ -14,8 +18,8 @@ import {
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { PlatformSetupViewModel } from "@/lib/types";
 
-function openExternal(url: string) {
-  window.open(url, "_blank", "noopener,noreferrer");
+function openExternal(url: string, onError: (message: string) => void) {
+  void openExternalUrl(url).catch((cause) => onError(ipcErrorMessage(cause, "无法打开外部链接。")));
 }
 
 const fieldClass =
@@ -32,10 +36,12 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
   const [notes, setNotes] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [secret, setSecret] = useState("");
+  const [revealedSaved, setRevealedSaved] = useState<string | null>(null);
   const [verifiedSecret, setVerifiedSecret] = useState<string | null>(null);
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmCliClear, setConfirmCliClear] = useState(false);
+  const [speedOpen, setSpeedOpen] = useState(false);
 
   useEffect(() => {
     if (!setup) return;
@@ -47,6 +53,7 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
     setNotes(next.notes);
     setApiBaseUrl(next.apiBaseUrl);
     setSecret("");
+    setRevealedSaved(null);
     setVerifiedSecret(null);
     setVerifyMessage(null);
     setError(null);
@@ -74,12 +81,13 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
         notes,
         apiBaseUrl,
         sourceId: setup?.apiKeySourceId,
-        secret,
+        secret: Boolean(secret.trim()) && secret !== revealedSaved ? secret : "",
       }),
     onSuccess: (platforms) => {
       queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
       void queryClient.invalidateQueries({ queryKey: ["platform-setup", platformId] });
       setSecret("");
+      setRevealedSaved(null);
       setVerifiedSecret(null);
     },
     onError: (cause) => setError(ipcErrorMessage(cause, "保存失败，请检查后重试。")),
@@ -135,7 +143,7 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
     || cliLoginMutation.isPending
     || cliRefreshMutation.isPending
     || cliClearMutation.isPending;
-  const replacingKey = Boolean(secret.trim());
+  const replacingKey = Boolean(secret.trim()) && secret !== revealedSaved;
   const keyReady =
     !setup.needsApiKey || (replacingKey ? verifiedSecret === secret : setup.apiKeyConfigured);
   const canSave =
@@ -179,7 +187,7 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
             variant="secondary"
             size="sm"
             disabled={!setup.officialUrl}
-            onClick={() => openExternal(setup.officialUrl)}
+            onClick={() => openExternal(setup.officialUrl, setError)}
           >
             <ExternalLink size={14} aria-hidden />
             打开
@@ -189,26 +197,28 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
 
       {setup.needsApiKey && setup.apiKeySourceId && (
         <>
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-q-text-primary">
-            API Key
-            <input
-              type="password"
-              autoComplete="off"
-              value={secret}
-              onChange={(event) => {
-                setSecret(event.target.value);
-                setVerifiedSecret(null);
-                setVerifyMessage(null);
-              }}
-              placeholder={setup.apiKeyConfigured ? "已保存，更换时请重新输入" : "sk-…"}
-              className={fieldClass}
-            />
-          </label>
+          <SecretField
+            label="API Key"
+            value={secret}
+            onChange={(next) => {
+              setSecret(next);
+              setVerifiedSecret(null);
+              setVerifyMessage(null);
+            }}
+            placeholder={setup.apiKeyConfigured ? "已保存，点击眼睛查看或重新输入以更换" : "sk-…"}
+            configured={setup.apiKeyConfigured}
+            onReveal={async () => {
+              const next = await revealSourceSecret(setup.apiKeySourceId!);
+              setRevealedSaved(next);
+              return next;
+            }}
+            disabled={busy}
+          />
           {setup.apiKeyUrl && (
             <button
               type="button"
               className="self-start text-xs text-q-primary"
-              onClick={() => openExternal(setup.apiKeyUrl!)}
+              onClick={() => openExternal(setup.apiKeyUrl!, setError)}
             >
               获取 API Key
             </button>
@@ -226,11 +236,8 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-xs text-q-text-muted hover:text-q-text-primary"
-                title="打开官网管理账号。本应用只查询额度，不提供测速代理。"
-                onClick={() => {
-                  if (setup.officialApiBaseUrl) setApiBaseUrl(setup.officialApiBaseUrl);
-                  if (setup.officialUrl) openExternal(setup.officialUrl);
-                }}
+                title="对比额度查询地址延迟，并写回当前请求地址"
+                onClick={() => setSpeedOpen(true)}
               >
                 <Zap size={13} aria-hidden />
                 管理与测速
@@ -315,6 +322,19 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
           {saveMutation.isPending ? "保存中…" : "保存"}
         </Button>
       </div>
+      {speedOpen && (
+        <EndpointSpeedPanel
+          open
+          currentUrl={apiBaseUrl}
+          officialUrl={setup.officialApiBaseUrl}
+          onApply={(url) => {
+            setApiBaseUrl(url);
+            setVerifiedSecret(null);
+            setVerifyMessage(null);
+          }}
+          onClose={() => setSpeedOpen(false)}
+        />
+      )}
     </div>
   );
 }

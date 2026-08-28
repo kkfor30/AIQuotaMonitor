@@ -9,7 +9,7 @@ import { SourcesView } from "./SourcesView";
 import { UsageView } from "./UsageView";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { fetchPlatformSummaries, ipcErrorMessage, refreshPlatform } from "@/lib/ipc";
+import { fetchPlatformSummaries, ipcErrorMessage, refreshPlatform, removeUserPlatform } from "@/lib/ipc";
 import { listen } from "@tauri-apps/api/event";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { PlatformCenterTarget } from "@/app/navigation";
@@ -37,6 +37,7 @@ export function PlatformCenterPage({
   const [tab, setTab] = useState<PlatformTabId>("usage");
   const [focusSourceId, setFocusSourceId] = useState<string | undefined>(undefined);
   const [addOpen, setAddOpen] = useState(false);
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
 
   // 消费总览下发的定位目标（一次性）
   useEffect(() => {
@@ -73,6 +74,19 @@ export function PlatformCenterPage({
       unlisten?.();
     };
   }, [queryClient]);
+
+  const removeMutation = useMutation({
+    mutationFn: (platformId: string) => removeUserPlatform(platformId),
+    onSuccess: (nextPlatforms) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, nextPlatforms);
+      void queryClient.invalidateQueries({ queryKey: ["platform-catalog"] });
+      setPendingRemoveId(null);
+      setSelectedId((current) => {
+        if (current && nextPlatforms.some((item) => item.providerId === current)) return current;
+        return nextPlatforms[0]?.providerId ?? null;
+      });
+    },
+  });
 
   const refreshMutation = useMutation({
     mutationFn: (providerId: string) => refreshPlatform(providerId),
@@ -122,13 +136,20 @@ export function PlatformCenterPage({
 
   return (
     <div className="flex min-h-0 flex-1">
-      <ProviderRail platforms={platforms} selectedId={platform.providerId} onSelect={handleSelect} onAdd={() => setAddOpen(true)} />
+      <ProviderRail
+        platforms={platforms}
+        selectedId={platform.providerId}
+        onSelect={handleSelect}
+        onAdd={() => setAddOpen(true)}
+        onRemove={setPendingRemoveId}
+      />
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 p-5">
         <ProviderHeader
           platform={platform}
           refreshing={refreshMutation.isPending}
           onRefresh={() => refreshMutation.mutate(platform.providerId)}
+          onRemove={() => setPendingRemoveId(platform.providerId)}
         />
         {refreshMutation.error && (
           <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
@@ -160,6 +181,58 @@ export function PlatformCenterPage({
           }
         }}
       />
+      <RemovePlatformDialog
+        platformName={platforms.find((item) => item.providerId === pendingRemoveId)?.displayName ?? ""}
+        open={Boolean(pendingRemoveId)}
+        pending={removeMutation.isPending}
+        error={removeMutation.error ? ipcErrorMessage(removeMutation.error, "移除平台失败。") : null}
+        onCancel={() => {
+          if (!removeMutation.isPending) setPendingRemoveId(null);
+        }}
+        onConfirm={() => pendingRemoveId && removeMutation.mutate(pendingRemoveId)}
+      />
+    </div>
+  );
+}
+
+function RemovePlatformDialog({
+  platformName,
+  open,
+  pending,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  platformName: string;
+  open: boolean;
+  pending: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" role="presentation" onMouseDown={onCancel}>
+      <div
+        className="w-full max-w-md rounded-q-card border border-q-border bg-q-surface-solid p-5 shadow-xl"
+        role="dialog"
+        aria-label="移除平台"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <p className="text-lg font-semibold text-q-text-primary">移除 {platformName}？</p>
+        <p className="mt-2 text-sm leading-relaxed text-q-text-secondary">
+          将移除该平台目录项，并删除快照与凭据引用。可稍后重新添加。
+        </p>
+        {error && <p className="mt-3 text-xs text-q-danger">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel} disabled={pending}>
+            取消
+          </Button>
+          <Button onClick={onConfirm} disabled={pending}>
+            {pending ? "移除中…" : "确认移除"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

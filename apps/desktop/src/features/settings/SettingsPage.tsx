@@ -1,17 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Info, Monitor, Palette, RefreshCw, ShieldAlert, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Info, Monitor, Palette, RefreshCw, ShieldAlert } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
-import { fetchHoverbarPreferences, setHoverbarEnabled } from "@/lib/ipc";
-import { HOVERBAR_PREFERENCES_QUERY_KEY } from "@/lib/query-client";
+import {
+  clearLocalCache,
+  fetchAppSettings,
+  fetchHoverbarPreferences,
+  fetchPlatformSummaries,
+  ipcErrorMessage,
+  reorderPlatforms,
+  setAppTheme,
+  setAutostart,
+  setHoverbarEnabled,
+  setHoverbarSortMode,
+  setRefreshInterval,
+} from "@/lib/ipc";
+import {
+  APP_SETTINGS_QUERY_KEY,
+  HOVERBAR_PREFERENCES_QUERY_KEY,
+  PLATFORM_SUMMARIES_QUERY_KEY,
+} from "@/lib/query-client";
+import { applyAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
 
 /**
- * 设置（product-shell-v5，设计稿 08）：
- * 左侧二级分区导航 + 右侧内容区。
- * 平台登录和 API Key 不进入设置，统一留在「平台中心 / 接入与来源」；
- * 危险操作只出现在「数据与隐私」。
+ * 精简设置：常规（自启 / 主题 / 悬浮球开关）、悬浮球排序、刷新间隔、数据与关于。
+ * 平台登录和 API Key 留在平台中心。
  */
 export function SettingsPage() {
   const [section, setSection] = useState<SettingsSectionId>("general");
@@ -22,25 +38,21 @@ export function SettingsPage() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
         {section === "general" && <GeneralSection />}
-        {section === "appearance" && <AppearanceSection />}
         {section === "hoverbar" && <HoverbarSettingsSection />}
         {section === "refresh" && <RefreshSection />}
-        {section === "privacy" && <PrivacySection />}
-        {section === "about" && <AboutSection />}
+        {section === "data" && <DataSection />}
       </div>
     </div>
   );
 }
 
-type SettingsSectionId = "general" | "appearance" | "hoverbar" | "refresh" | "privacy" | "about";
+type SettingsSectionId = "general" | "hoverbar" | "refresh" | "data";
 
 const SECTIONS: Array<{ id: SettingsSectionId; label: string; icon: LucideIcon }> = [
-  { id: "general", label: "常规", icon: Sparkles },
-  { id: "appearance", label: "外观", icon: Palette },
-  { id: "hoverbar", label: "悬浮球", icon: Monitor },
-  { id: "refresh", label: "刷新与通知", icon: RefreshCw },
-  { id: "privacy", label: "数据与隐私", icon: ShieldAlert },
-  { id: "about", label: "关于", icon: Info },
+  { id: "general", label: "常规与外观", icon: Palette },
+  { id: "hoverbar", label: "悬浮球排序", icon: Monitor },
+  { id: "refresh", label: "自动刷新", icon: RefreshCw },
+  { id: "data", label: "数据与关于", icon: ShieldAlert },
 ];
 
 function SettingsSectionRail({
@@ -67,7 +79,7 @@ function SettingsSectionRail({
             className={cn(
               "flex cursor-pointer items-center gap-2.5 rounded-q-control px-3 py-2.5 text-left text-[13px] font-medium transition-colors duration-150",
               selected
-                ? "bg-white text-q-primary shadow-q-sm"
+                ? "bg-q-surface-solid text-q-primary shadow-q-sm"
                 : "text-q-text-secondary hover:bg-q-surface-hover hover:text-q-text-primary",
             )}
           >
@@ -80,7 +92,6 @@ function SettingsSectionRail({
   );
 }
 
-/** 通用设置行容器。 */
 function SettingRow({
   title,
   description,
@@ -110,155 +121,303 @@ function SectionHeader({ title, description }: { title: string; description: str
   );
 }
 
-function PendingTag() {
-  return (
-    <span className="rounded-q-pill bg-q-neutral-soft px-2.5 py-1 text-xs text-q-neutral">
-      后续版本
-    </span>
-  );
+function useSettings() {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: APP_SETTINGS_QUERY_KEY,
+    queryFn: fetchAppSettings,
+  });
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: APP_SETTINGS_QUERY_KEY });
+  };
+
+  return { ...query, invalidate, queryClient };
 }
 
 function GeneralSection() {
-  return (
-    <>
-      <SectionHeader title="常规" description="启动行为、语言与通用偏好。设置项默认自动保存。" />
-      <div className="glass-panel flex flex-col gap-4 p-5">
-        <SettingRow title="开机自启" description="登录 Windows 后自动启动并显示主窗口">
-          <PendingTag />
-        </SettingRow>
-        <SettingRow title="启动时显示" description="主窗口或仅悬浮球">
-          <PendingTag />
-        </SettingRow>
-        <SettingRow title="界面语言" description="跟随系统或手动指定">
-          <PendingTag />
-        </SettingRow>
-      </div>
-    </>
-  );
-}
-
-function AppearanceSection() {
-  return (
-    <>
-      <SectionHeader title="外观" description="主题、密度与动效偏好。" />
-      <div className="glass-panel flex flex-col gap-4 p-5">
-        <SettingRow title="主题" description="浅色 / 深色 / 跟随系统；悬浮球主题将随之联动">
-          <PendingTag />
-        </SettingRow>
-        <SettingRow title="动效" description="悬浮球展开与页面过渡动画，遵循系统减弱动态设置">
-          <PendingTag />
-        </SettingRow>
-      </div>
-    </>
-  );
-}
-
-/** 悬浮球分区（设计稿 08）：开关、停靠、触发与排序。 */
-function HoverbarSettingsSection() {
-  const queryClient = useQueryClient();
+  const { data: settings, queryClient } = useSettings();
   const { data: prefs } = useQuery({
     queryKey: HOVERBAR_PREFERENCES_QUERY_KEY,
     queryFn: fetchHoverbarPreferences,
   });
 
-  const toggleMutation = useMutation({
-    mutationFn: (enabled: boolean) => setHoverbarEnabled(enabled),
+  const themeMutation = useMutation({
+    mutationFn: setAppTheme,
+    onSuccess: (next) => {
+      applyAppTheme(next.theme);
+      queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next);
+    },
+  });
+  const autostartMutation = useMutation({
+    mutationFn: setAutostart,
+    onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
+  });
+  const hoverbarMutation = useMutation({
+    mutationFn: setHoverbarEnabled,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: HOVERBAR_PREFERENCES_QUERY_KEY });
     },
   });
 
-  const enabled = prefs?.enabled ?? false;
+  const theme = settings?.theme ?? "system";
+  const error =
+    themeMutation.error ?? autostartMutation.error ?? hoverbarMutation.error;
+
+  return (
+    <>
+      <SectionHeader title="常规与外观" description="启动行为、主题和悬浮球开关会立即保存。" />
+      {error ? <ErrorText error={error} fallback="保存设置失败" /> : null}
+      <div className="glass-panel flex flex-col gap-4 p-5">
+        <SettingRow title="开机自启" description="登录 Windows 后自动启动本应用">
+          <Switch
+            checked={settings?.autostart ?? false}
+            disabled={autostartMutation.isPending}
+            onCheckedChange={(next) => autostartMutation.mutate(next)}
+            label="开机自启"
+          />
+        </SettingRow>
+        <SettingRow title="启用悬浮球" description="关闭后立即隐藏悬浮球与详情窗口">
+          <Switch
+            checked={prefs?.enabled ?? false}
+            disabled={hoverbarMutation.isPending}
+            onCheckedChange={(next) => hoverbarMutation.mutate(next)}
+            label="启用悬浮球"
+          />
+        </SettingRow>
+        <SettingRow title="主题" description="主窗口与悬浮详情一起切换；跟随系统时尊重 Windows 深浅色">
+          <div className="inline-flex gap-1 rounded-q-control border border-q-border bg-q-surface-muted p-1">
+            {[
+              ["light", "浅色"],
+              ["dark", "深色"],
+              ["system", "跟随系统"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => themeMutation.mutate(id)}
+                className={cn(
+                  "cursor-pointer rounded-[7px] px-3 py-1.5 text-[13px] font-medium",
+                  theme === id
+                    ? "bg-q-surface-solid text-q-primary shadow-q-sm"
+                    : "text-q-text-secondary hover:text-q-text-primary",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </SettingRow>
+      </div>
+    </>
+  );
+}
+
+function HoverbarSettingsSection() {
+  const { data: settings, queryClient } = useSettings();
+  const { data: platforms = [] } = useQuery({
+    queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
+    queryFn: fetchPlatformSummaries,
+  });
+  const [order, setOrder] = useState<string[]>([]);
+
+  useEffect(() => {
+    setOrder(platforms.map((platform) => platform.providerId));
+  }, [platforms]);
+
+  const sortMutation = useMutation({
+    mutationFn: setHoverbarSortMode,
+    onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
+  });
+  const reorderMutation = useMutation({
+    mutationFn: reorderPlatforms,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
+    },
+  });
+
+  const mode = settings?.hoverbarSortMode === "smart" ? "smart" : "manual";
+  const byId = new Map(platforms.map((platform) => [platform.providerId, platform]));
+
+  const move = (id: string, direction: -1 | 1) => {
+    const index = order.indexOf(id);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+    const next = [...order];
+    const current = next[index];
+    const swap = next[nextIndex];
+    if (!current || !swap) return;
+    next[index] = swap;
+    next[nextIndex] = current;
+    setOrder(next);
+    reorderMutation.mutate(next);
+  };
 
   return (
     <>
       <SectionHeader
-        title="悬浮球"
-        description="桌面悬浮球独立于主窗口运行：拖动重新停靠、悬停展开平台速览；全屏应用时自动隐藏。"
+        title="悬浮球排序"
+        description="手动顺序会同步到主窗口平台列表和悬浮详情。智能排序把套餐制平台提前，组内仍按手动顺序。"
       />
+      {(sortMutation.error || reorderMutation.error) && (
+        <ErrorText error={sortMutation.error ?? reorderMutation.error} fallback="保存排序失败" />
+      )}
       <div className="glass-panel flex flex-col gap-4 p-5">
-        <SettingRow
-          title="启用悬浮球"
-          description="关闭后立即隐藏悬浮球与详情窗口，偏好保存并在下次启动时生效"
-        >
-          <Switch
-            checked={enabled}
-            disabled={toggleMutation.isPending}
-            onCheckedChange={(next) => toggleMutation.mutate(next)}
-            label="启用悬浮球"
-          />
+        <SettingRow title="排序方式" description="智能排序优先展示 GPT、Claude、GLM、MiniMax 等套餐平台">
+          <div className="inline-flex gap-1 rounded-q-control border border-q-border bg-q-surface-muted p-1">
+            {[
+              ["manual", "手动"],
+              ["smart", "智能"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => sortMutation.mutate(id as "manual" | "smart")}
+                className={cn(
+                  "cursor-pointer rounded-[7px] px-3 py-1.5 text-[13px] font-medium",
+                  mode === id
+                    ? "bg-q-surface-solid text-q-primary shadow-q-sm"
+                    : "text-q-text-secondary hover:text-q-text-primary",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </SettingRow>
-        <SettingRow
-          title="停靠边缘与显示器"
-          description="直接拖动悬浮球即可重新停靠任意屏幕边缘；固定显示器选择将在后续版本提供"
-        >
-          <PendingTag />
-        </SettingRow>
-        <SettingRow
-          title="展开触发"
-          description="悬停延迟与点击展开行为"
-        >
-          <PendingTag />
-        </SettingRow>
-        <SettingRow
-          title="平台排序"
-          description="手动排序与智能排序（套餐平台优先）；排序保存后实时同步到悬浮球"
-        >
-          <PendingTag />
-        </SettingRow>
+        <div>
+          <p className="text-sm font-medium text-q-text-primary">平台顺序</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-q-text-secondary">
+            用上下箭头调整。未接入的平台也会参与排序，但不会出现在悬浮详情里。
+          </p>
+          <div className="mt-3 space-y-2">
+            {order.length === 0 && (
+              <p className="text-xs text-q-text-muted">请先在平台中心添加平台。</p>
+            )}
+            {order.map((id, index) => {
+              const platform = byId.get(id);
+              if (!platform) return null;
+              return (
+                <div
+                  key={id}
+                  className="flex items-center justify-between gap-3 rounded-q-control border border-q-border bg-q-surface-muted/70 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-q-text-primary">{platform.displayName}</p>
+                    <p className="truncate text-[11px] text-q-text-muted">{platform.accessSummary}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      aria-label={`上移 ${platform.displayName}`}
+                      disabled={index === 0 || reorderMutation.isPending}
+                      onClick={() => move(id, -1)}
+                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-q-control border border-q-border text-q-text-secondary hover:bg-q-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronUp size={16} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`下移 ${platform.displayName}`}
+                      disabled={index === order.length - 1 || reorderMutation.isPending}
+                      onClick={() => move(id, 1)}
+                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-q-control border border-q-border text-q-text-secondary hover:bg-q-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronDown size={16} aria-hidden />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </>
   );
 }
 
 function RefreshSection() {
-  return (
-    <>
-      <SectionHeader title="刷新与通知" description="各平台刷新频率、失败重试与通知策略。" />
-      <div className="glass-panel flex flex-col gap-4 p-5">
-        <SettingRow title="自动刷新" description="按平台独立配置刷新间隔；仅刷新已配置 Source">
-          <PendingTag />
-        </SettingRow>
-        <SettingRow title="余额预警" description="低于阈值时通过系统通知提醒">
-          <PendingTag />
-        </SettingRow>
-      </div>
-    </>
-  );
-}
+  const { data: settings, queryClient } = useSettings();
+  const mutation = useMutation({
+    mutationFn: setRefreshInterval,
+    onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
+  });
+  const minutes = settings?.refreshIntervalMinutes ?? 15;
 
-function PrivacySection() {
   return (
     <>
       <SectionHeader
-        title="数据与隐私"
-        description="本地数据与凭据管理。危险操作仅出现在本分区，执行前均需二次确认。"
+        title="自动刷新"
+        description="仅刷新已配置 Source。关闭后只支持手动刷新；雷达检查始终需要手动触发。"
       />
+      {mutation.error ? <ErrorText error={mutation.error} fallback="保存刷新间隔失败" /> : null}
       <div className="glass-panel flex flex-col gap-4 p-5">
-        <SettingRow title="凭据存储" description="API Key 与会话凭据保存在 Windows 安全存储，不进入明文文件">
-          <PendingTag />
-        </SettingRow>
-        <SettingRow title="清除本地缓存" description="删除快照与刷新记录（不影响凭据），操作需二次确认">
-          <PendingTag />
-        </SettingRow>
-        <SettingRow title="重置全部数据" description="危险操作：清除全部配置、凭据与历史，不可恢复">
-          <span className="rounded-q-pill bg-q-danger-soft px-2.5 py-1 text-xs font-medium text-q-danger">
-            后续版本 · 高风险
-          </span>
+        <SettingRow title="刷新间隔" description="5 / 15 / 30 分钟，或关闭自动刷新">
+          <select
+            value={String(minutes)}
+            onChange={(event) => mutation.mutate(Number(event.target.value))}
+            className="h-10 min-w-[140px] rounded-q-control border border-q-border bg-q-surface px-3 text-sm"
+          >
+            <option value="0">关闭</option>
+            <option value="5">5 分钟</option>
+            <option value="15">15 分钟</option>
+            <option value="30">30 分钟</option>
+          </select>
         </SettingRow>
       </div>
     </>
   );
 }
 
-function AboutSection() {
+function DataSection() {
+  const queryClient = useQueryClient();
+  const [message, setMessage] = useState<string | null>(null);
+  const clearMutation = useMutation({
+    mutationFn: clearLocalCache,
+    onSuccess: () => {
+      setMessage("已清除额度快照和刷新记录。凭据与平台配置仍保留。");
+      void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
+    },
+    onError: (error) => {
+      setMessage(ipcErrorMessage(error, "清除缓存失败"));
+    },
+  });
+
   return (
     <>
-      <SectionHeader title="关于" description="版本、开源许可与更新。" />
+      <SectionHeader
+        title="数据与关于"
+        description="危险操作只出现在这里。清除缓存不会删除 API Key、Cookie 或本机 Codex 登录。"
+      />
+      <div className="glass-panel flex flex-col gap-4 p-5">
+        <SettingRow
+          title="清除本地缓存"
+          description="删除额度快照与刷新历史，不影响凭据。下次刷新会重新拉取真实值。"
+        >
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (!window.confirm("清除本地额度缓存？凭据和平台配置会保留。")) return;
+              setMessage(null);
+              clearMutation.mutate();
+            }}
+            disabled={clearMutation.isPending}
+          >
+            {clearMutation.isPending ? "清除中…" : "清除缓存"}
+          </Button>
+        </SettingRow>
+        {message ? <p className="text-xs text-q-text-secondary">{message}</p> : null}
+      </div>
       <div className="glass-panel flex flex-col gap-3 p-5">
+        <div className="flex items-center gap-2 text-sm font-medium text-q-text-primary">
+          <Info size={16} aria-hidden />
+          关于
+        </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-q-text-secondary">版本</span>
-          <span className="font-medium text-q-text-primary" data-selectable="true">0.1.0（阶段一骨架）</span>
+          <span className="font-medium text-q-text-primary" data-selectable="true">
+            0.1.0
+          </span>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-q-text-secondary">第三方许可</span>
@@ -266,5 +425,13 @@ function AboutSection() {
         </div>
       </div>
     </>
+  );
+}
+
+function ErrorText({ error, fallback }: { error: unknown; fallback: string }) {
+  return (
+    <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
+      {ipcErrorMessage(error, fallback)}
+    </p>
   );
 }

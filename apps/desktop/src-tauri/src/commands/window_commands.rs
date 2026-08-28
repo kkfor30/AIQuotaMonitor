@@ -8,6 +8,7 @@
 //   - 权限校验统一为 require_label 单函数
 // 许可证：MIT（见仓库根 THIRD_PARTY_NOTICES.md）
 
+use crate::commands::require_label;
 use crate::storage::{self, HoverbarAnchor};
 use crate::windows::hoverbar::{
     self, HoverbarRuntime,
@@ -16,16 +17,6 @@ use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
-
-/// 命令调用方窗口校验：IPC 白名单之外的第二层防线。
-/// 远程登录窗口（后续阶段）不会出现在任何允许列表中。
-fn require_label(window: &WebviewWindow, allowed: &[&str]) -> Result<(), String> {
-    if allowed.contains(&window.label()) {
-        Ok(())
-    } else {
-        Err(format!("窗口 {} 无权调用该命令", window.label()))
-    }
-}
 
 pub fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -164,6 +155,61 @@ pub fn get_hoverbar_preferences(app: AppHandle) -> Result<storage::HoverbarPrefe
     Ok(storage::load_preferences(&app))
 }
 
+/// 用系统浏览器打开 http(s) 链接。仅主窗口可调用。
+#[tauri::command]
+pub fn open_external_url(window: WebviewWindow, url: String) -> Result<(), String> {
+    require_label(&window, &["main"])?;
+    open_http_url(&url)
+}
+
+pub(crate) fn open_http_url(url: &str) -> Result<(), String> {
+    let url = validate_http_url(url)?;
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        fn wide(value: &str) -> Vec<u16> {
+            value.encode_utf16().chain(std::iter::once(0)).collect()
+        }
+        let operation = wide("open");
+        let file = wide(&url);
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                operation.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL as i32,
+            )
+        };
+        if result as isize <= 32 {
+            return Err("无法打开系统浏览器".into());
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = url;
+        Err("当前系统不支持打开外部链接".into())
+    }
+}
+
+fn validate_http_url(url: &str) -> Result<String, String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
+        return Err("链接无效".into());
+    }
+    let rest = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .ok_or_else(|| "只能打开 http(s) 链接".to_string())?;
+    if rest.is_empty() || rest.contains(' ') {
+        return Err("链接无效".into());
+    }
+    Ok(trimmed.to_string())
+}
+
 /// 设置页切换悬浮球开关。仅主窗口可调用。
 #[tauri::command]
 pub async fn set_hoverbar_enabled(
@@ -176,4 +222,26 @@ pub async fn set_hoverbar_enabled(
     tauri::async_runtime::spawn_blocking(move || hoverbar::set_hoverbar_enabled(&app, enabled))
         .await
         .map_err(|error| error.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_http_url;
+
+    #[test]
+    fn accepts_http_s_urls() {
+        assert_eq!(
+            validate_http_url(" https://open.bigmodel.cn/usercenter/apikeys ").unwrap(),
+            "https://open.bigmodel.cn/usercenter/apikeys"
+        );
+        assert!(validate_http_url("http://example.com").is_ok());
+    }
+
+    #[test]
+    fn rejects_non_http_urls() {
+        assert!(validate_http_url("javascript:alert(1)").is_err());
+        assert!(validate_http_url("file:///C:/Windows").is_err());
+        assert!(validate_http_url("https://").is_err());
+        assert!(validate_http_url("https://evil example").is_err());
+    }
 }

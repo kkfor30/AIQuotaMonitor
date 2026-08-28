@@ -104,6 +104,8 @@ pub struct SourceSummaryViewModel {
     pub credential_input: Option<CredentialInputViewModel>,
     pub supports_interactive_login: bool,
     pub supports_cli_login: bool,
+    /// coding_plan | token_plan | personal_balance | web_usage | local_cli
+    pub access_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

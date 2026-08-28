@@ -1,5 +1,6 @@
 //! 平台数据、刷新与凭据 Tauri Commands。前端只接收脱敏 ViewModel。
 
+use crate::commands::require_label;
 use crate::domain::refresh::SourceRefreshOutput;
 use crate::domain::PlatformSummaryViewModel;
 use crate::providers;
@@ -9,8 +10,9 @@ use crate::storage::database::Database;
 use crate::storage::legacy_import::{self, LegacyConfigInspection, LegacyImportResult};
 use crate::storage::repository::SourceRecord;
 use crate::storage::vault;
-use serde::Deserialize;
-use tauri::State;
+use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
+use tauri::{State, WebviewWindow};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +53,119 @@ pub fn add_user_platforms(
     database: State<'_, Database>,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     providers::add_platforms(&database, &platform_ids)
+}
+
+#[tauri::command]
+pub fn remove_user_platform(
+    platform_id: String,
+    window: WebviewWindow,
+    database: State<'_, Database>,
+    app: tauri::AppHandle,
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    require_label(&window, &["main"])?;
+    if catalog::entry(&platform_id).is_none() {
+        return Err("该平台不在可添加注册表中".into());
+    }
+    let sources = database.list_sources(&platform_id)?;
+    for source in &sources {
+        if crate::providers::codex::is_extra_source(&source.id) {
+            if let Some(home) = extra_codex_home(&database, &source.id) {
+                let _ = crate::providers::codex::logout_cli_at(Some(&home));
+                let _ = std::fs::remove_dir_all(home);
+            }
+        }
+    }
+    database.remove_user_platform(&platform_id)?;
+    for source in &sources {
+        let reference = source
+            .secret_ref
+            .clone()
+            .unwrap_or_else(|| vault::secret_ref(&source.account_id, &source.id));
+        let _ = vault::delete(&reference);
+        if crate::windows::source_login::is_web_login_source(&source.id) {
+            crate::windows::source_login::clear_session(&app, &source.id)?;
+        }
+    }
+    providers::platform_summaries(&database)
+}
+
+#[tauri::command]
+pub fn reveal_source_secret(
+    source_id: String,
+    window: WebviewWindow,
+    database: State<'_, Database>,
+) -> Result<String, String> {
+    require_label(&window, &["main"])?;
+    let source = database.source(&source_id)?;
+    if source.source_type == "local_cli" || crate::providers::codex::is_codex_source(&source.id) {
+        return Err("此来源没有可查看的密钥".into());
+    }
+    let reference = source
+        .secret_ref
+        .clone()
+        .unwrap_or_else(|| vault::secret_ref(&source.account_id, &source.id));
+    vault::get(&reference)?.ok_or_else(|| "尚未保存凭据".to_string())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndpointLatencyView {
+    pub url: String,
+    pub latency_ms: Option<u64>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn test_api_endpoints(
+    urls: Vec<String>,
+    window: WebviewWindow,
+) -> Result<Vec<EndpointLatencyView>, String> {
+    require_label(&window, &["main"])?;
+    if urls.len() > 12 {
+        return Err("一次最多测速 12 个地址".into());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("创建测速客户端失败：{error}"))?;
+    let mut results = Vec::with_capacity(urls.len());
+    for url in urls {
+        results.push(measure_endpoint(&client, url).await);
+    }
+    Ok(results)
+}
+
+async fn measure_endpoint(client: &reqwest::Client, raw: String) -> EndpointLatencyView {
+    let url = match catalog::normalize_api_base_url(&raw) {
+        Ok(url) => url,
+        Err(error) => {
+            return EndpointLatencyView {
+                url: raw,
+                latency_ms: None,
+                error: Some(error),
+            };
+        }
+    };
+    let _ = client.get(&url).send().await;
+    let started = Instant::now();
+    match client.get(&url).send().await {
+        Ok(_) => EndpointLatencyView {
+            url,
+            latency_ms: Some(started.elapsed().as_millis() as u64),
+            error: None,
+        },
+        Err(error) => EndpointLatencyView {
+            url,
+            latency_ms: None,
+            error: Some(if error.is_timeout() {
+                "请求超时".into()
+            } else if error.is_connect() {
+                "连接失败".into()
+            } else {
+                error.to_string()
+            }),
+        },
+    }
 }
 
 #[tauri::command]

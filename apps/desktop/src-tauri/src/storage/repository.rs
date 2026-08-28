@@ -46,6 +46,58 @@ pub struct SnapshotRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct TiboPostRecord {
+    pub id: String,
+    pub url: String,
+    pub text: String,
+    pub posted_at: i64,
+    pub kind: String,
+    pub tibo_lane: Option<String>,
+    pub explicit_reset: bool,
+    pub verification_status: Option<String>,
+    pub is_reply: bool,
+    pub replies: i64,
+    pub reposts: i64,
+    pub likes: i64,
+    pub extra_json: String,
+    pub synced_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RadarCheckRecord {
+    pub id: String,
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
+    pub status: String,
+    pub sync_status: Option<String>,
+    pub parse_status: Option<String>,
+    pub analyze_status: Option<String>,
+    pub error_message: Option<String>,
+    pub post_count: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RadarAnalysisRecord {
+    pub id: String,
+    pub created_at: i64,
+    pub range_key: String,
+    pub cut_post_id: Option<String>,
+    pub from_posted_at: Option<i64>,
+    pub to_posted_at: Option<i64>,
+    pub source_id: Option<String>,
+    pub model: Option<String>,
+    pub prompt_version: String,
+    pub input_hash: String,
+    pub conclusion: Option<String>,
+    pub confidence: Option<String>,
+    pub citations_json: String,
+    pub support_json: String,
+    pub against_json: String,
+    pub uncertainty_json: String,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct RefreshHistoryRecord {
     pub id: String,
     pub source_id: String,
@@ -144,6 +196,61 @@ impl Database {
         } else {
             Ok(())
         }
+    }
+
+    pub fn remove_user_platform(&self, platform_id: &str) -> Result<Vec<SourceRecord>, String> {
+        if self.user_platform(platform_id)?.is_none() {
+            return Err("未添加该平台".into());
+        }
+        let sources = self.list_sources(platform_id)?;
+        let mut connection = self.connect()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|err| format!("开始移除平台失败: {err}"))?;
+        let now = epoch_ms();
+        transaction
+            .execute(
+                "DELETE FROM refresh_runs WHERE platform_id = ?1",
+                params![platform_id],
+            )
+            .map_err(|err| format!("清除刷新历史失败: {err}"))?;
+        for source in &sources {
+            transaction
+                .execute(
+                    "DELETE FROM capability_snapshots WHERE source_id = ?1",
+                    params![source.id],
+                )
+                .map_err(|err| format!("清除平台快照失败: {err}"))?;
+            if matches!(source.account_id.as_str(), "openai-codex-local" | "deepseek-default") {
+                transaction
+                    .execute(
+                        "UPDATE sources SET secret_ref = NULL, state = 'auth_required', generation = generation + 1,
+                         last_validated_at = NULL, last_success_at = NULL, error_code = NULL, error_message = NULL, updated_at = ?2
+                         WHERE id = ?1",
+                        params![source.id, now],
+                    )
+                    .map_err(|err| format!("重置默认来源失败: {err}"))?;
+            }
+        }
+        transaction
+            .execute(
+                "DELETE FROM accounts WHERE platform_id = ?1 AND id NOT IN ('openai-codex-local', 'deepseek-default')",
+                params![platform_id],
+            )
+            .map_err(|err| format!("删除平台账户失败: {err}"))?;
+        let changed = transaction
+            .execute(
+                "DELETE FROM user_platforms WHERE platform_id = ?1",
+                params![platform_id],
+            )
+            .map_err(|err| format!("移除平台失败: {err}"))?;
+        if changed == 0 {
+            return Err("未添加该平台".into());
+        }
+        transaction
+            .commit()
+            .map_err(|err| format!("提交移除平台失败: {err}"))?;
+        Ok(sources)
     }
 
     pub fn add_user_platform(&self, platform_id: &str, display_name: &str, api_base_url: Option<&str>) -> Result<(), String> {
@@ -483,6 +590,218 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|err| format!("读取刷新历史失败: {err}"))
     }
+
+    pub fn setting_string(&self, key: &str) -> Result<Option<String>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT value_json FROM settings WHERE key = ?1",
+                params![key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|err| format!("读取设置失败: {err}"))
+    }
+
+    pub fn set_setting_string(&self, key: &str, value: &str) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT INTO settings(key, value_json, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+                params![key, value, epoch_ms()],
+            )
+            .map(|_| ())
+            .map_err(|err| format!("保存设置失败: {err}"))
+    }
+
+    pub fn reorder_user_platforms(&self, platform_ids: &[String]) -> Result<(), String> {
+        let mut connection = self.connect()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|err| format!("开始保存平台顺序失败: {err}"))?;
+        let now = epoch_ms();
+        for (index, platform_id) in platform_ids.iter().enumerate() {
+            transaction
+                .execute(
+                    "UPDATE user_platforms SET sort_index = ?2, updated_at = ?3 WHERE platform_id = ?1",
+                    params![platform_id, index as i64, now],
+                )
+                .map_err(|err| format!("保存平台顺序失败: {err}"))?;
+        }
+        transaction
+            .commit()
+            .map_err(|err| format!("提交平台顺序失败: {err}"))
+    }
+
+    pub fn clear_cached_snapshots(&self) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute_batch(
+                "DELETE FROM capability_snapshots;
+                 DELETE FROM refresh_results;
+                 DELETE FROM refresh_runs;",
+            )
+            .map_err(|err| format!("清除本地缓存失败: {err}"))
+    }
+
+    pub fn replace_tibo_posts(&self, posts: &[TiboPostRecord], synced_at: i64) -> Result<(), String> {
+        let mut connection = self.connect()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|err| format!("开始保存雷达动态失败: {err}"))?;
+        for post in posts {
+            transaction
+                .execute(
+                    "INSERT INTO tibo_posts(id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                     ON CONFLICT(id) DO UPDATE SET
+                        url = excluded.url, text = excluded.text, posted_at = excluded.posted_at, kind = excluded.kind,
+                        tibo_lane = excluded.tibo_lane, explicit_reset = excluded.explicit_reset,
+                        verification_status = excluded.verification_status, is_reply = excluded.is_reply,
+                        replies = excluded.replies, reposts = excluded.reposts, likes = excluded.likes,
+                        extra_json = excluded.extra_json, synced_at = excluded.synced_at",
+                    params![
+                        post.id, post.url, post.text, post.posted_at, post.kind, post.tibo_lane,
+                        i64::from(post.explicit_reset), post.verification_status, i64::from(post.is_reply),
+                        post.replies, post.reposts, post.likes, post.extra_json, synced_at
+                    ],
+                )
+                .map_err(|err| format!("写入雷达动态失败: {err}"))?;
+        }
+        transaction
+            .commit()
+            .map_err(|err| format!("提交雷达动态失败: {err}"))
+    }
+
+    pub fn list_tibo_posts(&self, limit: usize) -> Result<Vec<TiboPostRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at
+                 FROM tibo_posts ORDER BY posted_at DESC LIMIT ?1",
+            )
+            .map_err(|err| format!("准备雷达动态查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![limit as i64], map_tibo_post)
+            .map_err(|err| format!("查询雷达动态失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取雷达动态失败: {err}"))
+    }
+
+    pub fn insert_radar_check(&self, check: &RadarCheckRecord) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT INTO radar_checks(id, started_at, finished_at, status, sync_status, parse_status, analyze_status, error_message, post_count)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    check.id, check.started_at, check.finished_at, check.status, check.sync_status,
+                    check.parse_status, check.analyze_status, check.error_message, check.post_count
+                ],
+            )
+            .map(|_| ())
+            .map_err(|err| format!("写入雷达检查失败: {err}"))
+    }
+
+    pub fn list_radar_checks(&self, limit: usize) -> Result<Vec<RadarCheckRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, started_at, finished_at, status, sync_status, parse_status, analyze_status, error_message, post_count
+                 FROM radar_checks ORDER BY started_at DESC LIMIT ?1",
+            )
+            .map_err(|err| format!("准备雷达检查查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![limit as i64], |row| {
+                Ok(RadarCheckRecord {
+                    id: row.get(0)?,
+                    started_at: row.get(1)?,
+                    finished_at: row.get(2)?,
+                    status: row.get(3)?,
+                    sync_status: row.get(4)?,
+                    parse_status: row.get(5)?,
+                    analyze_status: row.get(6)?,
+                    error_message: row.get(7)?,
+                    post_count: row.get(8)?,
+                })
+            })
+            .map_err(|err| format!("查询雷达检查失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取雷达检查失败: {err}"))
+    }
+
+    pub fn latest_radar_analysis(&self) -> Result<Option<RadarAnalysisRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, confidence, citations_json, support_json, against_json, uncertainty_json, error_message
+                 FROM radar_analyses ORDER BY created_at DESC LIMIT 1",
+                [],
+                map_radar_analysis,
+            )
+            .optional()
+            .map_err(|err| format!("读取雷达分析失败: {err}"))
+    }
+
+    pub fn insert_radar_analysis(&self, analysis: &RadarAnalysisRecord) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, confidence, citations_json, support_json, against_json, uncertainty_json, error_message)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                params![
+                    analysis.id, analysis.created_at, analysis.range_key, analysis.cut_post_id,
+                    analysis.from_posted_at, analysis.to_posted_at, analysis.source_id, analysis.model,
+                    analysis.prompt_version, analysis.input_hash, analysis.conclusion, analysis.confidence,
+                    analysis.citations_json, analysis.support_json, analysis.against_json,
+                    analysis.uncertainty_json, analysis.error_message
+                ],
+            )
+            .map(|_| ())
+            .map_err(|err| format!("保存雷达分析失败: {err}"))
+    }
+}
+
+fn map_tibo_post(row: &rusqlite::Row<'_>) -> rusqlite::Result<TiboPostRecord> {
+    Ok(TiboPostRecord {
+        id: row.get(0)?,
+        url: row.get(1)?,
+        text: row.get(2)?,
+        posted_at: row.get(3)?,
+        kind: row.get(4)?,
+        tibo_lane: row.get(5)?,
+        explicit_reset: row.get::<_, i64>(6)? != 0,
+        verification_status: row.get(7)?,
+        is_reply: row.get::<_, i64>(8)? != 0,
+        replies: row.get(9)?,
+        reposts: row.get(10)?,
+        likes: row.get(11)?,
+        extra_json: row.get(12)?,
+        synced_at: row.get(13)?,
+    })
+}
+
+fn map_radar_analysis(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarAnalysisRecord> {
+    Ok(RadarAnalysisRecord {
+        id: row.get(0)?,
+        created_at: row.get(1)?,
+        range_key: row.get(2)?,
+        cut_post_id: row.get(3)?,
+        from_posted_at: row.get(4)?,
+        to_posted_at: row.get(5)?,
+        source_id: row.get(6)?,
+        model: row.get(7)?,
+        prompt_version: row.get(8)?,
+        input_hash: row.get(9)?,
+        conclusion: row.get(10)?,
+        confidence: row.get(11)?,
+        citations_json: row.get(12)?,
+        support_json: row.get(13)?,
+        against_json: row.get(14)?,
+        uncertainty_json: row.get(15)?,
+        error_message: row.get(16)?,
+    })
 }
 
 fn map_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceRecord> {
@@ -498,4 +817,30 @@ fn epoch_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::database::Database;
+
+    #[test]
+    fn remove_user_platform_deletes_catalog_row() {
+        let path = std::env::temp_dir().join(format!(
+            "ai-quota-monitor-remove-{}-{}.db",
+            std::process::id(),
+            epoch_ms()
+        ));
+        let database = Database::initialize_at(path.clone()).expect("db");
+        database
+            .ensure_account_source("glm-default", "glm", "glm-coding-plan", "api_key", "Coding Plan", "默认账户")
+            .expect("source");
+        database
+            .add_user_platform("glm", "GLM 国内", Some("https://open.bigmodel.cn"))
+            .expect("add");
+        assert!(database.user_platform("glm").expect("read").is_some());
+        database.remove_user_platform("glm").expect("remove");
+        assert!(database.user_platform("glm").expect("read").is_none());
+        let _ = std::fs::remove_file(path);
+    }
 }

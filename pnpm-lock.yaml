@@ -6,6 +6,8 @@ settings:
 
 importers:
 
+  .: {}
+
   apps/desktop:
     dependencies:
       '@radix-ui/react-tabs':

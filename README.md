@@ -43,6 +43,7 @@ AIQuotaMonitor/
 - Kimi、GLM 国内/国际、MiniMax 国内/国际已支持官方 Token Plan / Coding Plan 窗口查询。
 - Kimi 个人余额走 Moonshot 官方余额接口；GLM 网页个人余额与 MiMo 网页会话余额已接入隔离登录窗。
 - 未配置或查询失败时继续使用 missing/stale，不再展示阶段一静态示例额度。
+- GPT 重置雷达已接入 Codex Radar 公开 feed 与可选 AI 分析；设置页支持主题、排序、开机自启和自动刷新。
 
 ## 本地开发
 
@@ -63,3 +64,4 @@ pnpm --filter @ai-quota-monitor/desktop tauri dev
 3. 使用本机 Codex OAuth 登录确认 GPT 5 小时/7 天窗口与可选 Credits。
 4. 验证单 Source 失败时其他数据和最后成功快照仍保留。
 5. 继续接入 Claude Code，以及 SiliconFlow 等其余注册表平台。
+6. 在设置页确认主题、排序和自动刷新；雷达页点「立即检查」同步 Tibo 动态。

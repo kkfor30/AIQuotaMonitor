@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatDateTime } from "@/lib/format";
 import {
+  ACCESS_MODE_LABEL,
   SOURCE_STATE_META,
   SOURCE_TYPE_LABEL,
+  type SourceAccessMode,
   type SourceSummaryViewModel,
 } from "@/lib/types";
 
@@ -53,7 +55,7 @@ export function SourceCard({
           <div>
             <p className="text-sm font-medium text-q-text-primary">{source.displayName}</p>
             <p className="mt-0.5 text-xs text-q-text-muted">
-              {SOURCE_TYPE_LABEL[source.sourceType]} 来源
+              {source.accessMode ? ACCESS_MODE_LABEL[source.accessMode as SourceAccessMode] : SOURCE_TYPE_LABEL[source.sourceType]}
             </p>
           </div>
         </div>

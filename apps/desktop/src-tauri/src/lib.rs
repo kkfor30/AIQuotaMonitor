@@ -10,11 +10,46 @@
 mod commands;
 mod domain;
 mod providers;
+mod radar;
 mod refresh;
 mod storage;
 mod windows;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+
+fn start_auto_refresh(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut last = 0_i64;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            let Some(database) = app.try_state::<storage::database::Database>() else {
+                continue;
+            };
+            let minutes = database
+                .setting_string("refresh_interval_minutes")
+                .ok()
+                .flatten()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(15);
+            if minutes == 0 {
+                continue;
+            }
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            if now - last < (minutes as i64) * 60 {
+                continue;
+            }
+            last = now;
+            if let Some(coordinator) = app.try_state::<refresh::RefreshCoordinator>() {
+                if coordinator.refresh_all(&database).await.is_ok() {
+                    let _ = app.emit("platform-data-changed", ());
+                }
+            }
+        }
+    });
+}
 
 pub fn run() {
     tauri::Builder::default()
@@ -43,6 +78,20 @@ pub fn run() {
             commands::window_commands::open_main_window,
             commands::window_commands::get_hoverbar_preferences,
             commands::window_commands::set_hoverbar_enabled,
+            commands::window_commands::open_external_url,
+            commands::platform_commands::remove_user_platform,
+            commands::platform_commands::reveal_source_secret,
+            commands::platform_commands::test_api_endpoints,
+            commands::radar_commands::get_radar_snapshot,
+            commands::radar_commands::run_radar_check,
+            commands::settings_commands::get_app_settings,
+            commands::settings_commands::set_app_theme,
+            commands::settings_commands::set_refresh_interval,
+            commands::settings_commands::set_autostart,
+            commands::settings_commands::reorder_platforms,
+            commands::settings_commands::set_hoverbar_sort_mode,
+            commands::settings_commands::clear_local_cache,
+            commands::settings_commands::refresh_all_platforms,
         ])
         .setup(|app| {
             let database = storage::database::Database::initialize(app.handle())
@@ -71,6 +120,7 @@ pub fn run() {
                 windows::hoverbar::ensure_hoverbar_windows(app.handle())?;
             }
             windows::hoverbar::start_fullscreen_watcher(app.handle().clone());
+            start_auto_refresh(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -97,11 +97,59 @@ const GLM_CAPTURE_SCRIPT: &str = r#"
       }
     } catch (_) {}
   }
+  function markReady() {
+    try {
+      if (!document.title.startsWith('AIQM_GLM_TOKEN:') && document.title !== 'AIQM_GLM_READY') {
+        document.title = 'AIQM_GLM_READY';
+      }
+    } catch (_) {}
+  }
+  function looksLikeBalance(text) {
+    return /availableBalance|currentBalance|totalBalance|accountBalance|cashBalance|giveAmount|available_balance|操作成功/.test(text || '');
+  }
+  function pickAmount(value) {
+    if (!value || typeof value !== 'object') return '';
+    var keys = ['availableBalance','available_balance','currentBalance','current_balance','cashBalance','totalBalance','accountBalance','balanceAmount','balance'];
+    for (var i = 0; i < keys.length; i++) {
+      if (value[keys[i]] !== undefined && value[keys[i]] !== null && value[keys[i]] !== '') return String(value[keys[i]]);
+    }
+    for (var key in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      var nested = pickAmount(value[key]);
+      if (nested) return nested;
+    }
+    return '';
+  }
+  function deliverBalanceJson(text) {
+    try {
+      var body = JSON.parse(text);
+      var amount = pickAmount(body.data || body);
+      if (amount) {
+        try { document.title = 'AIQM_GLM_BALANCE:' + amount; } catch (_) {}
+        return;
+      }
+      if (looksLikeBalance(text)) markReady();
+    } catch (_) {}
+  }
   function fromAuth(value) {
     if (!value) return;
     var text = String(value);
     var match = /Bearer\s+(\S+)/i.exec(text);
     deliverToken(match ? match[1] : text);
+  }
+  function probeBalance() {
+    var urls = [
+      'https://open.bigmodel.cn/api/biz/account/query-customer-account-report',
+      'https://open.bigmodel.cn/api/biz/customer/getCustomerInfo'
+    ];
+    urls.forEach(function(url) {
+      fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } })
+        .then(function(response) { return response.text().then(function(text) { return { ok: response.ok, text: text }; }); })
+        .then(function(result) {
+          if (result && result.ok && result.text) deliverBalanceJson(result.text);
+        })
+        .catch(function() {});
+    });
   }
   function scanStores() {
     try {
@@ -111,7 +159,7 @@ const GLM_CAPTURE_SCRIPT: &str = r#"
           var pair = part.split('=');
           var name = (pair[0] || '').trim().toLowerCase();
           var value = pair.slice(1).join('=').trim();
-          if (value.length >= 20 && (name.indexOf('token') !== -1 || name.indexOf('auth') !== -1) && name.indexOf('csrf') === -1) {
+          if (value.length >= 20 && (name.indexOf('token') !== -1 || name.indexOf('auth') !== -1) && name.indexOf('csrf') === -1 && name.indexOf('expire') === -1) {
             deliverToken(value);
           }
         });
@@ -151,7 +199,18 @@ const GLM_CAPTURE_SCRIPT: &str = r#"
             }
           }
         } catch (_) {}
-        return originalFetch.apply(this, arguments);
+        return originalFetch.apply(this, arguments).then(function(response) {
+          try {
+            var url = '';
+            if (typeof input === 'string') url = input;
+            else if (input && input.url) url = String(input.url);
+            if (/account|customer|balance|financial|query-customer/i.test(url)) {
+              var clone = response.clone();
+              clone.text().then(function(text) { deliverBalanceJson(text); }).catch(function() {});
+            }
+          } catch (_) {}
+          return response;
+        });
       };
     }
     var originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
@@ -159,9 +218,10 @@ const GLM_CAPTURE_SCRIPT: &str = r#"
       try { if (name && String(name).toLowerCase() === 'authorization') fromAuth(value); } catch (_) {}
       return originalSetRequestHeader.apply(this, arguments);
     };
-    setInterval(scanStores, 1200);
+    setInterval(function() { scanStores(); probeBalance(); }, 1600);
   }
   scanStores();
+  probeBalance();
 })();
 "#;
 
@@ -204,7 +264,7 @@ const TEMPLATES: &[LoginTemplate] = &[
         window_label: "glm-source-login",
         window_title: "GLM 账号登录",
         login_url: "https://open.bigmodel.cn/usercenter/financialoverview",
-        allowed_host_suffixes: &["bigmodel.cn"],
+        allowed_host_suffixes: &["bigmodel.cn", "chatglm.cn", "zhipuai.cn"],
         init_script: GLM_CAPTURE_SCRIPT,
         title_prefix: "AIQM_GLM_TOKEN:",
         cookie_host_suffix: Some("bigmodel.cn"),
@@ -441,8 +501,19 @@ fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64
             if template.cookie_host_suffix.is_some() {
                 request_native_cookies(&app, &window, template);
             }
+            maybe_open_glm_finance(&window, template);
             if let Ok(title) = window.title() {
-                if let Some(secret) = title_secret(&title, template) {
+                if title == "AIQM_GLM_READY"
+                    || title.starts_with("AIQM_GLM_READY")
+                    || title.starts_with("AIQM_GLM_BALANCE:")
+                {
+                    let _ = window.set_title(template.window_title);
+                    request_native_cookies(&app, &window, template);
+                    let _ = app.emit(
+                        "source-login-status",
+                        "已在财务页读到余额，正在读取登录 Cookie…",
+                    );
+                } else if let Some(secret) = title_secret(&title, template) {
                     let _ = window.set_title(template.window_title);
                     let allow_blank = template.source_id != deepseek::WEB_SOURCE_ID || is_usage_page(&window);
                     if matches!(
@@ -498,6 +569,68 @@ fn cookie_ready(header: &str, template: &LoginTemplate) -> bool {
     }
 }
 
+fn maybe_open_glm_finance(window: &tauri::WebviewWindow, template: &LoginTemplate) {
+    if template.source_id != glm::WEB_BALANCE_SOURCE_ID {
+        return;
+    }
+    let Ok(url) = window.url() else {
+        return;
+    };
+    let host = url.host_str().unwrap_or_default();
+    if !host.ends_with("bigmodel.cn") {
+        return;
+    }
+    let path = url.path();
+    if path.starts_with("/usercenter") || is_glm_login_flow(path) {
+        return;
+    }
+    let _ = window.eval(
+        "if (!/login|oauth|passport|sso|auth/i.test(location.pathname)) location.replace('https://open.bigmodel.cn/usercenter/financialoverview');",
+    );
+}
+
+fn is_glm_login_flow(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.contains("login")
+        || lower.contains("oauth")
+        || lower.contains("passport")
+        || lower.contains("sso")
+        || lower.contains("auth")
+}
+
+fn cookie_query_urls(window: &tauri::WebviewWindow, template: &LoginTemplate) -> Vec<String> {
+    let mut urls = Vec::new();
+    let push = |urls: &mut Vec<String>, value: String| {
+        if !value.is_empty() && !urls.iter().any(|existing| existing == &value) {
+            urls.push(value);
+        }
+    };
+    push(&mut urls, cookie_query_url(template.login_url));
+    push(
+        &mut urls,
+        template
+            .login_url
+            .split('#')
+            .next()
+            .unwrap_or(template.login_url)
+            .to_string(),
+    );
+    if let Ok(current) = window.url() {
+        push(&mut urls, current.to_string());
+        push(&mut urls, cookie_query_url(&current.to_string()));
+    }
+    if template.source_id == glm::WEB_BALANCE_SOURCE_ID {
+        for extra in [
+            "https://open.bigmodel.cn/usercenter/financialoverview",
+            "https://open.bigmodel.cn/api/biz/account/query-customer-account-report",
+            "https://open.bigmodel.cn/api/biz/customer/getCustomerInfo",
+        ] {
+            push(&mut urls, extra.to_string());
+        }
+    }
+    urls
+}
+
 fn cookie_query_url(login_url: &str) -> String {
     let without_hash = login_url.split('#').next().unwrap_or(login_url);
     let Some(scheme_end) = without_hash.find("://") else {
@@ -520,9 +653,9 @@ fn request_native_cookies(app: &tauri::AppHandle, window: &tauri::WebviewWindow,
 
 #[cfg(windows)]
 fn request_native_cookies_windows(app: &tauri::AppHandle, window: &tauri::WebviewWindow, template: &LoginTemplate) {
+    let urls = cookie_query_urls(window, template);
     let app_for_webview = app.clone();
     let source_id = template.source_id;
-    let query_url = cookie_query_url(template.login_url);
     let result = window.with_webview(move |webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
         use windows_core::Interface;
@@ -537,49 +670,62 @@ fn request_native_cookies_windows(app: &tauri::AppHandle, window: &tauri::Webvie
         let Ok(manager) = core2.CookieManager() else {
             return;
         };
-        let uri = windows_core::HSTRING::from(query_url.as_str());
-        let app_for_handler = app_for_webview.clone();
-        let handler = webview2_com::GetCookiesCompletedHandler::create(Box::new(
-            move |error_code: windows_core::Result<()>,
-                  list: Option<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CookieList>| {
-                let parse = || -> Option<String> {
-                    error_code.ok()?;
-                    let list = list?;
-                    let mut count = 0u32;
-                    list.Count(&mut count).ok()?;
-                    let mut parts = Vec::with_capacity(count as usize);
-                    for index in 0..count {
-                        let cookie = list.GetValueAtIndex(index).ok()?;
-                        let mut name = windows_core::PWSTR::null();
-                        let mut value = windows_core::PWSTR::null();
-                        if cookie.Name(&mut name).is_err() || cookie.Value(&mut value).is_err() {
-                            continue;
+        for query_url in &urls {
+            let uri = windows_core::HSTRING::from(query_url.as_str());
+            let app_for_handler = app_for_webview.clone();
+            let handler = webview2_com::GetCookiesCompletedHandler::create(Box::new(
+                move |error_code: windows_core::Result<()>,
+                      list: Option<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CookieList>| {
+                    let parse = || -> Option<String> {
+                        error_code.ok()?;
+                        let list = list?;
+                        let mut count = 0u32;
+                        list.Count(&mut count).ok()?;
+                        let mut parts = Vec::with_capacity(count as usize);
+                        for index in 0..count {
+                            let cookie = list.GetValueAtIndex(index).ok()?;
+                            let mut name = windows_core::PWSTR::null();
+                            let mut value = windows_core::PWSTR::null();
+                            if cookie.Name(&mut name).is_err() || cookie.Value(&mut value).is_err() {
+                                continue;
+                            }
+                            let name = webview2_com::take_pwstr(name);
+                            let value = webview2_com::take_pwstr(value);
+                            if !name.is_empty() && !value.is_empty() {
+                                parts.push(format!("{name}={value}"));
+                            }
                         }
-                        let name = webview2_com::take_pwstr(name);
-                        let value = webview2_com::take_pwstr(value);
-                        if !name.is_empty() && !value.is_empty() {
-                            parts.push(format!("{name}={value}"));
+                        (!parts.is_empty()).then_some(parts.join("; "))
+                    };
+                    if let Some(cookie) = parse() {
+                        let Some(item) = template_for(source_id) else {
+                            return Ok(());
+                        };
+                        if cookie_ready(&cookie, item) {
+                            let app = app_for_handler.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let Some(window) = app.get_webview_window(
+                                    template_for(source_id).map(|item| item.window_label).unwrap_or_default(),
+                                ) else {
+                                    return;
+                                };
+                                let _ = capture_and_finish(&app, &window, source_id, &cookie, true).await;
+                            });
+                        } else if source_id == glm::WEB_BALANCE_SOURCE_ID && cookie.split(';').count() >= 3 {
+                            let _ = app_for_handler.emit(
+                                "source-login-status",
+                                format!(
+                                    "已读到 {} 个 Cookie，但仍缺少可用 Token，请停留在财务总览页。",
+                                    cookie.split(';').count()
+                                ),
+                            );
                         }
                     }
-                    (!parts.is_empty()).then_some(parts.join("; "))
-                };
-                if let Some(cookie) = parse() {
-                    if template_for(source_id).is_some_and(|item| cookie_ready(&cookie, item)) {
-                        let app = app_for_handler.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let Some(window) = app.get_webview_window(
-                                template_for(source_id).map(|item| item.window_label).unwrap_or_default(),
-                            ) else {
-                                return;
-                            };
-                            let _ = capture_and_finish(&app, &window, source_id, &cookie, true).await;
-                        });
-                    }
-                }
-                Ok(())
-            },
-        ));
-        let _ = manager.GetCookies(&uri, &handler);
+                    Ok(())
+                },
+            ));
+            let _ = manager.GetCookies(&uri, &handler);
+        }
     });
     if result.is_err() {
         let _ = app.emit("source-login-status", "登录窗口暂不可读取 Cookie，正在重试…");
@@ -749,5 +895,12 @@ mod tests {
             cookie_query_url("https://platform.xiaomimimo.com/#/console/balance"),
             "https://platform.xiaomimimo.com/"
         );
+    }
+
+    #[test]
+    fn glm_login_flow_detects_auth_paths() {
+        assert!(is_glm_login_flow("/user/login"));
+        assert!(is_glm_login_flow("/oauth/authorize"));
+        assert!(!is_glm_login_flow("/usercenter/financialoverview"));
     }
 }

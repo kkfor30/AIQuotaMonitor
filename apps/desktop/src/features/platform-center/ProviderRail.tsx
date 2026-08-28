@@ -1,3 +1,4 @@
+import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { PlatformSummaryViewModel } from "@/lib/types";
 import { AggregateStatusBadge } from "@/components/ui/StatusBadge";
@@ -41,11 +42,13 @@ export function ProviderRail({
   selectedId,
   onSelect,
   onAdd,
+  onRemove,
 }: {
   platforms: PlatformSummaryViewModel[];
   selectedId: string | null;
   onSelect: (providerId: string) => void;
   onAdd: () => void;
+  onRemove?: (providerId: string) => void;
 }) {
   return (
     <aside className="flex w-[248px] shrink-0 flex-col gap-2 border-r border-q-border bg-q-surface-muted/60 p-3 backdrop-blur-xl">
@@ -54,32 +57,49 @@ export function ProviderRail({
         {platforms.map((platform) => {
           const selected = platform.providerId === selectedId;
           return (
-            <button
+            <div
               key={platform.providerId}
-              type="button"
-              onClick={() => onSelect(platform.providerId)}
-              aria-current={selected ? "true" : undefined}
               className={cn(
-                "flex cursor-pointer items-center gap-3 rounded-q-control px-2.5 py-2.5 text-left transition-colors duration-150",
+                "group flex items-center gap-1 rounded-q-control transition-colors duration-150",
                 selected
-                  ? "border border-q-border-selected bg-white shadow-q-sm"
+                  ? "border border-q-border-selected bg-q-surface-solid shadow-q-sm"
                   : "border border-transparent hover:bg-q-surface-hover",
               )}
             >
-              <PlatformMark providerId={platform.providerId} />
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <span
-                  className={cn(
-                    "truncate text-sm font-medium",
-                    selected ? "text-q-text-primary" : "text-q-text-primary/90",
-                  )}
-                  data-selectable="true"
+              <button
+                type="button"
+                onClick={() => onSelect(platform.providerId)}
+                aria-current={selected ? "true" : undefined}
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-2.5 py-2.5 text-left"
+              >
+                <PlatformMark providerId={platform.providerId} />
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span
+                    className={cn(
+                      "truncate text-sm font-medium",
+                      selected ? "text-q-text-primary" : "text-q-text-primary/90",
+                    )}
+                  >
+                    {platform.displayName}
+                  </span>
+                  <AggregateStatusBadge status={platform.aggregateStatus} />
+                </div>
+              </button>
+              {onRemove && (
+                <button
+                  type="button"
+                  aria-label={`移除 ${platform.displayName}`}
+                  title="移除平台"
+                  className="mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-q-text-muted opacity-0 transition-opacity hover:bg-q-danger-soft hover:text-q-danger group-hover:opacity-100"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRemove(platform.providerId);
+                  }}
                 >
-                  {platform.displayName}
-                </span>
-                <AggregateStatusBadge status={platform.aggregateStatus} />
-              </div>
-            </button>
+                  <Trash2 size={14} aria-hidden />
+                </button>
+              )}
+            </div>
           );
         })}
       </div>

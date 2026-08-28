@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Link2, LoaderCircle, X } from "lucide-react";
+import { ExternalLink, Link2, LoaderCircle, X, Zap } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/Button";
+import { SecretField } from "@/components/ui/SecretField";
+import { EndpointSpeedPanel } from "./EndpointSpeedPanel";
 import {
   clearSourceCredential,
   closeSourceLogin,
   fetchPlatformSetup,
   ipcErrorMessage,
+  openExternalUrl,
   refreshPlatform,
   removeCodexAccount,
+  revealSourceSecret,
   saveSourceCredential,
   startSourceLogin,
   validateSourceCredential,
@@ -41,6 +45,7 @@ export function SourceEditorDrawer({
   const [loginOpened, setLoginOpened] = useState(false);
   const [verifiedSecret, setVerifiedSecret] = useState<string | null>(null);
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null);
+  const [speedOpen, setSpeedOpen] = useState(false);
 
   useEffect(() => {
     setSecret("");
@@ -51,6 +56,7 @@ export function SourceEditorDrawer({
     setLoginOpened(false);
     setVerifiedSecret(null);
     setVerifyMessage(null);
+    setSpeedOpen(false);
   }, [source?.sourceId, setupQuery.data?.apiBaseUrl]);
 
   useEffect(() => {
@@ -160,8 +166,8 @@ export function SourceEditorDrawer({
   const canSave = Boolean(input && secret.trim() && verifiedSecret === secret && (!showApiUrl || apiBaseUrl.trim()) && !busy);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/20" role="presentation" onMouseDown={close}>
-      <aside className="flex h-full w-full max-w-md flex-col border-l border-q-border bg-q-surface p-5 shadow-xl" role="dialog" aria-modal="true" aria-label={`编辑 ${source.displayName}`} onMouseDown={(event) => event.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-sm" role="presentation" onMouseDown={close}>
+      <aside className="flex h-full w-full max-w-md flex-col border-l border-q-border bg-q-surface-solid p-5 shadow-xl" role="dialog" aria-modal="true" aria-label={`编辑 ${source.displayName}`} onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div><p className="text-lg font-semibold text-q-text-primary">编辑来源</p><p className="mt-1 text-sm text-q-text-secondary">{source.displayName}</p></div>
           <Button variant="ghost" size="sm" onClick={close} aria-label="关闭编辑来源"><X size={16} /></Button>
@@ -172,7 +178,7 @@ export function SourceEditorDrawer({
               官网链接
               <div className="flex gap-2">
                 <input readOnly value={setup.officialUrl} className="h-10 min-w-0 flex-1 rounded-q-control border border-q-border bg-q-neutral-soft px-3 text-sm font-normal text-q-text-primary" />
-                <Button type="button" variant="secondary" size="sm" onClick={() => window.open(setup.officialUrl, "_blank", "noopener,noreferrer")}>
+                <Button type="button" variant="secondary" size="sm" onClick={() => void openExternalUrl(setup.officialUrl).catch((cause) => setError(ipcErrorMessage(cause, "无法打开外部链接。")))}>
                   <ExternalLink size={14} aria-hidden />
                   打开
                 </Button>
@@ -180,16 +186,21 @@ export function SourceEditorDrawer({
             </label>
           )}
           {input ? <>
-            <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
-              {input.label}
-              <input type="password" autoComplete="off" value={secret} onChange={(event) => { setSecret(event.target.value); setVerifiedSecret(null); setVerifyMessage(null); }} placeholder={input.placeholder} className="h-10 rounded-q-control border border-q-border bg-q-surface px-3 text-sm font-normal text-q-text-primary outline-none focus:border-q-primary" />
-            </label>
+            <SecretField
+              label={input.label}
+              value={secret}
+              onChange={(next) => { setSecret(next); setVerifiedSecret(null); setVerifyMessage(null); }}
+              placeholder={source.credentialConfigured ? "已保存，点击眼睛查看或重新输入以更换" : input.placeholder}
+              helpText={input.helpText}
+              configured={source.credentialConfigured}
+              onReveal={() => revealSourceSecret(source.sourceId)}
+              disabled={busy}
+            />
             {setup?.apiKeyUrl && source.sourceType === "api_key" && (
-              <button type="button" className="self-start text-xs text-q-primary" onClick={() => window.open(setup.apiKeyUrl!, "_blank", "noopener,noreferrer")}>
+              <button type="button" className="self-start text-xs text-q-primary" onClick={() => void openExternalUrl(setup.apiKeyUrl!).catch((cause) => setError(ipcErrorMessage(cause, "无法打开外部链接。")))}>
                 获取 API Key
               </button>
             )}
-            <p className="text-xs leading-relaxed text-q-text-muted">{input.helpText}</p>
           </> : isCli ? (
             <div className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2">
               <p className="text-sm text-q-text-secondary">
@@ -208,12 +219,22 @@ export function SourceEditorDrawer({
           )}
           {showApiUrl && (
             <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
-              <span className="flex items-center gap-2">
-                API 请求地址
-                <span className="inline-flex items-center gap-1 rounded-full border border-q-border bg-q-neutral-soft px-2 py-0.5 text-[11px] font-medium text-q-text-secondary">
-                  <Link2 size={12} aria-hidden />
-                  完整 URL
+              <span className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2">
+                  API 请求地址
+                  <span className="inline-flex items-center gap-1 rounded-full border border-q-border bg-q-neutral-soft px-2 py-0.5 text-[11px] font-medium text-q-text-secondary">
+                    <Link2 size={12} aria-hidden />
+                    完整 URL
+                  </span>
                 </span>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs font-normal text-q-text-muted hover:text-q-text-primary"
+                  onClick={() => setSpeedOpen(true)}
+                >
+                  <Zap size={12} aria-hidden />
+                  管理与测速
+                </button>
               </span>
               <input
                 value={apiBaseUrl}
@@ -303,6 +324,19 @@ export function SourceEditorDrawer({
           )}
         </div>
       </aside>
+      {speedOpen && (
+        <EndpointSpeedPanel
+          open
+          currentUrl={apiBaseUrl}
+          officialUrl={setup?.officialApiBaseUrl || ""}
+          onApply={(url) => {
+            setApiBaseUrl(url);
+            setVerifiedSecret(null);
+            setVerifyMessage(null);
+          }}
+          onClose={() => setSpeedOpen(false)}
+        />
+      )}
     </div>
   );
 }

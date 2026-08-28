@@ -20,3 +20,4 @@ export function createQueryClient(): QueryClient {
 
 export const PLATFORM_SUMMARIES_QUERY_KEY = ["platform-summaries"] as const;
 export const HOVERBAR_PREFERENCES_QUERY_KEY = ["hoverbar-preferences"] as const;
+export const APP_SETTINGS_QUERY_KEY = ["app-settings"] as const;

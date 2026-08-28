@@ -3,9 +3,10 @@
  *
  * 迁移来源：DeepSeek-Monitor-Windows/DeepSeekMonitorWindows
  * src/theme-preference.ts 与 src/main.tsx/useUiTheme（提交 af6cfe07，MIT）。
- * 当前项目尚无全局主题设置，因此仅在悬浮详情作用域内使用 localStorage 持久化。
+ * 设置页的浅色/深色会覆盖本地偏好；跟随系统时仍可用详情内按钮临时切换。
  */
 import { useCallback, useEffect, useState } from "react";
+import { fetchAppSettings } from "@/lib/ipc";
 
 export type HoverbarTheme = "light" | "dark";
 
@@ -23,6 +24,16 @@ function loadHoverbarTheme(): HoverbarTheme {
 
 export function useHoverbarTheme() {
   const [theme, setTheme] = useState<HoverbarTheme>(loadHoverbarTheme);
+
+  useEffect(() => {
+    void fetchAppSettings()
+      .then((settings) => {
+        if (settings.theme === "light" || settings.theme === "dark") {
+          setTheme(settings.theme);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.hoverbarTheme = theme;

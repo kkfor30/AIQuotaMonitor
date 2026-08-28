@@ -34,7 +34,7 @@ function TabTrigger({ value, children }: { value: PlatformTabId; children: React
       className={cn(
         "cursor-pointer rounded-[7px] px-4 py-1.5 text-[13px] font-medium transition-colors duration-150",
         "text-q-text-secondary hover:text-q-text-primary",
-        "data-[state=active]:bg-white data-[state=active]:text-q-primary data-[state=active]:shadow-q-sm",
+        "data-[state=active]:bg-q-surface-solid data-[state=active]:text-q-primary data-[state=active]:shadow-q-sm",
       )}
     >
       {children}

@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 2;
+const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -104,6 +104,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 2 {
         migrate_v2(&transaction)?;
+    }
+    if previous_version < 3 {
+        migrate_v3(&transaction)?;
     }
     transaction
         .commit()
@@ -238,6 +241,68 @@ fn migrate_v2(transaction: &Transaction<'_>) -> Result<(), String> {
             "#,
         )
         .map_err(|err| format!("执行 SQLite v2 迁移失败: {err}"))
+}
+
+fn migrate_v3(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            CREATE TABLE tibo_posts (
+                id TEXT PRIMARY KEY,
+                url TEXT NOT NULL,
+                text TEXT NOT NULL,
+                posted_at INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                tibo_lane TEXT,
+                explicit_reset INTEGER NOT NULL DEFAULT 0,
+                verification_status TEXT,
+                is_reply INTEGER NOT NULL DEFAULT 0,
+                replies INTEGER NOT NULL DEFAULT 0,
+                reposts INTEGER NOT NULL DEFAULT 0,
+                likes INTEGER NOT NULL DEFAULT 0,
+                extra_json TEXT NOT NULL DEFAULT '{}',
+                synced_at INTEGER NOT NULL
+            );
+            CREATE INDEX idx_tibo_posts_time ON tibo_posts(posted_at DESC);
+
+            CREATE TABLE radar_checks (
+                id TEXT PRIMARY KEY,
+                started_at INTEGER NOT NULL,
+                finished_at INTEGER,
+                status TEXT NOT NULL,
+                sync_status TEXT,
+                parse_status TEXT,
+                analyze_status TEXT,
+                error_message TEXT,
+                post_count INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE radar_analyses (
+                id TEXT PRIMARY KEY,
+                created_at INTEGER NOT NULL,
+                range_key TEXT NOT NULL,
+                cut_post_id TEXT,
+                from_posted_at INTEGER,
+                to_posted_at INTEGER,
+                source_id TEXT,
+                model TEXT,
+                prompt_version TEXT NOT NULL,
+                input_hash TEXT NOT NULL,
+                conclusion TEXT,
+                confidence TEXT,
+                citations_json TEXT NOT NULL DEFAULT '[]',
+                support_json TEXT NOT NULL DEFAULT '[]',
+                against_json TEXT NOT NULL DEFAULT '[]',
+                uncertainty_json TEXT NOT NULL DEFAULT '[]',
+                error_message TEXT
+            );
+            CREATE INDEX idx_radar_analyses_time ON radar_analyses(created_at DESC);
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (3, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v3 迁移失败: {err}"))
 }
 
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {

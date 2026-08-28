@@ -1,7 +1,8 @@
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw, Trash2 } from "lucide-react";
 import { PlatformMark } from "./ProviderRail";
 import { AggregateStatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { ipcErrorMessage, openExternalUrl } from "@/lib/ipc";
 import type { PlatformSummaryViewModel } from "@/lib/types";
 
 /**
@@ -11,10 +12,12 @@ export function ProviderHeader({
   platform,
   refreshing,
   onRefresh,
+  onRemove,
 }: {
   platform: PlatformSummaryViewModel;
   refreshing: boolean;
   onRefresh: () => void;
+  onRemove: () => void;
 }) {
   return (
     <header className="flex items-start justify-between gap-4">
@@ -36,11 +39,20 @@ export function ProviderHeader({
           variant="secondary"
           size="sm"
           disabled={!platform.officialUrl}
-          onClick={() => platform.officialUrl && window.open(platform.officialUrl, "_blank", "noopener,noreferrer")}
+          onClick={() => {
+            if (!platform.officialUrl) return;
+            void openExternalUrl(platform.officialUrl).catch((cause) => {
+              console.error(ipcErrorMessage(cause, "无法打开官方页面。"));
+            });
+          }}
           title={platform.officialUrl ? "打开官方页面" : "暂未提供官方页面"}
         >
           <ExternalLink size={15} aria-hidden />
           官方页面
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onRemove} title="移除该平台">
+          <Trash2 size={15} aria-hidden />
+          移除平台
         </Button>
         <Button size="sm" onClick={onRefresh} disabled={refreshing}>
           <RefreshCw size={15} aria-hidden className={refreshing ? "animate-spin" : ""} />

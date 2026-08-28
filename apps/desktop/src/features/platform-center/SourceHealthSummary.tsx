@@ -13,11 +13,14 @@ export function SourceHealthSummary({ platform }: { platform: PlatformSummaryVie
       <span className="text-[13px] font-medium text-q-text-secondary">来源状态</span>
       {platform.sources.map((source) => {
         const meta = SOURCE_STATE_META[source.state];
-        const failed = source.state === "error" || source.state === "auth_required";
+        const unconfigured = source.state === "auth_required" && !source.credentialConfigured;
+        const failed = source.state === "error" || (source.state === "auth_required" && source.credentialConfigured);
         return (
           <div key={source.sourceId} className="flex items-center gap-2">
             {failed ? (
               <CircleAlert size={15} className="text-q-danger" aria-hidden />
+            ) : unconfigured ? (
+              <CircleAlert size={15} className="text-q-neutral" aria-hidden />
             ) : (
               <CheckCircle2 size={15} className="text-q-success" aria-hidden />
             )}
