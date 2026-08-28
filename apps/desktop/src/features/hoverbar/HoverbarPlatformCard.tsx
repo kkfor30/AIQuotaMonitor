@@ -1,43 +1,134 @@
 /**
  * 悬浮详情平台卡片。
- * 与主窗口消费同一份 PlatformSummaryViewModel（get_platform_summaries），
- * 展示主能力数值与聚合状态；未配置平台只显示接入引导。
+ *
+ * 视觉结构迁移自 DeepSeek-Monitor-Windows/DeepSeekMonitorWindows
+ * src/main.tsx 的 HoverbarDetailRow（提交 af6cfe07，MIT）。
+ * 数据已改为当前 Source/Capability 脱敏 ViewModel，不读取旧版原始响应。
  */
-import { PlatformMark } from "@/features/platform-center/ProviderRail";
-import { AggregateStatusBadge, FreshnessTag } from "@/components/ui/StatusBadge";
-import type { PlatformSummaryViewModel } from "@/lib/types";
+import { AlertTriangle, CheckCircle2, CircleX, Settings2 } from "lucide-react";
+import type {
+  CapabilitySnapshotViewModel,
+  PlatformAggregateStatus,
+  PlatformSummaryViewModel,
+} from "@/lib/types";
+import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
+
+const PRIMARY_CAPABILITY_ORDER = [
+  "balance",
+  "window_usage",
+  "credits",
+  "today_spend",
+  "month_spend",
+];
 
 export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryViewModel }) {
-  const primaryCapability = platform.capabilities.find(
+  const visibleCapabilities = platform.capabilities.filter(
     (capability) => capability.value.primary !== null,
   );
+  const primaryCapability = pickPrimaryCapability(visibleCapabilities);
+  const supportingCapabilities = visibleCapabilities
+    .filter(
+      (capability) =>
+        capability.capabilityId !== primaryCapability?.capabilityId &&
+        capability.value.kind !== "trend",
+    )
+    .slice(0, 2);
+  const problemSource = platform.sources.find(
+    (source) => source.state === "error" || source.state === "auth_required",
+  );
+  const hasStale = visibleCapabilities.some((capability) => capability.freshness === "stale");
+  const visual = HOVERBAR_PROVIDER_VISUALS[platform.providerId];
 
   return (
-    <article className="hb-card flex items-center gap-3 rounded-q-control border border-q-border bg-white/85 px-3 py-2.5 shadow-q-sm backdrop-blur-sm">
-      <PlatformMark providerId={platform.providerId} size={32} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <p className="truncate text-[13px] font-medium text-q-text-primary">
-            {platform.displayName}
-          </p>
-          <AggregateStatusBadge status={platform.aggregateStatus} />
+    <article
+      className="hb-service-card"
+      data-status={platform.aggregateStatus}
+      data-freshness={hasStale ? "stale" : primaryCapability?.freshness ?? "missing"}
+    >
+      <span className="hb-provider-logo" aria-hidden="true">
+        {visual ? (
+          <img
+            src={visual.src}
+            alt=""
+            draggable={false}
+            style={{ transform: `scale(${visual.scale})` }}
+          />
+        ) : (
+          <span>{platform.displayName.slice(0, 1).toUpperCase()}</span>
+        )}
+      </span>
+
+      <div className="hb-service-main">
+        <div className="hb-service-title">
+          <b>{platform.displayName}</b>
+          <HoverbarStatus status={platform.aggregateStatus} />
         </div>
         {primaryCapability ? (
-          <div className="mt-1 flex items-baseline justify-between gap-2">
-            <p className="truncate text-[15px] font-semibold tracking-tight text-q-text-primary" data-selectable="true">
+          <>
+            <strong className="hb-primary-value" data-selectable="true">
               {primaryCapability.value.primary}
-            </p>
-            <span className="shrink-0 text-[11px] text-q-text-muted">
-              {primaryCapability.displayName}
-            </span>
-          </div>
+            </strong>
+            <span className="hb-primary-label">{primaryCapability.displayName}</span>
+          </>
         ) : (
-          <p className="mt-1 truncate text-[12px] text-q-text-muted">
-            {platform.aggregateStatus === "setup_required" ? "尚未接入，前往平台中心配置" : "暂无可展示数据"}
+          <p className="hb-primary-missing">
+            {platform.aggregateStatus === "setup_required" ? "尚未接入" : "暂无真实数据"}
           </p>
         )}
       </div>
-      {primaryCapability && <FreshnessTag freshness={primaryCapability.freshness} />}
+
+      <div className="hb-supporting-values">
+        {supportingCapabilities.length > 0 ? (
+          supportingCapabilities.map((capability) => (
+            <span key={capability.capabilityId}>
+              <i>{capability.displayName}</i>
+              <b data-selectable="true">{capability.value.primary}</b>
+            </span>
+          ))
+        ) : (
+          <span>
+            <i>接入方式</i>
+            <b>{platform.accessSummary}</b>
+          </span>
+        )}
+      </div>
+
+      {(problemSource || hasStale) && (
+        <div className="hb-card-message">
+          <AlertTriangle size={12} aria-hidden />
+          <span>
+            {problemSource?.errorMessage ??
+              (hasStale ? "部分能力正在使用上次成功快照" : "需要处理接入状态")}
+          </span>
+        </div>
+      )}
     </article>
+  );
+}
+
+function pickPrimaryCapability(
+  capabilities: CapabilitySnapshotViewModel[],
+): CapabilitySnapshotViewModel | undefined {
+  for (const capabilityId of PRIMARY_CAPABILITY_ORDER) {
+    const capability = capabilities.find((item) => item.capabilityId === capabilityId);
+    if (capability) return capability;
+  }
+  return capabilities[0];
+}
+
+function HoverbarStatus({ status }: { status: PlatformAggregateStatus }) {
+  const meta = {
+    healthy: { label: "正常", icon: CheckCircle2 },
+    partial: { label: "部分可用", icon: AlertTriangle },
+    setup_required: { label: "待配置", icon: Settings2 },
+    error: { label: "异常", icon: CircleX },
+  }[status];
+  const Icon = meta.icon;
+
+  return (
+    <span className="hb-status" data-status={status}>
+      <Icon size={11} aria-hidden />
+      {meta.label}
+    </span>
   );
 }

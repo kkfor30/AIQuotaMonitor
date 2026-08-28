@@ -1,18 +1,17 @@
 /**
  * 悬浮球锚点窗口应用（40x40 透明置顶窗口）。
  *
- * 迁移来源：DeepSeekMonitorWindows-final/src/main.tsx 的 HoverbarAnchorApp
- * （提交 f3ab3ec6，MIT，约 702-862 行）
+ * 迁移来源：DeepSeek-Monitor-Windows/DeepSeekMonitorWindows/src/main.tsx
+ * 的 HoverbarAnchorApp / HoverbarOrb（提交 af6cfe07，MIT，约 602-862 行）。
  * 迁移内容：悬停延迟展开、离开延迟收起、startDragging 原生拖动、
  * onMoved 区分点击与拖动、拖动后抑制窗口、detail-visibility/pointer 事件同步。
- * 变更：小球视觉由 webp 动画改为 CSS 渐变（不迁移品牌素材）；
- * invoke 调用改为 lib/ipc 封装。
+ * 变更：保留旧版动画 WebP 与 reduced-motion 静态海报；invoke 调用改为
+ * 当前项目 IPC 契约，锚点与详情仍使用独立窗口。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/cn";
 import { fetchHoverbarPreferences } from "@/lib/ipc";
 import {
   HOVERBAR_DRAG_SUPPRESS_MS,
@@ -191,38 +190,40 @@ export function HoverbarAnchorApp() {
   );
 }
 
-/** 40x40 窗口内的 32px 玻璃小球：蓝色渐变 + 顶部高光，停靠边缘时偏移视觉重心。 */
-function HoverbarOrb({
+/** 40x40 透明窗口内的 32px 动态玻璃小球。 */
+export function HoverbarOrb({
   edge,
   active,
   ariaLabel,
   onActivate,
   onPointerDown,
+  disabled = false,
+  forceState,
 }: {
   edge: string;
   active: boolean;
   ariaLabel: string;
   onActivate: () => void;
   onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  disabled?: boolean;
+  forceState?: "hover" | "focus" | "active";
 }) {
   return (
     <button
       type="button"
       aria-label={ariaLabel}
       title={ariaLabel}
+      disabled={disabled}
       onDragStart={preventNativeAssetDrag}
       onClick={onActivate}
       onPointerDown={onPointerDown}
-      className={cn(
-        "orb-shell absolute grid h-[40px] w-[40px] cursor-pointer place-items-center transition-transform duration-150",
-        active && "orb-active",
-      )}
+      className={`hb-orb${active ? " is-detail-open" : ""}${forceState ? ` is-${forceState}` : ""}`}
       data-edge={edge}
     >
-      <span className="orb-body pointer-events-none grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-[#3b82f7] via-[#0756ee] to-[#0a3fb0] shadow-[0_2px_10px_rgba(7,86,238,0.45)]">
-        <span className="orb-gloss pointer-events-none absolute left-[7px] top-[5px] h-2.5 w-3.5 rounded-full bg-white/45 blur-[2px]" />
-        <span className="relative text-[11px] font-bold tracking-tight text-white/95">Q</span>
-      </span>
+      <picture>
+        <source media="(prefers-reduced-motion: reduce)" srcSet="/assets/hover-orb-poster.png" />
+        <img src="/assets/hover-orb.webp" alt="" draggable={false} />
+      </picture>
     </button>
   );
 }

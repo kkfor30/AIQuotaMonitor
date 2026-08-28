@@ -1,22 +1,23 @@
 /**
  * 悬浮详情窗口应用（独立 hoverbar-detail 窗口）。
  *
- * 迁移来源：DeepSeekMonitorWindows-final/src/main.tsx 的 HoverbarDetailApp
- * （提交 f3ab3ec6，MIT，约 864-972 行）
+ * 迁移来源：DeepSeek-Monitor-Windows/DeepSeekMonitorWindows/src/main.tsx 的
+ * HoverbarDetail / HoverbarDetailApp（提交 af6cfe07，MIT，约 640-972 行）。
  * 迁移内容：detail-open/detail-close 事件驱动的开合动画状态机、
  * ResizeObserver 内容测高 → set_hoverbar_detail_size 自适应窗口、
  * 指针进出上报 set_hoverbar_detail_pointer_inside。
- * 变更：UI 按新版设计 Token 重写（不迁移旧 hb-* 样式与主题切换）；
- * 数据改为 TanStack Query 消费与主窗口相同的静态 ViewModel。
+ * 变更：完整恢复旧版最终玻璃详情结构、四边布局与状态皮肤；数据改为
+ * 当前 Source/Capability 脱敏 ViewModel，不迁移旧平台请求与凭据逻辑。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, PanelTopClose } from "lucide-react";
+import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { fetchPlatformSummaries, openMainWindow } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import { HoverbarPlatformCard } from "./HoverbarPlatformCard";
+import { useHoverbarTheme } from "./hoverbar-theme";
 import {
   DEFAULT_HOVERBAR_PROVIDER_ORDER,
   HOVERBAR_EXIT_ANIMATION_MS,
@@ -29,6 +30,7 @@ import {
 } from "./hoverbar-state";
 
 export function HoverbarDetailApp() {
+  const { theme, toggleTheme } = useHoverbarTheme();
   const [motionPhase, setMotionPhase] = useState<HoverbarMotionPhase>("anchor");
   const [anchor, setAnchor] = useState<HoverbarAnchor>({ edge: "right", ratio: 0.4 });
   const [contentHeight, setContentHeight] = useState(0);
@@ -38,7 +40,7 @@ export function HoverbarDetailApp() {
   const headerRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const { data: platforms = [] } = useQuery({
+  const { data: platforms = [], isFetching, refetch } = useQuery({
     queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
     queryFn: fetchPlatformSummaries,
   });
@@ -66,6 +68,10 @@ export function HoverbarDetailApp() {
       window.clearTimeout(exitTimer.current);
       setAnchor(normalizeHoverbarAnchor(event.payload));
       setMotion("opening");
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        setMotion("visible");
+        return;
+      }
       // 双 rAF 确保初始样式已提交后再切换到可见态，动画才能生效
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
@@ -118,8 +124,11 @@ export function HoverbarDetailApp() {
       .catch((error) => console.error("无法调整悬浮详情尺寸", error));
   }, [anchor.edge, contentHeight]);
 
+  const connectedPlatforms = platforms.filter(
+    (platform) => platform.aggregateStatus !== "setup_required",
+  );
   const orderedPlatforms = sortHoverbarPlatforms(
-    platforms,
+    connectedPlatforms,
     DEFAULT_HOVERBAR_PROVIDER_ORDER,
     "manual",
   );
@@ -136,23 +145,46 @@ export function HoverbarDetailApp() {
       onMouseEnter={() => void invoke("set_hoverbar_detail_pointer_inside", { inside: true })}
       onMouseLeave={() => void invoke("set_hoverbar_detail_pointer_inside", { inside: false })}
     >
-      <div ref={panelRef} className="hb-panel glass-panel flex max-h-full flex-col gap-2 p-3">
-        <header ref={headerRef} className="flex items-center justify-between gap-2 px-1 pb-1">
-          <p className="truncate text-[12px] font-medium text-q-text-secondary">{statusText}</p>
-          <div className="flex items-center gap-1">
+      <section ref={panelRef} className="hb-panel">
+        <header ref={headerRef} className="hb-head">
+          <p className="hb-refresh-status" data-error={statusText.includes("失败") || undefined}>
+            {isFetching ? "正在刷新平台状态…" : statusText}
+          </p>
+          <div className="hb-actions">
+            <DetailIconButton
+              label={isFetching ? "正在刷新" : "刷新平台状态"}
+              title={isFetching ? "正在刷新" : "刷新平台状态"}
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              loading={isFetching}
+            >
+              <RefreshCw size={16} aria-hidden />
+            </DetailIconButton>
+            <DetailIconButton
+              label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+              title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+              onClick={toggleTheme}
+            >
+              {theme === "dark" ? (
+                <SunMedium size={16} aria-hidden />
+              ) : (
+                <Moon size={16} aria-hidden />
+              )}
+            </DetailIconButton>
             <DetailIconButton label="打开主窗口" title="打开主窗口" onClick={() => void openMainWindow()}>
-              <ExternalLink size={14} aria-hidden />
+              <ExternalLink size={16} aria-hidden />
             </DetailIconButton>
             <DetailIconButton label="收起详情" title="收起详情" onClick={finishClose}>
-              <PanelTopClose size={15} aria-hidden />
+              <X size={17} aria-hidden />
             </DetailIconButton>
           </div>
         </header>
 
-        <div ref={listRef} className="hb-list flex flex-col gap-2 overflow-y-auto">
+        <div ref={listRef} className="hb-service-list">
           {orderedPlatforms.length === 0 ? (
-            <div className="rounded-q-control border border-dashed border-q-border-strong px-3 py-4 text-center text-[12px] text-q-text-muted">
-              暂无可展示额度
+            <div className="hb-empty">
+              <strong>暂无可展示额度</strong>
+              <span>请在主窗口的平台中心完成接入</span>
             </div>
           ) : (
             orderedPlatforms.map((platform) => (
@@ -161,10 +193,7 @@ export function HoverbarDetailApp() {
           )}
         </div>
 
-        <p className="px-1 pt-0.5 text-[10px] leading-relaxed text-q-text-muted">
-          静态演示数据 · 与主窗口共享同一份数据源
-        </p>
-      </div>
+      </section>
     </div>
   );
 }
@@ -173,11 +202,15 @@ function DetailIconButton({
   label,
   title,
   onClick,
+  disabled = false,
+  loading = false,
   children,
 }: {
   label: string;
   title: string;
   onClick: () => void;
+  disabled?: boolean;
+  loading?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -186,7 +219,9 @@ function DetailIconButton({
       aria-label={label}
       title={title}
       onClick={onClick}
-      className="grid h-7 w-7 cursor-pointer place-items-center rounded-q-control text-q-text-secondary transition-colors duration-150 hover:bg-q-primary-softer hover:text-q-primary"
+      disabled={disabled}
+      className="hb-action-button"
+      data-loading={loading || undefined}
     >
       {children}
     </button>
