@@ -64,10 +64,22 @@ pub struct PlatformSummaryViewModel {
     pub provider_id: String,
     pub display_name: String,
     pub aggregate_status: PlatformAggregateStatus,
+    pub official_url: Option<String>,
     /// 平台接入方式摘要，例如「API Key + 网页会话」
     pub access_summary: String,
     pub sources: Vec<SourceSummaryViewModel>,
     pub capabilities: Vec<CapabilitySnapshotViewModel>,
+    pub refresh_history: Vec<RefreshHistoryEntryViewModel>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialInputViewModel {
+    pub label: String,
+    pub placeholder: String,
+    pub help_text: String,
+    /// api_key | bearer_token
+    pub secret_kind: String,
 }
 
 /// 一种独立数据来源的摘要（接入与来源 Tab 的卡片数据）。
@@ -87,6 +99,20 @@ pub struct SourceSummaryViewModel {
     pub error_message: Option<String>,
     /// 该 Source 覆盖的能力 id 列表
     pub capability_ids: Vec<String>,
+    pub credential_input: Option<CredentialInputViewModel>,
+    pub supports_interactive_login: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshHistoryEntryViewModel {
+    pub id: String,
+    pub source_id: String,
+    pub source_name: String,
+    /// running | success | partial | failed
+    pub status: String,
+    pub finished_at: Option<u64>,
+    pub error_message: Option<String>,
 }
 
 /// 能力快照的展示值。后端负责格式化，前端零计算。

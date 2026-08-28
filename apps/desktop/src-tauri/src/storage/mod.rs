@@ -4,6 +4,8 @@
 //! Credential Manager。SQLite 永不保存 API Key、Token 或 Cookie 明文。
 
 pub mod database;
+pub mod legacy_import;
+pub mod repository;
 pub mod vault;
 
 use serde::{Deserialize, Serialize};

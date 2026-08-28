@@ -10,6 +10,7 @@
 mod commands;
 mod domain;
 mod providers;
+mod refresh;
 mod storage;
 mod windows;
 
@@ -19,6 +20,12 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::platform_commands::get_platform_summaries,
+            commands::platform_commands::refresh_platform,
+            commands::platform_commands::save_source_credential,
+            commands::platform_commands::clear_source_credential,
+            commands::platform_commands::start_source_login,
+            commands::platform_commands::inspect_legacy_config,
+            commands::platform_commands::import_legacy_config,
             commands::window_commands::show_hoverbar_detail,
             commands::window_commands::request_hide_hoverbar_detail,
             commands::window_commands::finish_hide_hoverbar_detail,
@@ -33,6 +40,8 @@ pub fn run() {
             let database = storage::database::Database::initialize(app.handle())
                 .map_err(std::io::Error::other)?;
             app.manage(database);
+            let refresh = refresh::RefreshCoordinator::new().map_err(std::io::Error::other)?;
+            app.manage(refresh);
 
             let prefs = storage::load_preferences(app.handle());
             app.manage(windows::hoverbar::HoverbarRuntime::new((
