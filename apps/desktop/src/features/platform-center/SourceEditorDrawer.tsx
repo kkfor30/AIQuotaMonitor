@@ -9,6 +9,7 @@ import {
   fetchPlatformSetup,
   ipcErrorMessage,
   refreshPlatform,
+  removeCodexAccount,
   saveSourceCredential,
   startSourceLogin,
   validateSourceCredential,
@@ -122,11 +123,11 @@ export function SourceEditorDrawer({
   const loginMutation = useMutation({
     mutationFn: () => startSourceLogin(source!.sourceId),
     onSuccess: async () => {
-      if (source?.sourceType === "local_cli") {
+      if (source?.supportsCliLogin) {
         setLoginStatus("Codex 登录完成，正在检测额度…");
         try {
           updatePlatforms(await refreshPlatform(platformId));
-          setLoginStatus("已重新连接本机 Codex 登录。");
+          setLoginStatus(source.sourceId.startsWith("openai-codex-extra-") ? "已登录额外 ChatGPT 账号。" : "已重新连接本机 Codex 登录。");
         } catch (cause) {
           setError(ipcErrorMessage(cause, "登录已完成，但刷新额度失败。"));
         }
@@ -134,7 +135,12 @@ export function SourceEditorDrawer({
       }
       setLoginOpened(true);
     },
-    onError: (cause) => setError(ipcErrorMessage(cause, source?.sourceType === "local_cli" ? "无法启动 Codex 登录。" : "无法启动网页登录。")),
+    onError: (cause) => setError(ipcErrorMessage(cause, source?.supportsCliLogin ? "无法启动 Codex 登录。" : "无法启动网页登录。")),
+  });
+  const removeExtraMutation = useMutation({
+    mutationFn: () => removeCodexAccount(source!.sourceId),
+    onSuccess: (platforms) => { updatePlatforms(platforms); close(); },
+    onError: (cause) => setError(ipcErrorMessage(cause, "移除额外账号失败。")),
   });
   const closeLoginMutation = useMutation({
     mutationFn: () => closeSourceLogin(source!.sourceId),
@@ -144,7 +150,9 @@ export function SourceEditorDrawer({
 
   if (!source) return null;
   const input = source.credentialInput ?? null;
-  const busy = verifyMutation.isPending || saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending;
+  const isCli = source.supportsCliLogin === true;
+  const isExtraCodex = source.sourceId.startsWith("openai-codex-extra-");
+  const busy = verifyMutation.isPending || saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending || removeExtraMutation.isPending;
   const setup = setupQuery.data;
   const showApiUrl = source.sourceType === "api_key";
   const canSave = Boolean(input && secret.trim() && verifiedSecret === secret && (!showApiUrl || apiBaseUrl.trim()) && !busy);
@@ -180,10 +188,18 @@ export function SourceEditorDrawer({
               </button>
             )}
             <p className="text-xs leading-relaxed text-q-text-muted">{input.helpText}</p>
-          </> : source.sourceType === "local_cli" ? (
+          </> : isCli ? (
             <div className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2">
-              <p className="text-sm text-q-text-secondary">GPT / Codex 使用本机 Codex CLI 的 ChatGPT 登录，不把 Token 复制进本应用。</p>
-              <p className="mt-1 text-xs leading-relaxed text-q-text-muted">刷新优先走 `codex app-server`；只有 CLI 读不到额度时才回退 chatgpt.com。网络失败时请检查代理，或重新登录后再检测。</p>
+              <p className="text-sm text-q-text-secondary">
+                {isExtraCodex
+                  ? "额外账号使用独立的 Codex 登录目录，不会覆盖本机当前 CLI 登录。"
+                  : "默认直接检测本机 Codex CLI 的 ChatGPT 登录，不必先开网页。"}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-q-text-muted">
+                {isExtraCodex
+                  ? "点「登录另一个账号」会弹出官方 Codex 登录。额度与本机账号分开刷新、分开展示。"
+                  : "点「检测并刷新」即可读取窗口额度。只有要更换本机 CLI 当前账号时，才需要重新登录。"}
+              </p>
             </div>
           ) : (
             <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">此本地来源由应用自动检测，无需输入凭据。</p>
@@ -208,20 +224,24 @@ export function SourceEditorDrawer({
               </span>
             </label>
           )}
-          {source.sourceType === "local_cli" && (
+          {isCli && (
             <div className="flex flex-col gap-2">
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={() => {
                   setError(null);
-                  setLoginStatus("请在弹出的 Codex 登录窗口完成 ChatGPT 登录。完成后会自动检测额度。");
+                  setLoginStatus(
+                    isExtraCodex
+                      ? "请在弹出的 Codex 登录窗口登录另一个 ChatGPT 账号。不会改写本机 ~/.codex。"
+                      : "这会更换本机 Codex CLI 当前登录。若只想读取现有凭证，请关闭后点「检测并刷新」。",
+                  );
                   loginMutation.mutate();
                 }}
                 disabled={busy}
               >
                 {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
-                {loginMutation.isPending ? "等待 Codex 登录…" : "重新登录 Codex CLI"}
+                {loginMutation.isPending ? "等待 Codex 登录…" : isExtraCodex ? "登录另一个账号" : "更换本机 Codex 登录"}
               </Button>
             </div>
           )}
@@ -238,12 +258,14 @@ export function SourceEditorDrawer({
           {verifyMessage && <p className="rounded-q-control border border-q-success/25 bg-q-success-soft px-3 py-2 text-xs text-q-success">{verifyMessage}</p>}
           {loginStatus && <p className="rounded-q-control border border-q-warning/30 bg-q-warning-soft px-3 py-2 text-xs leading-relaxed text-q-text-secondary">{loginStatus}</p>}
           {error && <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">{error}</p>}
-          {(source.credentialConfigured || source.sourceType === "local_cli") && (confirmClear ? (
+          {(source.credentialConfigured || isCli) && (confirmClear ? (
             <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3">
               <p className="text-xs leading-relaxed text-q-danger">
-                {source.sourceType === "local_cli"
-                  ? "将退出本机 Codex CLI 的 ChatGPT 登录。Codex 命令行也需要重新登录，确定继续？"
-                  : "清除后将无法通过此来源获取对应额度，确定继续？"}
+                {isExtraCodex
+                  ? "只清除这个额外账号的独立登录，不会退出本机 Codex CLI。确定继续？"
+                  : source.sourceType === "local_cli"
+                    ? "将退出本机 Codex CLI 的 ChatGPT 登录。Codex 命令行也需要重新登录，确定继续？"
+                    : "清除后将无法通过此来源获取对应额度，确定继续？"}
               </p>
               <div className="mt-3 flex gap-2">
                 <Button size="sm" onClick={() => clearMutation.mutate()} disabled={busy}>
@@ -256,9 +278,14 @@ export function SourceEditorDrawer({
             </div>
           ) : (
             <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)} disabled={busy}>
-              {source.sourceType === "local_cli" ? "清除本机登录" : "清除凭据"}
+              {isExtraCodex ? "清除这个账号登录" : source.sourceType === "local_cli" ? "清除本机登录" : "清除凭据"}
             </Button>
           ))}
+          {isExtraCodex && (
+            <Button variant="ghost" size="sm" onClick={() => removeExtraMutation.mutate()} disabled={busy}>
+              {removeExtraMutation.isPending ? "移除中…" : "移除这个额外账号"}
+            </Button>
+          )}
         </div>
         <div className="flex justify-end gap-2 border-t border-q-border pt-4">
           <Button variant="ghost" onClick={close}>取消</Button>

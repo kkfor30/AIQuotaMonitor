@@ -4,10 +4,12 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
 import {
+  addCodexAccount,
   importLegacyConfig,
   inspectLegacyConfig,
   ipcErrorMessage,
   refreshPlatform,
+  startSourceLogin,
 } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { PlatformSummaryViewModel } from "@/lib/types";
@@ -42,6 +44,24 @@ export function SourcesView({
   });
   const refreshMutation = useMutation({
     mutationFn: () => refreshPlatform(platform.providerId),
+    onSuccess: (platforms) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
+    },
+  });
+  const addCodexMutation = useMutation({
+    mutationFn: async () => {
+      const platforms = await addCodexAccount();
+      const openai = platforms.find((item) => item.providerId === "openai");
+      const extra = openai?.sources
+        .filter((source) => source.sourceId.startsWith("openai-codex-extra-"))
+        .sort((left, right) => left.sourceId.localeCompare(right.sourceId))
+        .at(-1);
+      if (extra) {
+        await startSourceLogin(extra.sourceId);
+        return refreshPlatform(platform.providerId);
+      }
+      return platforms;
+    },
     onSuccess: (platforms) => {
       queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
     },
@@ -87,7 +107,7 @@ export function SourcesView({
             focused={source.sourceId === focusSourceId}
             apiBaseUrl={platform.apiBaseUrl}
             onEdit={() => setEditingSourceId(source.sourceId)}
-            onRefresh={source.sourceType === "local_cli" ? () => refreshMutation.mutate() : undefined}
+            onRefresh={source.supportsCliLogin ? () => refreshMutation.mutate() : undefined}
             refreshing={refreshMutation.isPending}
           />
         ))}
@@ -96,6 +116,23 @@ export function SourcesView({
         <p className="mt-3 rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
           {ipcErrorMessage(refreshMutation.error, "本地来源检测失败，请稍后重试。")}
         </p>
+      )}
+      {platform.providerId === "openai" && (
+        <div className="mt-4 flex flex-col gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => addCodexMutation.mutate()}
+            disabled={addCodexMutation.isPending}
+          >
+            {addCodexMutation.isPending ? "等待登录另一个账号…" : "添加另一个 ChatGPT 账号"}
+          </Button>
+          <p className="text-xs leading-relaxed text-q-text-muted">
+            本机账号默认直接检测 Codex CLI 登录。额外账号会弹出官方登录，并使用独立目录，不会覆盖 `~/.codex`。
+          </p>
+          {addCodexMutation.error && (
+            <p className="text-xs text-q-danger">{ipcErrorMessage(addCodexMutation.error, "添加额外账号失败。")}</p>
+          )}
+        </div>
       )}
       {platform.sources.length === 0 && (
         <p className="px-1 py-3 text-xs text-q-text-muted">该平台暂未提供可配置来源。</p>

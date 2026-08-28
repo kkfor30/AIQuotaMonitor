@@ -189,6 +189,13 @@ pub async fn clear_source_credential(
         database.clear_secret_ref(&source.id)?;
         return providers::platform_summaries(&database);
     }
+    if crate::providers::codex::is_extra_source(&source.id) {
+        if let Some(home) = extra_codex_home(&database, &source.id) {
+            crate::providers::codex::logout_cli_at(Some(&home))?;
+        }
+        database.clear_secret_ref(&source.id)?;
+        return providers::platform_summaries(&database);
+    }
     let previous_secret = vault::get(&reference)?;
     vault::delete(&reference)?;
     if let Err(error) = database.clear_secret_ref(&source.id) {
@@ -208,6 +215,7 @@ pub async fn start_source_login(
     source_id: String,
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
+    database: State<'_, Database>,
 ) -> Result<(), String> {
     if window.label() != "main" {
         return Err("仅主窗口可以打开来源登录".into());
@@ -217,8 +225,59 @@ pub async fn start_source_login(
             crate::windows::source_login::open(&app).await
         }
         id if id == crate::providers::codex::SOURCE_ID => crate::providers::codex::login_cli().await,
+        id if crate::providers::codex::is_extra_source(id) => {
+            let home = extra_codex_home(&database, id).ok_or_else(|| "无法定位额外账号目录".to_string())?;
+            crate::providers::codex::login_cli_at(Some(&home)).await
+        }
         _ => Err("此来源不支持登录".into()),
     }
+}
+
+#[tauri::command]
+pub fn add_codex_account(database: State<'_, Database>) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    if database.user_platform("openai")?.is_none() {
+        return Err("请先添加 GPT / Codex 平台".into());
+    }
+    let extras = database
+        .list_sources("openai")?
+        .into_iter()
+        .filter(|source| crate::providers::codex::is_extra_source(&source.id))
+        .count();
+    let id = format!(
+        "{}{}-{}",
+        crate::providers::codex::EXTRA_SOURCE_PREFIX,
+        extras + 1,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    let label = format!("额外 ChatGPT 账号 {}", extras + 1);
+    database.ensure_account_source(&id, "openai", &id, "oauth", &label, &label)?;
+    providers::platform_summaries(&database)
+}
+
+#[tauri::command]
+pub fn remove_codex_account(
+    source_id: String,
+    database: State<'_, Database>,
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    if !crate::providers::codex::is_extra_source(&source_id) {
+        return Err("只能移除额外 ChatGPT 账号".into());
+    }
+    let source = database.source(&source_id)?;
+    if let Some(home) = extra_codex_home(&database, &source_id) {
+        let _ = crate::providers::codex::logout_cli_at(Some(&home));
+        let _ = std::fs::remove_dir_all(home);
+    }
+    database.delete_account(&source.account_id)?;
+    providers::platform_summaries(&database)
+}
+
+fn extra_codex_home(database: &Database, source_id: &str) -> Option<std::path::PathBuf> {
+    let data_dir = database.path().parent()?;
+    crate::providers::codex::is_extra_source(source_id)
+        .then(|| crate::providers::codex::extra_source_home(data_dir, source_id))
 }
 
 #[tauri::command]

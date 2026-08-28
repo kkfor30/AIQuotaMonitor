@@ -3,7 +3,25 @@ import { RefreshHistory } from "./RefreshHistory";
 import { SourceHealthSummary } from "./SourceHealthSummary";
 import { UsageTrend } from "./UsageTrend";
 import { EmptyState } from "@/components/ui/EmptyState";
-import type { PlatformSummaryViewModel } from "@/lib/types";
+import type { CapabilitySnapshotViewModel, PlatformSummaryViewModel } from "@/lib/types";
+
+function groupedCapabilitySections(
+  platform: PlatformSummaryViewModel,
+  capabilities: CapabilitySnapshotViewModel[],
+): Array<{ sourceId: string; title: string | null; capabilities: CapabilitySnapshotViewModel[] }> {
+  const sourceIds = [...new Set(capabilities.map((capability) => capability.sourceId))];
+  if (sourceIds.length <= 1) {
+    return [{ sourceId: sourceIds[0] ?? "default", title: null, capabilities }];
+  }
+  return sourceIds.map((sourceId) => {
+    const source = platform.sources.find((item) => item.sourceId === sourceId);
+    return {
+      sourceId,
+      title: source?.displayName ?? "数据来源",
+      capabilities: capabilities.filter((capability) => capability.sourceId === sourceId),
+    };
+  });
+}
 
 /**
  * 平台中心 / 额度与用量：
@@ -31,11 +49,21 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
     <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] gap-4 overflow-y-auto pr-1">
       <div className="flex min-w-0 flex-col gap-4">
         <SourceHealthSummary platform={platform} />
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-          {cardCapabilities.map((capability) => (
-            <CapabilityCard key={capability.capabilityId} capability={capability} />
-          ))}
-        </div>
+        {groupedCapabilitySections(platform, cardCapabilities).map((section) => (
+          <section key={section.sourceId} className="flex min-w-0 flex-col gap-3">
+            {section.title ? (
+              <h3 className="text-sm font-medium text-q-text-primary">{section.title}</h3>
+            ) : null}
+            <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+              {section.capabilities.map((capability) => (
+                <CapabilityCard
+                  key={`${capability.sourceId}-${capability.capabilityId}`}
+                  capability={capability}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
         {trendCapability && trendCapability.trend.length > 0 && (
           <UsageTrend capability={trendCapability} />
         )}

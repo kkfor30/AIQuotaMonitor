@@ -81,7 +81,7 @@
 
 | 平台 | 查询内容 | 说明 |
 | --- | --- | --- |
-| GPT / Codex | 5 小时/7 天窗口、计划、接口返回的 Credits | `codex app-server` 优先，WHAM 回退；本机 Codex OAuth |
+| GPT / Codex | 5 小时/7 天窗口、计划、接口返回的 Credits | 默认检测本机 `~/.codex`，不必开网页。可再登录额外 ChatGPT 账号（独立 Codex 目录，不覆盖 CLI） |
 | Claude Code | 会话/周窗口 | 本机 Claude 登录与 `/usage` |
 | Gemini CLI | 订阅窗口 | 有本机凭据时再开放 |
 
@@ -117,12 +117,12 @@ DeepSeek 被用户添加后，应同时出现「官方余额（API Key）」和�
 
 - 展示该平台注册表声明的全部 Source 卡片，含待配置。
 - 默认动作是「编辑来源」填 API Key 并验证保存。
-- `web_session` 显示网页登录；`local_cli` 显示检测并刷新、重新登录和清除本机登录。
-- 清除凭据、移除平台都要二次确认。GPT 的清除会退出本机 Codex CLI 登录。
+- `web_session` 显示网页登录；本机 Codex 默认「检测并刷新」；额外 ChatGPT 账号才拉起官方登录。
+- 清除凭据、移除平台都要二次确认。清除本机 Codex 会退出 CLI 登录；清除额外账号不影响 `~/.codex`。
 
 ## 5. GPT 刷新失败怎么理解
 
-GPT 被添加后走本机 Codex OAuth，不是 ChatGPT 网页登录。
+GPT 被添加后默认走本机 Codex OAuth，直接检查 `~/.codex` 登录，不是必须先网页登录。若要同时监控第二个 ChatGPT 账号，再添加额外账号：用官方 `codex login` 写入独立目录，额度按 Source 分开展示。
 
 刷新：`codex app-server` → 不行再回退 `https://chatgpt.com/backend-api/wham/usage`。
 

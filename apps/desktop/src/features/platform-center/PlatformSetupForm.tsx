@@ -257,17 +257,17 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
 
       {setup.needsLocalCli && (
         <div className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-3">
-          <p className="text-sm text-q-text-secondary">此平台检测本机 Codex CLI 的 ChatGPT 登录，无需填写 API Key。</p>
+          <p className="text-sm text-q-text-secondary">默认直接检测本机 Codex CLI 登录，不必先开网页。</p>
           <p className="mt-1 text-xs leading-relaxed text-q-text-muted">
-            刷新优先走本机 `codex app-server`。只有 CLI 读不到额度时才连接 chatgpt.com；连不上时请检查代理，或重新登录后再检测。
+            点「检测并刷新」读取当前 `~/.codex` 的窗口额度。若要同时监控另一个 ChatGPT 账号，到下方来源点「添加另一个 ChatGPT 账号」；那次登录使用独立目录，不会覆盖本机 CLI。
           </p>
           {setup.localCliSourceId && (
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" disabled={busy} onClick={() => cliLoginMutation.mutate()}>
-                {cliLoginMutation.isPending ? "等待登录…" : "重新登录 Codex CLI"}
-              </Button>
               <Button variant="secondary" size="sm" disabled={busy} onClick={() => cliRefreshMutation.mutate()}>
                 {cliRefreshMutation.isPending ? "检测中…" : "检测并刷新"}
+              </Button>
+              <Button variant="secondary" size="sm" disabled={busy} onClick={() => cliLoginMutation.mutate()}>
+                {cliLoginMutation.isPending ? "等待登录…" : "更换本机 Codex 登录"}
               </Button>
               {confirmCliClear ? (
                 <>

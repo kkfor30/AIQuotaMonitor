@@ -103,6 +103,7 @@ pub struct SourceSummaryViewModel {
     pub capability_ids: Vec<String>,
     pub credential_input: Option<CredentialInputViewModel>,
     pub supports_interactive_login: bool,
+    pub supports_cli_login: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

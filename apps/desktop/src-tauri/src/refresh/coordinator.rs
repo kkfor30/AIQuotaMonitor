@@ -45,7 +45,7 @@ impl RefreshCoordinator {
         let configured = database
             .list_sources(provider_id)?
             .into_iter()
-            .filter_map(|source| self.source_secret(&source).map(|secret| (source, secret)))
+            .filter_map(|source| self.source_secret(database, &source).map(|secret| (source, secret)))
             .collect::<Vec<_>>();
         if configured.is_empty() {
             return Ok(());
@@ -59,8 +59,16 @@ impl RefreshCoordinator {
             let api_base_url = database
                 .user_platform(&source.platform_id)?
                 .and_then(|platform| platform.api_base_url);
+            let extra_home = extra_codex_home(database, &source.id);
             tasks.spawn(async move {
-                let output = fetch_source(&client, &source, secret.as_deref(), api_base_url.as_deref()).await;
+                let output = fetch_source(
+                    &client,
+                    &source,
+                    secret.as_deref(),
+                    api_base_url.as_deref(),
+                    extra_home.as_deref(),
+                )
+                .await;
                 (source, generation, output)
             });
         }
@@ -90,7 +98,7 @@ impl RefreshCoordinator {
         if secret.trim().is_empty() {
             return Err("凭据不能为空".into());
         }
-        let output = fetch_source(&self.client, source, Some(secret), api_base_url).await;
+        let output = fetch_source(&self.client, source, Some(secret), api_base_url, None).await;
         if let Some(error) = &output.error {
             if error.auth_required || output.capabilities.is_empty() {
                 return Err(error.message.clone());
@@ -112,9 +120,12 @@ impl RefreshCoordinator {
         database.finish_refresh_run(&run_id)
     }
 
-    fn source_secret(&self, source: &SourceRecord) -> Option<Option<String>> {
+    fn source_secret(&self, database: &Database, source: &SourceRecord) -> Option<Option<String>> {
         if source.id == codex::SOURCE_ID {
             return codex::local_auth_available().then_some(None);
+        }
+        if let Some(home) = extra_codex_home(database, &source.id) {
+            return codex::auth_available_at(Some(&home)).then_some(None);
         }
         source
             .secret_ref
@@ -124,11 +135,17 @@ impl RefreshCoordinator {
     }
 }
 
+fn extra_codex_home(database: &Database, source_id: &str) -> Option<std::path::PathBuf> {
+    let data_dir = database.path().parent()?;
+    codex::is_extra_source(source_id).then(|| codex::extra_source_home(data_dir, source_id))
+}
+
 async fn fetch_source(
     client: &Client,
     source: &SourceRecord,
     secret: Option<&str>,
     api_base_url: Option<&str>,
+    extra_home: Option<&std::path::Path>,
 ) -> SourceRefreshOutput {
     match source.id.as_str() {
         deepseek::BALANCE_SOURCE_ID => match secret {
@@ -139,7 +156,8 @@ async fn fetch_source(
             Some(secret) => deepseek::web_usage::fetch_current_month(client, secret).await,
             None => missing_secret("DeepSeek 网页会话未配置"),
         },
-        codex::SOURCE_ID => codex::fetch(client).await,
+        id if id == codex::SOURCE_ID => codex::fetch(client).await,
+        id if codex::is_extra_source(id) => codex::fetch_at(client, extra_home).await,
         _ => SourceRefreshOutput::failure(RefreshError::new(
             "unsupported_source",
             "当前版本尚未实现此数据来源",

@@ -14,33 +14,53 @@ use crate::storage::repository::SourceRecord;
 use crate::storage::vault;
 
 struct CapabilityTemplate {
-    id: &'static str,
-    source_id: &'static str,
-    display_name: &'static str,
-    kind: &'static str,
+    id: String,
+    source_id: String,
+    display_name: String,
+    kind: String,
 }
 
-const DEEPSEEK_CAPABILITIES: &[CapabilityTemplate] = &[
-    CapabilityTemplate { id: "balance", source_id: deepseek::BALANCE_SOURCE_ID, display_name: "账户余额", kind: "money" },
-    CapabilityTemplate { id: "today_spend", source_id: deepseek::WEB_SOURCE_ID, display_name: "今日消费", kind: "money" },
-    CapabilityTemplate { id: "month_spend", source_id: deepseek::WEB_SOURCE_ID, display_name: "本月消费", kind: "money" },
-    CapabilityTemplate { id: "model_usage_v4_flash", source_id: deepseek::WEB_SOURCE_ID, display_name: "V4 Flash 用量", kind: "tokens" },
-    CapabilityTemplate { id: "model_usage_v4_pro", source_id: deepseek::WEB_SOURCE_ID, display_name: "V4 Pro 用量", kind: "tokens" },
-    CapabilityTemplate { id: "request_count", source_id: deepseek::WEB_SOURCE_ID, display_name: "请求数", kind: "tokens" },
-    CapabilityTemplate { id: "prompt_tokens", source_id: deepseek::WEB_SOURCE_ID, display_name: "输入 Token", kind: "tokens" },
-    CapabilityTemplate { id: "cache_hit_tokens", source_id: deepseek::WEB_SOURCE_ID, display_name: "输入（命中缓存）", kind: "tokens" },
-    CapabilityTemplate { id: "cache_miss_tokens", source_id: deepseek::WEB_SOURCE_ID, display_name: "输入（未命中缓存）", kind: "tokens" },
-    CapabilityTemplate { id: "response_tokens", source_id: deepseek::WEB_SOURCE_ID, display_name: "输出 Token", kind: "tokens" },
-    CapabilityTemplate { id: "cache_hit_rate", source_id: deepseek::WEB_SOURCE_ID, display_name: "缓存命中率", kind: "percent" },
-    CapabilityTemplate { id: "usage_trend", source_id: deepseek::WEB_SOURCE_ID, display_name: "近 7 日消费趋势", kind: "trend" },
-];
+fn template(id: &str, source_id: &str, display_name: &str, kind: &str) -> CapabilityTemplate {
+    CapabilityTemplate {
+        id: id.into(),
+        source_id: source_id.into(),
+        display_name: display_name.into(),
+        kind: kind.into(),
+    }
+}
 
-const CODEX_CAPABILITIES: &[CapabilityTemplate] = &[
-    CapabilityTemplate { id: "quota_window_5h", source_id: codex::SOURCE_ID, display_name: "5 小时窗口", kind: "percent" },
-    CapabilityTemplate { id: "quota_window_7d", source_id: codex::SOURCE_ID, display_name: "7 天窗口", kind: "percent" },
-    CapabilityTemplate { id: "credits", source_id: codex::SOURCE_ID, display_name: "Credits 余额", kind: "credits" },
-    CapabilityTemplate { id: "plan_level", source_id: codex::SOURCE_ID, display_name: "订阅计划", kind: "text" },
-];
+fn deepseek_templates() -> Vec<CapabilityTemplate> {
+    vec![
+        template("balance", deepseek::BALANCE_SOURCE_ID, "账户余额", "money"),
+        template("today_spend", deepseek::WEB_SOURCE_ID, "今日消费", "money"),
+        template("month_spend", deepseek::WEB_SOURCE_ID, "本月消费", "money"),
+        template("model_usage_v4_flash", deepseek::WEB_SOURCE_ID, "V4 Flash 用量", "tokens"),
+        template("model_usage_v4_pro", deepseek::WEB_SOURCE_ID, "V4 Pro 用量", "tokens"),
+        template("request_count", deepseek::WEB_SOURCE_ID, "请求数", "tokens"),
+        template("prompt_tokens", deepseek::WEB_SOURCE_ID, "输入 Token", "tokens"),
+        template("cache_hit_tokens", deepseek::WEB_SOURCE_ID, "输入（命中缓存）", "tokens"),
+        template("cache_miss_tokens", deepseek::WEB_SOURCE_ID, "输入（未命中缓存）", "tokens"),
+        template("response_tokens", deepseek::WEB_SOURCE_ID, "输出 Token", "tokens"),
+        template("cache_hit_rate", deepseek::WEB_SOURCE_ID, "缓存命中率", "percent"),
+        template("usage_trend", deepseek::WEB_SOURCE_ID, "近 7 日消费趋势", "trend"),
+    ]
+}
+
+fn openai_templates(sources: &[SourceRecord]) -> Vec<CapabilityTemplate> {
+    let mut templates = Vec::new();
+    for source in sources.iter().filter(|source| codex::is_codex_source(&source.id)) {
+        let account = if source.id == codex::SOURCE_ID {
+            "本机 Codex".to_string()
+        } else {
+            source.display_name.clone()
+        };
+        templates.push(template("quota_window_5h", &source.id, &format!("{account} · 5 小时窗口"), "percent"));
+        templates.push(template("quota_window_7d", &source.id, &format!("{account} · 7 天窗口"), "percent"));
+        templates.push(template("credits", &source.id, &format!("{account} · Credits"), "credits"));
+        templates.push(template("plan_level", &source.id, &format!("{account} · 订阅计划"), "text"));
+    }
+    templates
+}
 
 pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryViewModel>, String> {
     let mut platforms = Vec::new();
@@ -59,16 +79,19 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
                 display_name,
                 official_url,
                 added.api_base_url.as_deref(),
-                DEEPSEEK_CAPABILITIES,
+                &deepseek_templates(),
             )?),
-            "openai" => platforms.push(real_platform(
-                database,
-                "openai",
-                display_name,
-                official_url,
-                added.api_base_url.as_deref(),
-                CODEX_CAPABILITIES,
-            )?),
+            "openai" => {
+                let templates = openai_templates(&database.list_sources("openai")?);
+                platforms.push(real_platform(
+                    database,
+                    "openai",
+                    display_name,
+                    official_url,
+                    added.api_base_url.as_deref(),
+                    &templates,
+                )?)
+            }
             id => platforms.push(real_platform(
                 database,
                 id,
@@ -117,7 +140,7 @@ pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::Pla
         official_api_base_url: entry.api_base_url.map(str::to_string).unwrap_or_default(),
         api_endpoint_hint: entry.api_endpoint_hint.into(),
         api_key_source_id: api_key_source.map(|source| source.id.clone()),
-        api_key_configured: api_key_source.is_some_and(source_configured),
+        api_key_configured: api_key_source.is_some_and(|source| source_configured(database, source)),
         local_cli_source_id: sources
             .iter()
             .find(|source| source.source_type == "local_cli")
@@ -159,17 +182,22 @@ fn real_platform(
     let records = database.list_sources(provider_id)?;
     let mut sources = Vec::with_capacity(records.len());
     for source in &records {
-        let credential_configured = source_configured(source);
+        let credential_configured = source_configured(database, source);
         let mut state = source_state(&source.state);
         if !credential_configured {
             state = SourceState::AuthRequired;
         } else if provider_id == "openai" && matches!(state, SourceState::AuthRequired) {
             state = SourceState::Ready;
         }
+        let display_name = if source.id == codex::SOURCE_ID {
+            "本机 Codex（当前 CLI）".to_string()
+        } else {
+            source.display_name.clone()
+        };
         sources.push(SourceSummaryViewModel {
             source_id: source.id.clone(),
             source_type: source_type(&source.source_type),
-            display_name: source.display_name.clone(),
+            display_name,
             state,
             credential_configured,
             last_validated_at: millis(source.last_validated_at),
@@ -179,17 +207,18 @@ fn real_platform(
             capability_ids: templates
                 .iter()
                 .filter(|value| value.source_id == source.id)
-                .map(|value| value.id.to_string())
+                .map(|value| value.id.clone())
                 .collect(),
             credential_input: credential_input(&source.id, &source.source_type),
             supports_interactive_login: source.id == deepseek::WEB_SOURCE_ID,
+            supports_cli_login: codex::is_codex_source(&source.id),
         });
     }
 
     let mut capabilities = Vec::with_capacity(templates.len());
     for template in templates {
         let source = records.iter().find(|source| source.id == template.source_id);
-        let snapshot = database.latest_snapshot(template.source_id, template.id)?;
+        let snapshot = database.latest_snapshot(&template.source_id, &template.id)?;
         capabilities.push(match (source, snapshot) {
             (Some(source), Some(snapshot))
                 if template.id != "credits"
@@ -217,14 +246,14 @@ fn real_platform(
                 }
             }
             _ => CapabilitySnapshotViewModel {
-                capability_id: template.id.into(),
-                source_id: template.source_id.into(),
-                display_name: template.display_name.into(),
+                capability_id: template.id.clone(),
+                source_id: template.source_id.clone(),
+                display_name: template.display_name.clone(),
                 freshness: DataFreshness::Missing,
                 captured_at: None,
                 last_good_at: None,
                 value: CapabilityDisplayValue {
-                    kind: template.kind.into(),
+                    kind: template.kind.clone(),
                     primary: None,
                     secondary: None,
                     progress: None,
@@ -239,7 +268,16 @@ fn real_platform(
         "deepseek" if configured_count == 2 => "API Key + 网页会话".to_string(),
         "deepseek" if sources.iter().any(|source| source.source_id == deepseek::BALANCE_SOURCE_ID && source.credential_configured) => "API Key".to_string(),
         "deepseek" if configured_count > 0 => "网页会话".to_string(),
-        "openai" if configured_count > 0 => "本地 Codex OAuth".to_string(),
+        "openai" => {
+            let local = sources.iter().any(|source| source.source_id == codex::SOURCE_ID && source.credential_configured);
+            let extra = sources.iter().filter(|source| codex::is_extra_source(&source.source_id) && source.credential_configured).count();
+            match (local, extra) {
+                (true, 0) => "本机 Codex".to_string(),
+                (true, count) => format!("本机 Codex + {count} 个额外账号"),
+                (false, count) if count > 0 => format!("{count} 个 ChatGPT 账号"),
+                _ => "尚未接入".to_string(),
+            }
+        }
         _ => "尚未接入".to_string(),
     };
     let refresh_history = database
@@ -268,16 +306,22 @@ fn real_platform(
     })
 }
 
-fn source_configured(source: &SourceRecord) -> bool {
+fn source_configured(database: &Database, source: &SourceRecord) -> bool {
     if source.id == codex::SOURCE_ID {
-        codex::local_auth_available()
-    } else {
-        source
-            .secret_ref
-            .as_deref()
-            .and_then(|reference| vault::get(reference).ok().flatten())
-            .is_some()
+        return codex::local_auth_available();
     }
+    if codex::is_extra_source(&source.id) {
+        return database
+            .path()
+            .parent()
+            .map(|data_dir| codex::extra_source_home(data_dir, &source.id))
+            .is_some_and(|home| codex::auth_available_at(Some(&home)));
+    }
+    source
+        .secret_ref
+        .as_deref()
+        .and_then(|reference| vault::get(reference).ok().flatten())
+        .is_some()
 }
 
 fn aggregate_status(

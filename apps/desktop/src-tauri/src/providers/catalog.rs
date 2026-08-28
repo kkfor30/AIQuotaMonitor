@@ -38,7 +38,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         api_base_url: None,
         api_key_url: None,
         api_endpoint_hint: "",
-        access_hint: "检测本机 Codex 登录",
+        access_hint: "检测本机 Codex 登录；可另加 ChatGPT 账号",
         needs_api_key: false,
         needs_web_login: false,
         needs_local_cli: true,

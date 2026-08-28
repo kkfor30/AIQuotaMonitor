@@ -131,6 +131,21 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_account(&self, account_id: &str) -> Result<(), String> {
+        if matches!(account_id, "openai-codex-local" | "deepseek-default") {
+            return Err("不能删除默认账户".into());
+        }
+        let connection = self.connect()?;
+        let changed = connection
+            .execute("DELETE FROM accounts WHERE id = ?1", params![account_id])
+            .map_err(|err| format!("删除账户失败: {err}"))?;
+        if changed == 0 {
+            Err("未找到该账户".into())
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn add_user_platform(&self, platform_id: &str, display_name: &str, api_base_url: Option<&str>) -> Result<(), String> {
         let connection = self.connect()?;
         let now = epoch_ms();

@@ -15,6 +15,7 @@ import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
 
 const PRIMARY_CAPABILITY_ORDER = [
   "balance",
+  "quota_window_5h",
   "window_usage",
   "credits",
   "today_spend",
@@ -83,7 +84,7 @@ export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryVi
       <div className="hb-supporting-values">
         {supportingCapabilities.length > 0 ? (
           supportingCapabilities.map((capability) => (
-            <span key={capability.capabilityId}>
+            <span key={`${capability.sourceId}-${capability.capabilityId}`}>
               <i>{capability.displayName}</i>
               <b data-selectable="true">{capability.value.primary}</b>
             </span>

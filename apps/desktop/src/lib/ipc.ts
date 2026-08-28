@@ -28,6 +28,14 @@ export async function addUserPlatforms(platformIds: string[]): Promise<PlatformS
   return invoke<PlatformSummaryViewModel[]>("add_user_platforms", { platformIds });
 }
 
+export async function addCodexAccount(): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("add_codex_account");
+}
+
+export async function removeCodexAccount(sourceId: string): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("remove_codex_account", { sourceId });
+}
+
 export async function refreshPlatform(providerId: string): Promise<PlatformSummaryViewModel[]> {
   return invoke<PlatformSummaryViewModel[]>("refresh_platform", { providerId });
 }

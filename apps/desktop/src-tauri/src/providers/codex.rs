@@ -18,6 +18,19 @@ use tokio::process::{ChildStdin, ChildStdout, Command};
 use std::os::windows::process::CommandExt;
 
 pub const SOURCE_ID: &str = "openai-codex-local";
+pub const EXTRA_SOURCE_PREFIX: &str = "openai-codex-extra-";
+
+pub fn is_extra_source(source_id: &str) -> bool {
+    source_id.starts_with(EXTRA_SOURCE_PREFIX)
+}
+
+pub fn is_codex_source(source_id: &str) -> bool {
+    source_id == SOURCE_ID || is_extra_source(source_id)
+}
+
+pub fn extra_source_home(data_dir: &Path, source_id: &str) -> PathBuf {
+    data_dir.join("codex-accounts").join(source_id)
+}
 
 #[derive(Debug)]
 enum AppServerError {
@@ -79,26 +92,44 @@ struct CodexAuth {
 }
 
 pub fn local_auth_available() -> bool {
-    read_auth().is_ok()
+    auth_available_at(None)
+}
+
+pub fn auth_available_at(home: Option<&Path>) -> bool {
+    read_auth_at(home).is_ok()
 }
 
 pub async fn fetch(client: &Client) -> SourceRefreshOutput {
-    match fetch_app_server().await {
+    fetch_at(client, None).await
+}
+
+pub async fn fetch_at(client: &Client, home: Option<&Path>) -> SourceRefreshOutput {
+    match fetch_app_server_at(home).await {
         Ok(capabilities) => SourceRefreshOutput::success(capabilities),
         Err(error @ (AppServerError::Credential(_) | AppServerError::Unsupported(_))) => {
             SourceRefreshOutput::failure(error.into_refresh())
         }
-        Err(app_error) => match fetch_wham(client).await {
+        Err(app_error) => match fetch_wham_at(client, home).await {
             Ok(capabilities) => SourceRefreshOutput::success(capabilities),
-            Err(wham_error) => SourceRefreshOutput::failure(combine_codex_errors(app_error, wham_error)),
+            Err(wham_error) => SourceRefreshOutput::failure(combine_codex_errors(home, app_error, wham_error)),
         },
     }
 }
 
 pub async fn login_cli() -> Result<(), String> {
+    login_cli_at(None).await
+}
+
+pub async fn login_cli_at(home: Option<&Path>) -> Result<(), String> {
+    if let Some(home) = home {
+        std::fs::create_dir_all(home).map_err(|error| format!("无法创建额外账号目录：{error}"))?;
+    }
     let program = resolve_codex_program().map_err(|error| error.message().to_string())?;
     let mut command = Command::new(&program);
     command.arg("login").kill_on_drop(false);
+    if let Some(home) = home {
+        command.env("CODEX_HOME", home);
+    }
     #[cfg(windows)]
     {
         const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
@@ -111,13 +142,39 @@ pub async fn login_cli() -> Result<(), String> {
     if !status.success() {
         return Err("Codex 登录未完成或已取消".into());
     }
-    if !local_auth_available() {
-        return Err("登录窗口已关闭，但仍未检测到 Codex ChatGPT 登录".into());
+    if !auth_available_at(home) {
+        return Err("登录窗口已关闭，但仍未检测到 ChatGPT 登录".into());
     }
     Ok(())
 }
 
 pub fn logout_cli() -> Result<(), String> {
+    logout_cli_at(None)
+}
+
+pub fn logout_cli_at(home: Option<&Path>) -> Result<(), String> {
+    if home.is_some() {
+        if let Ok(program) = resolve_codex_program() {
+            let mut command = std::process::Command::new(program);
+            command.arg("logout");
+            if let Some(home) = home {
+                command.env("CODEX_HOME", home);
+            }
+            #[cfg(windows)]
+            {
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                command.creation_flags(CREATE_NO_WINDOW);
+            }
+            let _ = command.output();
+        }
+        if auth_available_at(home) {
+            archive_auth_at(home)?;
+        }
+        if auth_available_at(home) {
+            return Err("额外 ChatGPT 登录仍存在，未能清除".into());
+        }
+        return Ok(());
+    }
     if let Ok(program) = resolve_codex_program() {
         let mut command = std::process::Command::new(program);
         command.arg("logout");
@@ -128,26 +185,26 @@ pub fn logout_cli() -> Result<(), String> {
         }
         let _ = command.output();
     }
-    if local_auth_available() {
-        archive_auth()?;
+    if auth_available_at(None) {
+        archive_auth_at(None)?;
     }
-    if local_auth_available() {
+    if auth_available_at(None) {
         return Err("本机 Codex 登录仍存在，未能清除。可在终端执行 `codex logout` 后重试。".into());
     }
     Ok(())
 }
 
-fn combine_codex_errors(app_error: AppServerError, mut wham_error: RefreshError) -> RefreshError {
+fn combine_codex_errors(home: Option<&Path>, app_error: AppServerError, mut wham_error: RefreshError) -> RefreshError {
     let app = app_error.message().to_string();
-    let stale = token_stale_hint();
+    let stale = token_stale_hint(home);
     if wham_error.code == "network_error" {
         wham_error.message = format!(
-            "GPT 额度未刷新：chatgpt.com 当前无法连接。本机 Codex app-server 也未能读取额度（{app}）。请检查代理/网络{}，或在接入与来源中重新登录 Codex CLI。",
+            "GPT 额度未刷新：chatgpt.com 当前无法连接。Codex app-server 也未能读取额度（{app}）。请检查代理/网络{}，或重新登录该账号。",
             stale.unwrap_or_default()
         );
     } else {
         wham_error.message = format!(
-            "{}。本机 Codex app-server：{app}{}",
+            "{}。Codex app-server：{app}{}",
             wham_error.message,
             stale.unwrap_or_default()
         );
@@ -155,10 +212,10 @@ fn combine_codex_errors(app_error: AppServerError, mut wham_error: RefreshError)
     wham_error
 }
 
-fn token_stale_hint() -> Option<String> {
-    let auth = read_auth().ok()?;
+fn token_stale_hint(home: Option<&Path>) -> Option<String> {
+    let auth = read_auth_at(home).ok()?;
     let last_refresh = auth.last_refresh.as_deref()?;
-    is_codex_token_stale(last_refresh).then(|| "；本机登录距上次刷新已超过 8 天，建议重新登录".into())
+    is_codex_token_stale(last_refresh).then(|| "；该账号距上次刷新已超过 8 天，建议重新登录".into())
 }
 
 fn is_codex_token_stale(last_refresh: &str) -> bool {
@@ -171,8 +228,8 @@ fn is_codex_token_stale(last_refresh: &str) -> bool {
         .is_some_and(|time| now.saturating_sub(time.timestamp().max(0) as u64) > 8 * 24 * 3600)
 }
 
-fn archive_auth() -> Result<(), String> {
-    let path = auth_path().map_err(|error| error.message)?;
+fn archive_auth_at(home: Option<&Path>) -> Result<(), String> {
+    let path = auth_path_at(home).map_err(|error| error.message)?;
     if !path.exists() {
         return Ok(());
     }
@@ -181,7 +238,7 @@ fn archive_auth() -> Result<(), String> {
         .unwrap_or_default()
         .as_secs();
     let backup = path.with_file_name(format!("auth.json.bak-{stamp}"));
-    std::fs::rename(&path, backup).map_err(|error| format!("备份 Codex 本机登录失败：{error}"))
+    std::fs::rename(&path, backup).map_err(|error| format!("备份 Codex 登录失败：{error}"))
 }
 
 fn resolve_codex_program() -> Result<PathBuf, AppServerError> {
@@ -232,7 +289,7 @@ fn codex_search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-async fn fetch_app_server() -> Result<Vec<CapabilityData>, AppServerError> {
+async fn fetch_app_server_at(home: Option<&Path>) -> Result<Vec<CapabilityData>, AppServerError> {
     let program = resolve_codex_program()?;
     let mut command = Command::new(&program);
     command
@@ -241,6 +298,9 @@ async fn fetch_app_server() -> Result<Vec<CapabilityData>, AppServerError> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
+    if let Some(home) = home {
+        command.env("CODEX_HOME", home);
+    }
     #[cfg(windows)]
     {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -432,8 +492,8 @@ fn parse_app_server(account: Value, rate_limits: Value) -> Result<Vec<Capability
     Ok(capabilities)
 }
 
-async fn fetch_wham(client: &Client) -> Result<Vec<CapabilityData>, RefreshError> {
-    let auth = read_auth()?;
+async fn fetch_wham_at(client: &Client, home: Option<&Path>) -> Result<Vec<CapabilityData>, RefreshError> {
+    let auth = read_auth_at(home)?;
     let tokens = auth.tokens.as_ref().ok_or_else(|| {
         RefreshError::new("auth_required", "未登录 GPT：Codex CLI 缺少 OAuth 凭据", true, false)
     })?;
@@ -577,7 +637,7 @@ fn append_plan_and_credits(capabilities: &mut Vec<CapabilityData>, plan: Option<
             display_name: "订阅计划".into(),
             value_kind: "text".into(),
             primary_value: Some(title_case(plan)),
-            secondary_value: Some("Codex 本地账户".into()),
+            secondary_value: Some("ChatGPT / Codex 订阅".into()),
             progress: None,
             trend: vec![],
         });
@@ -659,15 +719,28 @@ fn title_case(value: &str) -> String {
         .unwrap_or_else(|| "GPT".into())
 }
 
-fn auth_path() -> Result<PathBuf, RefreshError> {
+fn default_codex_home() -> Result<PathBuf, RefreshError> {
+    if let Some(home) = std::env::var_os("CODEX_HOME") {
+        let path = PathBuf::from(home);
+        if !path.as_os_str().is_empty() {
+            return Ok(path);
+        }
+    }
     let profile = std::env::var_os("USERPROFILE").ok_or_else(|| {
         RefreshError::new("auth_required", "无法定位 Codex CLI 本机登录信息", true, false)
     })?;
-    Ok(PathBuf::from(profile).join(".codex").join("auth.json"))
+    Ok(PathBuf::from(profile).join(".codex"))
 }
 
-fn read_auth() -> Result<CodexAuth, RefreshError> {
-    let text = std::fs::read_to_string(auth_path()?).map_err(|_| {
+fn auth_path_at(home: Option<&Path>) -> Result<PathBuf, RefreshError> {
+    Ok(match home {
+        Some(home) => home.join("auth.json"),
+        None => default_codex_home()?.join("auth.json"),
+    })
+}
+
+fn read_auth_at(home: Option<&Path>) -> Result<CodexAuth, RefreshError> {
+    let text = std::fs::read_to_string(auth_path_at(home)?).map_err(|_| {
         RefreshError::new("auth_required", "未登录 GPT：未找到 Codex CLI 本机登录信息", true, false)
     })?;
     let auth: CodexAuth = serde_json::from_str(&text).map_err(|_| {

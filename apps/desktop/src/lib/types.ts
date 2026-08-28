@@ -55,6 +55,7 @@ export interface SourceSummaryViewModel {
   /** 阶段一预览对象可能缺失；真实后端始终返回。 */
   credentialInput?: CredentialInput | null;
   supportsInteractiveLogin?: boolean;
+  supportsCliLogin?: boolean;
 }
 
 export interface CapabilityDisplayValue {
