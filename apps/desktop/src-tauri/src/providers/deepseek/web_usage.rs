@@ -112,7 +112,7 @@ async fn get_json<T: DeserializeOwned>(client: &Client, url: &str, token: &str) 
             .header("Accept", "*/*")
             .header(
                 "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
             )
             .timeout(Duration::from_secs(15))
             .send()

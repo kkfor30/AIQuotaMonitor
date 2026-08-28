@@ -114,7 +114,7 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
           </> : <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">此本地来源由应用自动检测，无需输入凭据。</p>}
           {source.supportsInteractiveLogin === true && <div className="flex flex-col gap-2">
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? "正在重新加载 DeepSeek 登录页…" : "正在打开 DeepSeek 登录页。若窗口空白，通常是 AWS WAF 静默验证，请等待或重新加载。"); loginMutation.mutate(); }} disabled={busy}>
+              <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? "正在重新加载 DeepSeek 登录页…" : "请在登录窗口完成 DeepSeek 账号登录。登录成功后会自动验证并保存网页会话。"); loginMutation.mutate(); }} disabled={busy}>
                 {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
                 {loginOpened ? "重新加载登录页" : "网页登录"}
               </Button>

@@ -87,7 +87,7 @@ pub async fn start_source_login(
     if source_id != crate::providers::deepseek::WEB_SOURCE_ID {
         return Err("此来源不支持网页登录".into());
     }
-    crate::windows::source_login::open(&app)
+    crate::windows::source_login::open(&app).await
 }
 
 #[tauri::command]
