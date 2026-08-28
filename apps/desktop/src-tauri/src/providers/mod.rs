@@ -537,7 +537,7 @@ fn credential_input(source_id: &str, source_type: &str) -> Option<CredentialInpu
         glm::WEB_BALANCE_SOURCE_ID => Some(CredentialInputViewModel {
             label: "GLM 网页登录 Cookie".into(),
             placeholder: "粘贴包含 bigmodel_token_production 的 Cookie，或使用网页登录".into(),
-            help_text: "官方 Coding Plan 不含个人余额。登录成功后自动验证控制台余额接口；Cookie 只进入 Windows Credential Manager。".into(),
+            help_text: "官方 Coding Plan 不含个人余额。点「网页登录」，看到财务总览后会自动保存，不必把 Cookie 粘贴到输入框。".into(),
             secret_kind: "cookie".into(),
         }),
         mimo::SOURCE_ID => Some(CredentialInputViewModel {

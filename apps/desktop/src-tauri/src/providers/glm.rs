@@ -4,7 +4,7 @@
 //! 查询 GET https://open.bigmodel.cn/api/biz/account/query-customer-account-report。
 //! 这是控制台内部接口，不是官方开放余额 API。金额按 JSON 原文转 Decimal。
 
-use super::money::{extract_cookie_value, format_cny, pick_decimal, WEB_UA};
+use super::money::{extract_token_cookie, format_cny, pick_decimal, WEB_UA};
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
@@ -22,7 +22,7 @@ pub async fn fetch(client: &Client, secret: &str) -> SourceRefreshOutput {
 }
 
 fn authorization_token(secret: &str) -> Result<String, RefreshError> {
-    if let Some(token) = extract_cookie_value(secret, "bigmodel_token_production") {
+    if let Some(token) = extract_token_cookie(secret) {
         return Ok(token);
     }
     let trimmed = secret.trim();
@@ -34,10 +34,10 @@ fn authorization_token(secret: &str) -> Result<String, RefreshError> {
             false,
         ));
     }
-    if trimmed.contains('=') && (trimmed.contains("bigmodel") || trimmed.contains(';')) {
+    if trimmed.contains('=') && trimmed.contains(';') {
         return Err(RefreshError::new(
             "session_expired",
-            "GLM 登录态缺少 bigmodel_token_production，请重新完成网页登录",
+            "GLM 登录态缺少可用 Token Cookie，请重新完成网页登录",
             true,
             false,
         ));
@@ -50,7 +50,7 @@ fn authorization_token(secret: &str) -> Result<String, RefreshError> {
             false,
         ));
     }
-    Ok(trimmed.to_string())
+    Ok(trimmed.trim_start_matches("Bearer ").trim().to_string())
 }
 
 async fn fetch_inner(client: &Client, secret: &str) -> Result<Vec<CapabilityData>, RefreshError> {
@@ -62,6 +62,7 @@ async fn fetch_inner(client: &Client, secret: &str) -> Result<Vec<CapabilityData
             .header("Authorization", &token)
             .header("Accept", "application/json")
             .header("User-Agent", WEB_UA)
+            .header("Origin", "https://open.bigmodel.cn")
             .header("Referer", REFERER)
             .timeout(Duration::from_secs(15))
             .send()
@@ -155,17 +156,8 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
             false,
         ));
     }
-    let available = pick_decimal(
-        body,
-        &[
-            "availableBalance",
-            "available_balance",
-            "balance",
-            "totalBalance",
-            "accountBalance",
-        ],
-    )
-    .ok_or_else(|| RefreshError::new("missing_balance", "GLM 未返回可解析的余额字段", false, false))?;
+    let available = pick_balance(body)
+        .ok_or_else(|| RefreshError::new("missing_balance", "GLM 未返回可解析的余额字段", false, false))?;
     let gift = pick_decimal(body, &["giveAmount", "giftAmount", "presentAmount"]);
     let recharge = pick_decimal(body, &["rechargeAmount", "cashAmount", "toppedUpBalance"]);
     let mut secondary_parts = Vec::new();
@@ -190,6 +182,32 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
     }])
 }
 
+fn pick_balance(body: &Value) -> Option<rust_decimal::Decimal> {
+    const KEYS: &[&str] = &[
+        "availableBalance",
+        "available_balance",
+        "currentBalance",
+        "current_balance",
+        "balance",
+        "totalBalance",
+        "accountBalance",
+    ];
+    if let Some(amount) = pick_decimal(body, KEYS) {
+        return Some(amount);
+    }
+    let data = body.get("data")?;
+    if let Some(object) = data.as_object() {
+        for value in object.values() {
+            if value.is_object() {
+                if let Some(amount) = pick_decimal(value, KEYS) {
+                    return Some(amount);
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,6 +223,21 @@ mod tests {
             authorization_token("eyJhbGciOiJIUzI1NiJ9.payload.sig").unwrap(),
             "eyJhbGciOiJIUzI1NiJ9.payload.sig"
         );
+        assert_eq!(
+            authorization_token("a=1; access_token=eyJhbGciOiJIUzI1NiJ9.payload.sig").unwrap(),
+            "eyJhbGciOiJIUzI1NiJ9.payload.sig"
+        );
+    }
+
+    #[test]
+    fn parses_nested_balance_object() {
+        let values = parse(&json!({
+            "success": true,
+            "code": 0,
+            "data": { "account": { "currentBalance": "6.22", "giveAmount": 0 } }
+        }))
+        .expect("nested glm balance");
+        assert_eq!(values[0].primary_value.as_deref(), Some("¥6.22"));
     }
 
     #[test]

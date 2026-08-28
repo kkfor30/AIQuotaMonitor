@@ -12,10 +12,12 @@ use crate::providers::{deepseek, glm, mimo};
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use crate::storage::vault;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -83,19 +85,83 @@ const DEEPSEEK_CAPTURE_SCRIPT: &str = r#"
 
 const GLM_CAPTURE_SCRIPT: &str = r#"
 (function() {
-  if (window.__aiqm_glm_hook__) return;
-  window.__aiqm_glm_hook__ = true;
-  setInterval(function() {
+  function deliverToken(token) {
+    if (!token || typeof token !== 'string') return;
+    token = String(token).trim();
+    if (/^Bearer\s+/i.test(token)) token = token.replace(/^Bearer\s+/i, '');
+    if (token.length < 20) return;
+    var title = 'AIQM_GLM_TOKEN:' + token;
     try {
-      var cookie = document.cookie || '';
-      if (cookie.indexOf('bigmodel_token_production') !== -1 && cookie.length > 80) {
-        var candidate = 'AIQM_GLM_COOKIE:' + cookie;
-        if (!document.title.startsWith('AIQM_GLM_COOKIE:') || document.title.length < candidate.length) {
-          document.title = candidate;
-        }
+      if (!document.title.startsWith('AIQM_GLM_TOKEN:') || document.title.length < title.length) {
+        document.title = title;
       }
     } catch (_) {}
-  }, 1200);
+  }
+  function fromAuth(value) {
+    if (!value) return;
+    var text = String(value);
+    var match = /Bearer\s+(\S+)/i.exec(text);
+    deliverToken(match ? match[1] : text);
+  }
+  function scanStores() {
+    try {
+      var cookie = document.cookie || '';
+      if (cookie) {
+        cookie.split(';').forEach(function(part) {
+          var pair = part.split('=');
+          var name = (pair[0] || '').trim().toLowerCase();
+          var value = pair.slice(1).join('=').trim();
+          if (value.length >= 20 && (name.indexOf('token') !== -1 || name.indexOf('auth') !== -1) && name.indexOf('csrf') === -1) {
+            deliverToken(value);
+          }
+        });
+      }
+    } catch (_) {}
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i) || '';
+        if (/token|auth/i.test(key)) deliverToken(localStorage.getItem(key));
+      }
+    } catch (_) {}
+    try {
+      for (var j = 0; j < sessionStorage.length; j++) {
+        var skey = sessionStorage.key(j) || '';
+        if (/token|auth/i.test(skey)) deliverToken(sessionStorage.getItem(skey));
+      }
+    } catch (_) {}
+  }
+  if (!window.__aiqm_glm_hook__) {
+    window.__aiqm_glm_hook__ = true;
+    var originalFetch = window.fetch;
+    if (typeof originalFetch === 'function') {
+      window.fetch = function(input, init) {
+        try {
+          var headers = (init && init.headers) || (input && input.headers);
+          if (headers) {
+            if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+              fromAuth(headers.get('authorization') || headers.get('Authorization'));
+            } else if (Array.isArray(headers)) {
+              for (var i = 0; i < headers.length; i++) {
+                if (headers[i] && String(headers[i][0]).toLowerCase() === 'authorization') fromAuth(headers[i][1]);
+              }
+            } else if (typeof headers === 'object') {
+              for (var key in headers) {
+                if (key.toLowerCase() === 'authorization') fromAuth(headers[key]);
+              }
+            }
+          }
+        } catch (_) {}
+        return originalFetch.apply(this, arguments);
+      };
+    }
+    var originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+    XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+      try { if (name && String(name).toLowerCase() === 'authorization') fromAuth(value); } catch (_) {}
+      return originalSetRequestHeader.apply(this, arguments);
+    };
+    setInterval(scanStores, 1200);
+  }
+  scanStores();
 })();
 "#;
 
@@ -140,10 +206,10 @@ const TEMPLATES: &[LoginTemplate] = &[
         login_url: "https://open.bigmodel.cn/usercenter/financialoverview",
         allowed_host_suffixes: &["bigmodel.cn"],
         init_script: GLM_CAPTURE_SCRIPT,
-        title_prefix: "AIQM_GLM_COOKIE:",
+        title_prefix: "AIQM_GLM_TOKEN:",
         cookie_host_suffix: Some("bigmodel.cn"),
         cookie_required: Some("bigmodel_token_production"),
-        cookie_min_len: 80,
+        cookie_min_len: 20,
         isolated_profile: true,
         status_open: "请在登录窗口完成 GLM 登录。同步成功后会自动验证并保存网页个人余额会话。",
         timeout_message: "GLM 网页登录等待超时，请关闭后重试。",
@@ -173,13 +239,56 @@ pub fn is_web_login_source(source_id: &str) -> bool {
     template_for(source_id).is_some()
 }
 
+fn watcher_generation() -> &'static Mutex<HashMap<String, u64>> {
+    static GENERATION: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+    GENERATION.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn bump_watcher(source_id: &str) -> u64 {
+    let mut map = watcher_generation().lock().unwrap_or_else(|error| error.into_inner());
+    let next = map.get(source_id).copied().unwrap_or(0).saturating_add(1);
+    map.insert(source_id.to_string(), next);
+    next
+}
+
+fn current_watcher(source_id: &str) -> u64 {
+    watcher_generation()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(source_id)
+        .copied()
+        .unwrap_or(0)
+}
+
+fn captures_in_flight() -> &'static Mutex<HashSet<String>> {
+    static CAPTURES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    CAPTURES.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn begin_capture(source_id: &str) -> bool {
+    captures_in_flight()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(source_id.to_string())
+}
+
+fn end_capture(source_id: &str) {
+    captures_in_flight()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(source_id);
+}
+
 pub async fn open(app: &tauri::AppHandle, source_id: &str) -> Result<(), String> {
     let template = template_for(source_id).ok_or_else(|| "此来源不支持网页登录".to_string())?;
+    let generation = bump_watcher(template.source_id);
     if let Some(window) = app.get_webview_window(template.window_label) {
         let _ = window.show();
         let _ = window.set_focus();
+        let _ = window.eval(template.init_script);
         let _ = window.eval(&format!("location.href = '{}';", template.login_url));
         let _ = app.emit("source-login-status", format!("正在打开 {}…", template.window_title));
+        start_watcher(app.clone(), template.source_id, generation);
         return Ok(());
     }
 
@@ -238,7 +347,7 @@ pub async fn open(app: &tauri::AppHandle, source_id: &str) -> Result<(), String>
         }
     });
     let _ = app.emit("source-login-status", template.status_open);
-    start_watcher(app.clone(), template.source_id);
+    start_watcher(app.clone(), template.source_id, generation);
     Ok(())
 }
 
@@ -302,80 +411,79 @@ fn is_usage_page(window: &tauri::WebviewWindow) -> bool {
         .is_some_and(|url| url.path().starts_with("/usage"))
 }
 
-fn start_watcher(app: tauri::AppHandle, source_id: &'static str) {
+fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64) {
     tauri::async_runtime::spawn(async move {
         let Some(template) = template_for(source_id) else {
             return;
         };
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         let mut cache_scan_failed = false;
-        for _ in 0..1200 {
+        for tick in 0..1200 {
+            if current_watcher(template.source_id) != generation {
+                return;
+            }
             let Some(window) = app.get_webview_window(template.window_label) else {
                 return;
             };
+            if tick % 2 == 0 {
+                let _ = window.eval(template.init_script);
+            }
             if template.source_id == deepseek::WEB_SOURCE_ID && !cache_scan_failed {
                 if let Some(token) = find_webview_cached_usage_token() {
                     let allow_blank = is_usage_page(&window);
-                    match capture(&app, template.source_id, &token, allow_blank).await {
-                        Ok(()) => {
-                            let _ = window.close();
-                            let _ = app.emit("source-credential-updated", template.source_id);
-                            return;
-                        }
-                        Err(error) if error.contains("尚未就绪") => {}
-                        Err(error) => {
-                            cache_scan_failed = true;
-                            let _ = app.emit("source-login-error", error);
-                        }
+                    match capture_and_finish(&app, &window, template.source_id, &token, allow_blank).await {
+                        CaptureOutcome::Success => return,
+                        CaptureOutcome::Retry => {}
+                        CaptureOutcome::Failed => cache_scan_failed = true,
                     }
                 }
             }
-            if let Some(suffix) = template.cookie_host_suffix {
-                if let Some(cookie) = read_cookie_header(&window, suffix).await {
-                    if cookie_ready(&cookie, template) {
-                        match capture(&app, template.source_id, &cookie, true).await {
-                            Ok(()) => {
-                                let _ = window.close();
-                                let _ = app.emit("source-credential-updated", template.source_id);
-                                return;
-                            }
-                            Err(error) => {
-                                let _ = app.emit(
-                                    "source-login-status",
-                                    format!("已读取登录 Cookie，正在等待余额接口就绪：{error}"),
-                                );
-                            }
-                        }
-                    }
-                }
+            if template.cookie_host_suffix.is_some() {
+                request_native_cookies(&app, &window, template);
             }
             if let Ok(title) = window.title() {
-                if let Some(secret) = title.strip_prefix(template.title_prefix) {
-                    let secret = secret.trim().to_string();
+                if let Some(secret) = title_secret(&title, template) {
                     let _ = window.set_title(template.window_title);
                     let allow_blank = template.source_id != deepseek::WEB_SOURCE_ID || is_usage_page(&window);
-                    match capture(&app, template.source_id, &secret, allow_blank).await {
-                        Ok(()) => {
-                            let _ = window.close();
-                            let _ = app.emit("source-credential-updated", template.source_id);
-                            return;
-                        }
-                        Err(error) if error.contains("尚未就绪") => {
-                            let _ = app.emit(
-                                "source-login-status",
-                                "已捕获登录过程中的临时会话，用量仍为空。请留在平台页等待自动同步，不要关闭窗口。",
-                            );
-                        }
-                        Err(error) => {
-                            let _ = app.emit("source-login-error", error);
-                        }
+                    if matches!(
+                        capture_and_finish(&app, &window, template.source_id, &secret, allow_blank).await,
+                        CaptureOutcome::Success
+                    ) {
+                        return;
                     }
                 }
             }
             tokio::time::sleep(Duration::from_millis(1500)).await;
         }
-        let _ = app.emit("source-login-error", template.timeout_message);
+        if current_watcher(template.source_id) == generation {
+            let _ = app.emit("source-login-error", template.timeout_message);
+        }
     });
+}
+
+fn title_secret(title: &str, template: &LoginTemplate) -> Option<String> {
+    if let Some(secret) = title.strip_prefix(template.title_prefix) {
+        let secret = secret.trim();
+        if secret.len() >= 20 {
+            return Some(secret.to_string());
+        }
+    }
+    if template.source_id == glm::WEB_BALANCE_SOURCE_ID {
+        if let Some(secret) = title.strip_prefix("AIQM_GLM_COOKIE:") {
+            let secret = secret.trim();
+            if secret.len() >= 20 {
+                return Some(secret.to_string());
+            }
+        }
+    }
+    None
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CaptureOutcome {
+    Success,
+    Retry,
+    Failed,
 }
 
 fn cookie_ready(header: &str, template: &LoginTemplate) -> bool {
@@ -384,32 +492,98 @@ fn cookie_ready(header: &str, template: &LoginTemplate) -> bool {
     }
     match template.cookie_required {
         Some("serviceToken") => mimo::cookie_looks_logged_in(header),
+        Some("bigmodel_token_production") => crate::providers::money::extract_token_cookie(header).is_some(),
         Some(name) => crate::providers::money::cookie_named(header, name),
         None => false,
     }
 }
 
-async fn read_cookie_header(window: &tauri::WebviewWindow, host_suffix: &str) -> Option<String> {
-    let window = window.clone();
-    let suffix = host_suffix.trim_start_matches('.').to_string();
-    tokio::task::spawn_blocking(move || {
-        let cookies = window.cookies().ok()?;
-        let parts: Vec<String> = cookies
-            .iter()
-            .filter(|cookie| {
-                cookie
-                    .domain()
-                    .map(|domain| domain.trim_start_matches('.').ends_with(suffix.as_str()))
-                    .unwrap_or(true)
-            })
-            .filter(|cookie| !cookie.name().is_empty() && !cookie.value().is_empty())
-            .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
-            .collect();
-        (!parts.is_empty()).then_some(parts.join("; "))
-    })
-    .await
-    .ok()
-    .flatten()
+fn cookie_query_url(login_url: &str) -> String {
+    let without_hash = login_url.split('#').next().unwrap_or(login_url);
+    let Some(scheme_end) = without_hash.find("://") else {
+        return without_hash.to_string();
+    };
+    let host = without_hash[scheme_end + 3..].split('/').next().unwrap_or_default();
+    format!("{}://{host}/", &without_hash[..scheme_end])
+}
+
+fn request_native_cookies(app: &tauri::AppHandle, window: &tauri::WebviewWindow, template: &LoginTemplate) {
+    #[cfg(windows)]
+    {
+        request_native_cookies_windows(app, window, template);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, window, template);
+    }
+}
+
+#[cfg(windows)]
+fn request_native_cookies_windows(app: &tauri::AppHandle, window: &tauri::WebviewWindow, template: &LoginTemplate) {
+    let app_for_webview = app.clone();
+    let source_id = template.source_id;
+    let query_url = cookie_query_url(template.login_url);
+    let result = window.with_webview(move |webview| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
+        use windows_core::Interface;
+
+        let controller = webview.controller();
+        let Ok(core) = controller.CoreWebView2() else {
+            return;
+        };
+        let Ok(core2) = core.cast::<ICoreWebView2_2>() else {
+            return;
+        };
+        let Ok(manager) = core2.CookieManager() else {
+            return;
+        };
+        let uri = windows_core::HSTRING::from(query_url.as_str());
+        let app_for_handler = app_for_webview.clone();
+        let handler = webview2_com::GetCookiesCompletedHandler::create(Box::new(
+            move |error_code: windows_core::Result<()>,
+                  list: Option<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CookieList>| {
+                let parse = || -> Option<String> {
+                    error_code.ok()?;
+                    let list = list?;
+                    let mut count = 0u32;
+                    list.Count(&mut count).ok()?;
+                    let mut parts = Vec::with_capacity(count as usize);
+                    for index in 0..count {
+                        let cookie = list.GetValueAtIndex(index).ok()?;
+                        let mut name = windows_core::PWSTR::null();
+                        let mut value = windows_core::PWSTR::null();
+                        if cookie.Name(&mut name).is_err() || cookie.Value(&mut value).is_err() {
+                            continue;
+                        }
+                        let name = webview2_com::take_pwstr(name);
+                        let value = webview2_com::take_pwstr(value);
+                        if !name.is_empty() && !value.is_empty() {
+                            parts.push(format!("{name}={value}"));
+                        }
+                    }
+                    (!parts.is_empty()).then_some(parts.join("; "))
+                };
+                if let Some(cookie) = parse() {
+                    if template_for(source_id).is_some_and(|item| cookie_ready(&cookie, item)) {
+                        let app = app_for_handler.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let Some(window) = app.get_webview_window(
+                                template_for(source_id).map(|item| item.window_label).unwrap_or_default(),
+                            ) else {
+                                return;
+                            };
+                            let _ = capture_and_finish(&app, &window, source_id, &cookie, true).await;
+                        });
+                    }
+                }
+                Ok(())
+            },
+        ));
+        let _ = manager.GetCookies(&uri, &handler);
+    });
+    if result.is_err() {
+        let _ = app.emit("source-login-status", "登录窗口暂不可读取 Cookie，正在重试…");
+    }
 }
 
 fn read_shared_text(path: &Path) -> Option<String> {
@@ -484,6 +658,42 @@ fn usage_is_blank(output: &SourceRefreshOutput) -> bool {
     })
 }
 
+async fn capture_and_finish(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    source_id: &str,
+    secret: &str,
+    allow_blank: bool,
+) -> CaptureOutcome {
+    if !begin_capture(source_id) {
+        return CaptureOutcome::Retry;
+    }
+    let outcome = match capture(app, source_id, secret, allow_blank).await {
+        Ok(()) => {
+            let _ = window.close();
+            let _ = app.emit("source-credential-updated", source_id);
+            let _ = app.emit("source-login-status", "已验证并保存网页会话。");
+            CaptureOutcome::Success
+        }
+        Err(error) if error.contains("尚未就绪") => {
+            let _ = app.emit(
+                "source-login-status",
+                "已捕获登录过程中的临时会话，用量仍为空。请留在平台页等待自动同步，不要关闭窗口。",
+            );
+            CaptureOutcome::Retry
+        }
+        Err(error) => {
+            let _ = app.emit(
+                "source-login-status",
+                format!("已读取登录态，正在等待余额接口就绪：{error}"),
+            );
+            CaptureOutcome::Failed
+        }
+    };
+    end_capture(source_id);
+    outcome
+}
+
 async fn capture(app: &tauri::AppHandle, source_id: &str, secret: &str, allow_blank: bool) -> Result<(), String> {
     let database = app.state::<Database>();
     let coordinator = app.state::<RefreshCoordinator>();
@@ -527,5 +737,17 @@ mod tests {
         assert!(is_web_login_source(glm::WEB_BALANCE_SOURCE_ID));
         assert!(is_web_login_source(mimo::SOURCE_ID));
         assert!(!is_web_login_source("kimi-balance-api"));
+    }
+
+    #[test]
+    fn cookie_query_url_strips_path_and_hash() {
+        assert_eq!(
+            cookie_query_url("https://open.bigmodel.cn/usercenter/financialoverview"),
+            "https://open.bigmodel.cn/"
+        );
+        assert_eq!(
+            cookie_query_url("https://platform.xiaomimimo.com/#/console/balance"),
+            "https://platform.xiaomimimo.com/"
+        );
     }
 }

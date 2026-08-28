@@ -81,7 +81,6 @@ export function SourceEditorDrawer({
   }, [source?.sourceId, source?.supportsInteractiveLogin, onClose]);
 
   const close = () => {
-    if (source?.supportsInteractiveLogin) void closeSourceLogin(source.sourceId);
     setSecret("");
     setError(null);
     setLoginStatus(null);
@@ -311,9 +310,9 @@ export function SourceEditorDrawer({
 function webLoginCopy(sourceId: string): { start: string; reload: string; help: string } {
   if (sourceId === "glm-web-balance") {
     return {
-      start: "请在登录窗口完成 GLM 登录。同步成功后会验证并保存网页个人余额会话。",
+      start: "请在登录窗口完成 GLM 登录。看到财务总览后稍等，成功后会自动保存，不必把 Cookie 粘贴到输入框。",
       reload: "正在打开 GLM 财务页并同步…",
-      help: "会打开隔离登录窗口。登录成功后自动验证控制台余额接口。清除凭据会退出该平台网页登录态。",
+      help: "网页登录成功后会自动验证并保存会话。输入框只用于手动粘贴，登录成功时不会回填 Cookie。",
     };
   }
   if (sourceId === "mimo-web-session") {
