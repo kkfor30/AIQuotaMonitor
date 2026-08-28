@@ -64,6 +64,7 @@
 | --- | --- | --- |
 | DeepSeek | 账户余额 | `balance.rs` → `api.deepseek.com/user/balance` |
 | Kimi | Coding Plan 窗口 | `coding_plan.rs` → `api.kimi.com/coding` |
+| Kimi | 个人账户余额 | 官方 `api.moonshot.cn/v1/users/me/balance`，使用开放平台 API Key |
 | GLM 国内 | Coding Plan 窗口 | `coding_plan.rs` → `open.bigmodel.cn` quota |
 | GLM 国际 | Coding Plan 窗口 | `coding_plan.rs` → `api.z.ai` quota |
 | MiniMax 国内 | Token Plan | `coding_plan.rs` → `api.minimaxi.com` |
@@ -90,10 +91,10 @@
 | 平台 | 额外 Source | 说明 |
 | --- | --- | --- |
 | DeepSeek | 网页用量与缓存 | API Key 只覆盖余额；Token/缓存/消费走网页会话 |
-| GLM | 个人账户余额 | 仅官方 quota 没有个人余额时启用 |
-| MiMo | 网页会话余额 | 无官方余额接口时启用 |
+| GLM | 个人账户余额 | 官方 Coding Plan 不含按量账户余额；隔离登录窗捕获控制台会话 |
+| MiMo | 网页会话余额 | 无官方余额接口；隔离登录窗读取含 httpOnly 的 Cookie |
 
-DeepSeek 被用户添加后，应同时出现「官方余额（API Key）」和「网页用量（登录）」两张 Source 卡片。用户可以只配其中一张。
+DeepSeek 被用户添加后，应同时出现「官方余额（API Key）」和「网页用量（登录）」两张 Source 卡片。用户可以只配其中一张。Kimi 添加后同时出现「Coding Plan」和「个人余额」两张 API Key 卡片（两套官方 Key，互不替代）。GLM 国内添加后同时出现「Coding Plan」和「网页个人余额」。
 
 ## 4. 平台中心交互
 

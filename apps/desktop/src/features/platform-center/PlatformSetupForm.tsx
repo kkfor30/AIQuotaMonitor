@@ -289,7 +289,7 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
       )}
       {setup.needsWebLogin && (
         <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">
-          用量、缓存等官方未开放的字段，在下方来源中使用网页登录后再同步。
+          官方未开放的字段（如用量、缓存或网页个人余额）在下方来源中使用网页登录后再同步。
         </p>
       )}
 

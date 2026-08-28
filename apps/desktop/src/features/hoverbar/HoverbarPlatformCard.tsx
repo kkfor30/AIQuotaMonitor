@@ -14,7 +14,7 @@ import type {
 import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
 
 const WINDOW_PRIMARY = ["quota_window_5h", "quota_window_7d", "plan_level"];
-const WINDOW_SUPPORTING = ["quota_window_5h", "quota_window_7d", "credits", "plan_level"];
+const WINDOW_SUPPORTING = ["quota_window_5h", "quota_window_7d", "credits", "plan_level", "balance"];
 
 const PRIMARY_ORDER: Record<string, string[]> = {
   openai: WINDOW_PRIMARY,
@@ -24,6 +24,7 @@ const PRIMARY_ORDER: Record<string, string[]> = {
   minimax: WINDOW_PRIMARY,
   minimax_intl: WINDOW_PRIMARY,
   deepseek: ["balance", "today_spend", "month_spend"],
+  mimo: ["balance"],
 };
 
 const SUPPORTING_ORDER: Record<string, string[]> = {
@@ -34,6 +35,7 @@ const SUPPORTING_ORDER: Record<string, string[]> = {
   minimax: WINDOW_SUPPORTING,
   minimax_intl: WINDOW_SUPPORTING,
   deepseek: ["balance", "today_spend", "month_spend"],
+  mimo: ["balance"],
 };
 
 const DEFAULT_PRIMARY_ORDER = ["balance", "quota_window_5h", "today_spend", "month_spend", "plan_level"];

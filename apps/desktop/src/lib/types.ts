@@ -15,7 +15,7 @@ export type CredentialInput = {
   label: string;
   placeholder: string;
   helpText: string;
-  secretKind: "api_key" | "bearer_token";
+  secretKind: "api_key" | "bearer_token" | "cookie";
 };
 
 export type RefreshHistoryEntry = {

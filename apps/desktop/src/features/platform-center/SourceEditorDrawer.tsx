@@ -63,8 +63,10 @@ export function SourceEditorDrawer({
     void listen<string>("source-login-status", (event) => {
       setLoginStatus(event.payload);
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
-    void listen("source-login-closed", () => {
-      setLoginOpened(false);
+    void listen<string>("source-login-closed", (event) => {
+      if (!event.payload || event.payload === source.sourceId) {
+        setLoginOpened(false);
+      }
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen<string>("source-credential-updated", (event) => {
       if (event.payload === source.sourceId) {
@@ -154,7 +156,8 @@ export function SourceEditorDrawer({
   const isExtraCodex = source.sourceId.startsWith("openai-codex-extra-");
   const busy = verifyMutation.isPending || saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending || removeExtraMutation.isPending;
   const setup = setupQuery.data;
-  const showApiUrl = source.sourceType === "api_key";
+  const showApiUrl = source.sourceType === "api_key" && source.sourceId !== "kimi-balance-api";
+  const webLoginHint = webLoginCopy(source.sourceId);
   const canSave = Boolean(input && secret.trim() && verifiedSecret === secret && (!showApiUrl || apiBaseUrl.trim()) && !busy);
 
   return (
@@ -247,13 +250,13 @@ export function SourceEditorDrawer({
           )}
           {source.supportsInteractiveLogin === true && <div className="flex flex-col gap-2">
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? "正在打开 DeepSeek 用量页并同步…" : "请在登录窗口完成登录并打开用量页。同步成功后会刷新 Token 与缓存。"); loginMutation.mutate(); }} disabled={busy}>
+              <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? webLoginHint.reload : webLoginHint.start); loginMutation.mutate(); }} disabled={busy}>
                 {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
                 {loginOpened ? "重新加载登录页" : "网页登录"}
               </Button>
               {loginOpened && <Button variant="ghost" size="sm" onClick={() => closeLoginMutation.mutate()} disabled={busy}>关闭登录页</Button>}
             </div>
-            <p className="text-xs leading-relaxed text-q-text-muted">会打开 DeepSeek 用量页并同步 Token 与缓存。清除凭据会退出网页登录态；下次需要重新登录，不会静默复用旧会话。</p>
+            <p className="text-xs leading-relaxed text-q-text-muted">{webLoginHint.help}</p>
           </div>}
           {verifyMessage && <p className="rounded-q-control border border-q-success/25 bg-q-success-soft px-3 py-2 text-xs text-q-success">{verifyMessage}</p>}
           {loginStatus && <p className="rounded-q-control border border-q-warning/30 bg-q-warning-soft px-3 py-2 text-xs leading-relaxed text-q-text-secondary">{loginStatus}</p>}
@@ -303,4 +306,26 @@ export function SourceEditorDrawer({
       </aside>
     </div>
   );
+}
+
+function webLoginCopy(sourceId: string): { start: string; reload: string; help: string } {
+  if (sourceId === "glm-web-balance") {
+    return {
+      start: "请在登录窗口完成 GLM 登录。同步成功后会验证并保存网页个人余额会话。",
+      reload: "正在打开 GLM 财务页并同步…",
+      help: "会打开隔离登录窗口。登录成功后自动验证控制台余额接口。清除凭据会退出该平台网页登录态。",
+    };
+  }
+  if (sourceId === "mimo-web-session") {
+    return {
+      start: "请在登录窗口完成 MiMo 登录。同步成功后会验证并保存网页余额会话。",
+      reload: "正在打开 MiMo 平台并同步…",
+      help: "会打开隔离登录窗口并读取含 httpOnly 的 Cookie。清除凭据会退出该平台网页登录态。",
+    };
+  }
+  return {
+    start: "请在登录窗口完成登录并打开用量页。同步成功后会刷新 Token 与缓存。",
+    reload: "正在打开 DeepSeek 用量页并同步…",
+    help: "会打开 DeepSeek 用量页并同步 Token 与缓存。清除凭据会退出网页登录态；下次需要重新登录，不会静默复用旧会话。",
+  };
 }

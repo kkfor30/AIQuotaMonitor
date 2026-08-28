@@ -4,6 +4,10 @@ pub mod catalog;
 pub mod coding_plan;
 pub mod codex;
 pub mod deepseek;
+pub mod glm;
+pub mod kimi;
+pub mod mimo;
+pub mod money;
 
 use crate::domain::{
     CapabilityDisplayValue, CapabilitySnapshotViewModel, CredentialInputViewModel, DataFreshness,
@@ -67,6 +71,22 @@ fn coding_plan_templates(source_id: &str) -> Vec<CapabilityTemplate> {
     ]
 }
 
+fn kimi_templates() -> Vec<CapabilityTemplate> {
+    let mut templates = coding_plan_templates(coding_plan::KIMI_SOURCE_ID);
+    templates.push(template("balance", kimi::BALANCE_SOURCE_ID, "账户余额", "money"));
+    templates
+}
+
+fn glm_templates() -> Vec<CapabilityTemplate> {
+    let mut templates = coding_plan_templates(coding_plan::GLM_SOURCE_ID);
+    templates.push(template("balance", glm::WEB_BALANCE_SOURCE_ID, "账户余额", "money"));
+    templates
+}
+
+fn mimo_templates() -> Vec<CapabilityTemplate> {
+    vec![template("balance", mimo::SOURCE_ID, "账户余额", "money")]
+}
+
 fn openai_templates(sources: &[SourceRecord]) -> Vec<CapabilityTemplate> {
     let mut templates = Vec::new();
     for source in sources.iter().filter(|source| codex::is_codex_source(&source.id)) {
@@ -86,6 +106,7 @@ fn openai_templates(sources: &[SourceRecord]) -> Vec<CapabilityTemplate> {
 pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryViewModel>, String> {
     let mut platforms = Vec::new();
     for added in database.list_user_platforms()? {
+        ensure_declared_sources(database, &added.platform_id)?;
         let entry = catalog::entry(&added.platform_id);
         let official_url = entry.map(|item| item.official_url).unwrap_or("");
         let display_name = if added.display_name.trim().is_empty() {
@@ -113,6 +134,30 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
                     &templates,
                 )?)
             }
+            "kimi" => platforms.push(real_platform(
+                database,
+                "kimi",
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                &kimi_templates(),
+            )?),
+            "glm" => platforms.push(real_platform(
+                database,
+                "glm",
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                &glm_templates(),
+            )?),
+            "mimo" => platforms.push(real_platform(
+                database,
+                "mimo",
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                &mimo_templates(),
+            )?),
             id if coding_plan::is_coding_plan_source(coding_plan_source_id(id)) => {
                 let source_id = coding_plan_source_id(id).to_string();
                 platforms.push(real_platform(
@@ -152,8 +197,14 @@ pub fn catalog_items(database: &Database) -> Result<Vec<catalog::PlatformCatalog
 pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::PlatformSetupViewModel, String> {
     let entry = catalog::entry(platform_id).ok_or_else(|| "该平台不在可添加注册表中".to_string())?;
     let added = database.user_platform(platform_id)?;
+    if added.is_some() {
+        ensure_declared_sources(database, platform_id)?;
+    }
     let sources = database.list_sources(platform_id)?;
-    let api_key_source = sources.iter().find(|source| source.source_type == "api_key");
+    let api_key_source = sources
+        .iter()
+        .find(|source| source.id == coding_plan_source_id(platform_id) && source.source_type == "api_key")
+        .or_else(|| sources.iter().find(|source| source.source_type == "api_key"));
     Ok(catalog::PlatformSetupViewModel {
         platform_id: entry.id.into(),
         display_name: added
@@ -186,21 +237,93 @@ pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::Pla
 pub fn add_platforms(database: &Database, platform_ids: &[String]) -> Result<Vec<PlatformSummaryViewModel>, String> {
     for platform_id in platform_ids {
         let entry = catalog::entry(platform_id).ok_or_else(|| format!("不支持添加平台：{platform_id}"))?;
-        match platform_id.as_str() {
-            "deepseek" => {}
-            "openai" => {}
-            "kimi" => database.ensure_account_source("kimi-default", "kimi", "kimi-coding-plan", "api_key", "Coding Plan", "默认账户")?,
-            "glm" => database.ensure_account_source("glm-default", "glm", "glm-coding-plan", "api_key", "Coding Plan", "默认账户")?,
-            "glm_intl" => database.ensure_account_source("glm-intl-default", "glm_intl", "glm-intl-coding-plan", "api_key", "Coding Plan", "默认账户")?,
-            "minimax" => database.ensure_account_source("minimax-default", "minimax", "minimax-coding-plan", "api_key", "Coding Plan", "默认账户")?,
-            "minimax_intl" => database.ensure_account_source("minimax-intl-default", "minimax_intl", "minimax-intl-coding-plan", "api_key", "Coding Plan", "默认账户")?,
-            "claude_code" => database.ensure_account_source("claude-code-default", "claude_code", "claude-code-local", "local_cli", "本地 Claude 订阅", "本地账户")?,
-            "mimo" => database.ensure_account_source("mimo-default", "mimo", "mimo-web-session", "web_session", "网页会话", "默认账户")?,
-            _ => return Err(format!("不支持添加平台：{platform_id}")),
-        }
+        ensure_declared_sources(database, platform_id)?;
         database.add_user_platform(entry.id, entry.display_name, entry.api_base_url)?;
     }
     platform_summaries(database)
+}
+
+fn ensure_declared_sources(database: &Database, platform_id: &str) -> Result<(), String> {
+    match platform_id {
+        "deepseek" | "openai" => Ok(()),
+        "kimi" => {
+            database.ensure_account_source(
+                "kimi-default",
+                "kimi",
+                coding_plan::KIMI_SOURCE_ID,
+                "api_key",
+                "Coding Plan",
+                "默认账户",
+            )?;
+            database.ensure_account_source(
+                "kimi-default",
+                "kimi",
+                kimi::BALANCE_SOURCE_ID,
+                "api_key",
+                "个人余额",
+                "默认账户",
+            )
+        }
+        "glm" => {
+            database.ensure_account_source(
+                "glm-default",
+                "glm",
+                coding_plan::GLM_SOURCE_ID,
+                "api_key",
+                "Coding Plan",
+                "默认账户",
+            )?;
+            database.ensure_account_source(
+                "glm-default",
+                "glm",
+                glm::WEB_BALANCE_SOURCE_ID,
+                "web_session",
+                "网页个人余额",
+                "默认账户",
+            )
+        }
+        "glm_intl" => database.ensure_account_source(
+            "glm-intl-default",
+            "glm_intl",
+            coding_plan::GLM_INTL_SOURCE_ID,
+            "api_key",
+            "Coding Plan",
+            "默认账户",
+        ),
+        "minimax" => database.ensure_account_source(
+            "minimax-default",
+            "minimax",
+            coding_plan::MINIMAX_SOURCE_ID,
+            "api_key",
+            "Token Plan",
+            "默认账户",
+        ),
+        "minimax_intl" => database.ensure_account_source(
+            "minimax-intl-default",
+            "minimax_intl",
+            coding_plan::MINIMAX_INTL_SOURCE_ID,
+            "api_key",
+            "Token Plan",
+            "默认账户",
+        ),
+        "claude_code" => database.ensure_account_source(
+            "claude-code-default",
+            "claude_code",
+            "claude-code-local",
+            "local_cli",
+            "本地 Claude 订阅",
+            "本地账户",
+        ),
+        "mimo" => database.ensure_account_source(
+            "mimo-default",
+            "mimo",
+            mimo::SOURCE_ID,
+            "web_session",
+            "网页会话",
+            "默认账户",
+        ),
+        _ => Err(format!("不支持添加平台：{platform_id}")),
+    }
 }
 
 fn real_platform(
@@ -242,7 +365,7 @@ fn real_platform(
                 .map(|value| value.id.clone())
                 .collect(),
             credential_input: credential_input(&source.id, &source.source_type),
-            supports_interactive_login: source.id == deepseek::WEB_SOURCE_ID,
+            supports_interactive_login: is_web_login_source(&source.id),
             supports_cli_login: codex::is_codex_source(&source.id),
         });
     }
@@ -310,7 +433,10 @@ fn real_platform(
                 _ => "尚未接入".to_string(),
             }
         }
-        "kimi" | "glm" | "glm_intl" | "minimax" | "minimax_intl" if configured_count > 0 => "API Key".to_string(),
+        "kimi" => kimi_access_summary(&sources),
+        "glm" => glm_access_summary(&sources),
+        "mimo" if configured_count > 0 => "网页会话".to_string(),
+        "glm_intl" | "minimax" | "minimax_intl" if configured_count > 0 => "API Key".to_string(),
         _ => "尚未接入".to_string(),
     };
     let refresh_history = database
@@ -337,6 +463,13 @@ fn real_platform(
         capabilities,
         refresh_history,
     })
+}
+
+fn is_web_login_source(source_id: &str) -> bool {
+    matches!(
+        source_id,
+        deepseek::WEB_SOURCE_ID | glm::WEB_BALANCE_SOURCE_ID | mimo::SOURCE_ID
+    )
 }
 
 fn source_configured(database: &Database, source: &SourceRecord) -> bool {
@@ -395,6 +528,24 @@ fn credential_input(source_id: &str, source_type: &str) -> Option<CredentialInpu
             help_text: "用于平台网页内部用量接口；Token 只进入 Windows Credential Manager。".into(),
             secret_kind: "bearer_token".into(),
         }),
+        kimi::BALANCE_SOURCE_ID => Some(CredentialInputViewModel {
+            label: "Moonshot 开放平台 API Key".into(),
+            placeholder: "sk-…".into(),
+            help_text: "查询个人账户余额，不是 Coding Plan Key。官方接口为 api.moonshot.cn/v1/users/me/balance。先验证再保存。".into(),
+            secret_kind: "api_key".into(),
+        }),
+        glm::WEB_BALANCE_SOURCE_ID => Some(CredentialInputViewModel {
+            label: "GLM 网页登录 Cookie".into(),
+            placeholder: "粘贴包含 bigmodel_token_production 的 Cookie，或使用网页登录".into(),
+            help_text: "官方 Coding Plan 不含个人余额。登录成功后自动验证控制台余额接口；Cookie 只进入 Windows Credential Manager。".into(),
+            secret_kind: "cookie".into(),
+        }),
+        mimo::SOURCE_ID => Some(CredentialInputViewModel {
+            label: "MiMo 网页登录 Cookie".into(),
+            placeholder: "粘贴包含 serviceToken 的 Cookie，或使用网页登录".into(),
+            help_text: "MiMo 没有官方余额接口。登录窗口会读取含 httpOnly 的 Cookie 并验证余额；Cookie 只进入 Windows Credential Manager。".into(),
+            secret_kind: "cookie".into(),
+        }),
         _ if source_type == "api_key" => Some(CredentialInputViewModel {
             label: "API Key".into(),
             placeholder: "sk-…".into(),
@@ -402,6 +553,28 @@ fn credential_input(source_id: &str, source_type: &str) -> Option<CredentialInpu
             secret_kind: "api_key".into(),
         }),
         _ => None,
+    }
+}
+
+fn kimi_access_summary(sources: &[SourceSummaryViewModel]) -> String {
+    let coding = sources.iter().any(|source| source.source_id == coding_plan::KIMI_SOURCE_ID && source.credential_configured);
+    let balance = sources.iter().any(|source| source.source_id == kimi::BALANCE_SOURCE_ID && source.credential_configured);
+    match (coding, balance) {
+        (true, true) => "Coding Plan + 个人余额".into(),
+        (true, false) => "Coding Plan".into(),
+        (false, true) => "个人余额".into(),
+        (false, false) => "尚未接入".into(),
+    }
+}
+
+fn glm_access_summary(sources: &[SourceSummaryViewModel]) -> String {
+    let coding = sources.iter().any(|source| source.source_id == coding_plan::GLM_SOURCE_ID && source.credential_configured);
+    let balance = sources.iter().any(|source| source.source_id == glm::WEB_BALANCE_SOURCE_ID && source.credential_configured);
+    match (coding, balance) {
+        (true, true) => "API Key + 网页会话".into(),
+        (true, false) => "API Key".into(),
+        (false, true) => "网页会话".into(),
+        (false, false) => "尚未接入".into(),
     }
 }
 

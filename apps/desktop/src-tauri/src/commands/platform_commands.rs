@@ -72,7 +72,7 @@ pub async fn validate_source_credential(
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<String, String> {
     let source = database.source(&source_id)?;
-    if source.source_type != "api_key" {
+    if source.source_type != "api_key" && source.source_type != "web_session" {
         return Err("此来源不接受手动凭据".into());
     }
     let api_base_url = match api_base_url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
@@ -156,7 +156,7 @@ pub async fn save_source_credential(
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     let source = database.source(&source_id)?;
-    if source.source_type != "api_key" {
+    if source.source_type != "api_key" && source.source_type != "web_session" {
         return Err("此来源不接受手动凭据".into());
     }
     let api_base_url = match api_base_url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
@@ -167,8 +167,12 @@ pub async fn save_source_credential(
         .validate_secret_at(&source, secret.trim(), api_base_url.as_deref())
         .await?;
     persist_secret(&database, &coordinator, &source, secret.trim(), &output)?;
-    if let Some(api_base_url) = api_base_url.as_deref() {
-        database.save_user_platform_api_base(&source.platform_id, Some(api_base_url))?;
+    if source.source_type == "api_key"
+        && source.id != crate::providers::kimi::BALANCE_SOURCE_ID
+    {
+        if let Some(api_base_url) = api_base_url.as_deref() {
+            database.save_user_platform_api_base(&source.platform_id, Some(api_base_url))?;
+        }
     }
     providers::platform_summaries(&database)
 }
@@ -204,8 +208,8 @@ pub async fn clear_source_credential(
         }
         return Err(error);
     }
-    if source.id == crate::providers::deepseek::WEB_SOURCE_ID {
-        crate::windows::source_login::clear_session(&app)?;
+    if crate::windows::source_login::is_web_login_source(&source.id) {
+        crate::windows::source_login::clear_session(&app, &source.id)?;
     }
     providers::platform_summaries(&database)
 }
@@ -221,8 +225,8 @@ pub async fn start_source_login(
         return Err("仅主窗口可以打开来源登录".into());
     }
     match source_id.as_str() {
-        id if id == crate::providers::deepseek::WEB_SOURCE_ID => {
-            crate::windows::source_login::open(&app).await
+        id if crate::windows::source_login::is_web_login_source(id) => {
+            crate::windows::source_login::open(&app, id).await
         }
         id if id == crate::providers::codex::SOURCE_ID => crate::providers::codex::login_cli().await,
         id if crate::providers::codex::is_extra_source(id) => {
@@ -289,10 +293,10 @@ pub async fn close_source_login(
     if window.label() != "main" {
         return Err("仅主窗口可以关闭来源登录".into());
     }
-    if source_id != crate::providers::deepseek::WEB_SOURCE_ID {
+    if !crate::windows::source_login::is_web_login_source(&source_id) {
         return Err("此来源没有网页登录页".into());
     }
-    crate::windows::source_login::close(&app)
+    crate::windows::source_login::close(&app, &source_id)
 }
 
 #[tauri::command]
