@@ -32,7 +32,10 @@ struct DayUsage {
 
 #[derive(Debug, Deserialize)]
 struct AmountBiz {
+    #[serde(default)]
     total: Vec<ModelUsage>,
+    #[serde(default)]
+    days: Vec<DayUsage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,16 +180,32 @@ async fn get_json<T: DeserializeOwned>(client: &Client, url: &str, token: &str) 
 }
 
 fn amount_capabilities(amount: &AmountResp) -> Result<Vec<CapabilityData>, RefreshError> {
-    let mut per_model = HashMap::<&str, TokenBreakdown>::new();
+    let mut per_model = HashMap::<String, TokenBreakdown>::new();
     let mut all = TokenBreakdown::default();
-    for model in &amount.data.biz_data.total {
+    let models = if amount.data.biz_data.total.is_empty() {
+        amount
+            .data
+            .biz_data
+            .days
+            .iter()
+            .flat_map(|day| day.data.iter())
+            .collect::<Vec<_>>()
+    } else {
+        amount.data.biz_data.total.iter().collect::<Vec<_>>()
+    };
+    for model in models {
         let values = token_breakdown(&model.usage)?;
         all.total = all.total.saturating_add(values.total);
         all.requests = all.requests.saturating_add(values.requests);
         all.hit = all.hit.saturating_add(values.hit);
         all.miss = all.miss.saturating_add(values.miss);
         all.response = all.response.saturating_add(values.response);
-        per_model.insert(model.model.as_str(), values);
+        let entry = per_model.entry(model.model.clone()).or_default();
+        entry.total = entry.total.saturating_add(values.total);
+        entry.requests = entry.requests.saturating_add(values.requests);
+        entry.hit = entry.hit.saturating_add(values.hit);
+        entry.miss = entry.miss.saturating_add(values.miss);
+        entry.response = entry.response.saturating_add(values.response);
     }
     let flash = per_model.get("deepseek-v4-flash").copied().unwrap_or_default();
     let pro = per_model.get("deepseek-v4-pro").copied().unwrap_or_default();

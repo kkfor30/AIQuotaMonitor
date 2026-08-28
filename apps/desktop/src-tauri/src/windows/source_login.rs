@@ -5,6 +5,7 @@
 //! WebView2 缓存，再用标题把 token 交给原生 watcher。
 //! 远程页面不获得 Tauri IPC 权限。验证成功后写入 Windows Credential Manager。
 
+use crate::domain::refresh::SourceRefreshOutput;
 use crate::providers::deepseek;
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
@@ -66,7 +67,7 @@ const CAPTURE_SCRIPT: &str = r#"
 
 pub async fn open(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(token) = find_webview_cached_usage_token() {
-        match capture(app, &token).await {
+        match capture(app, &token, true).await {
             Ok(()) => {
                 if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
                     let _ = window.close();
@@ -152,7 +153,7 @@ fn start_watcher(app: tauri::AppHandle) {
             };
             if !cache_scan_failed {
                 if let Some(token) = find_webview_cached_usage_token() {
-                    match capture(&app, &token).await {
+                    match capture(&app, &token, true).await {
                         Ok(()) => {
                             let _ = window.close();
                             let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
@@ -169,11 +170,17 @@ fn start_watcher(app: tauri::AppHandle) {
                 if let Some(token) = title.strip_prefix(TOKEN_TITLE_PREFIX) {
                     let token = token.trim().to_string();
                     let _ = window.set_title("DeepSeek 账号登录");
-                    match capture(&app, &token).await {
+                    match capture(&app, &token, false).await {
                         Ok(()) => {
                             let _ = window.close();
                             let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
                             return;
+                        }
+                        Err(error) if error.contains("尚未就绪") => {
+                            let _ = app.emit(
+                                "source-login-status",
+                                "已捕获登录过程中的临时会话，用量仍为空。请留在平台页等待自动同步，不要关闭窗口。",
+                            );
                         }
                         Err(error) => {
                             let _ = app.emit("source-login-error", error);
@@ -246,11 +253,26 @@ fn find_webview_cached_usage_token() -> Option<String> {
     None
 }
 
-async fn capture(app: &tauri::AppHandle, token: &str) -> Result<(), String> {
+fn usage_is_blank(output: &SourceRefreshOutput) -> bool {
+    output.capabilities.iter().all(|capability| match capability.capability_id.as_str() {
+        "usage_trend" => true,
+        "cache_hit_rate" => matches!(capability.primary_value.as_deref(), None | Some("0%") | Some("0.0%")),
+        "today_spend" | "month_spend" => matches!(capability.primary_value.as_deref(), None | Some("¥0.00")),
+        "model_usage_v4_flash" | "model_usage_v4_pro" | "request_count" | "response_tokens" => {
+            matches!(capability.primary_value.as_deref(), None | Some("0"))
+        }
+        _ => true,
+    })
+}
+
+async fn capture(app: &tauri::AppHandle, token: &str, allow_blank: bool) -> Result<(), String> {
     let database = app.state::<Database>();
     let coordinator = app.state::<RefreshCoordinator>();
     let source = database.source(deepseek::WEB_SOURCE_ID)?;
     let output = coordinator.validate_secret(&source, token).await?;
+    if !allow_blank && usage_is_blank(&output) {
+        return Err("用量会话尚未就绪".into());
+    }
     let reference = vault::secret_ref(&source.account_id, &source.id);
     let previous = vault::get(&reference)?;
     vault::set(&reference, token)?;

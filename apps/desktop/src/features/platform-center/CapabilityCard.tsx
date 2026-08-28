@@ -48,6 +48,11 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
         </div>
       ) : isTrend ? (
         <p className="text-xs text-q-text-muted">趋势见下方图表</p>
+      ) : capability.value.secondary ? (
+        <div>
+          <p className="text-[13px] text-q-text-muted">暂无统计值</p>
+          <p className="mt-1.5 text-xs text-q-text-muted">{capability.value.secondary}</p>
+        </div>
       ) : (
         <p className="text-[13px] text-q-text-muted">暂无数据，待接入后展示</p>
       )}
