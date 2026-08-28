@@ -13,27 +13,38 @@ import type {
 } from "@/lib/types";
 import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
 
-const PRIMARY_CAPABILITY_ORDER = [
-  "balance",
-  "quota_window_5h",
-  "window_usage",
-  "credits",
-  "today_spend",
-  "month_spend",
-];
+const PRIMARY_ORDER: Record<string, string[]> = {
+  openai: ["quota_window_5h", "quota_window_7d", "plan_level"],
+  deepseek: ["balance", "today_spend", "month_spend"],
+};
+
+const SUPPORTING_ORDER: Record<string, string[]> = {
+  openai: ["quota_window_5h", "quota_window_7d", "credits", "plan_level"],
+  deepseek: ["balance", "today_spend", "month_spend"],
+};
+
+const DEFAULT_PRIMARY_ORDER = ["balance", "quota_window_5h", "today_spend", "month_spend", "plan_level"];
+
+const SHORT_LABEL: Record<string, string> = {
+  balance: "账户余额",
+  today_spend: "今日消费",
+  month_spend: "本月消费",
+  quota_window_5h: "5 小时窗口",
+  quota_window_7d: "7 天窗口",
+  credits: "Credits",
+  plan_level: "订阅计划",
+};
 
 export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryViewModel }) {
   const visibleCapabilities = platform.capabilities.filter(
-    (capability) => capability.value.primary !== null,
+    (capability) => capability.value.primary !== null && capability.value.kind !== "trend",
   );
-  const primaryCapability = pickPrimaryCapability(visibleCapabilities);
-  const supportingCapabilities = visibleCapabilities
-    .filter(
-      (capability) =>
-        capability.capabilityId !== primaryCapability?.capabilityId &&
-        capability.value.kind !== "trend",
-    )
-    .slice(0, 2);
+  const primaryCapability = pickPrimaryCapability(platform.providerId, visibleCapabilities);
+  const supportingCapabilities = pickSupportingCapabilities(
+    platform,
+    visibleCapabilities,
+    primaryCapability,
+  );
   const problemSource =
     platform.aggregateStatus === "setup_required"
       ? undefined
@@ -68,12 +79,9 @@ export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryVi
           <HoverbarStatus status={platform.aggregateStatus} />
         </div>
         {primaryCapability ? (
-          <>
-            <strong className="hb-primary-value" data-selectable="true">
-              {primaryCapability.value.primary}
-            </strong>
-            <span className="hb-primary-label">{primaryCapability.displayName}</span>
-          </>
+          <strong className="hb-primary-value" data-selectable="true">
+            {primaryCapability.value.primary}
+          </strong>
         ) : (
           <p className="hb-primary-missing">
             {platform.aggregateStatus === "setup_required" ? "尚未接入" : "暂无真实数据"}
@@ -85,7 +93,7 @@ export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryVi
         {supportingCapabilities.length > 0 ? (
           supportingCapabilities.map((capability) => (
             <span key={`${capability.sourceId}-${capability.capabilityId}`}>
-              <i>{capability.displayName}</i>
+              <i>{hoverbarCapabilityLabel(platform, capability)}</i>
               <b data-selectable="true">{capability.value.primary}</b>
             </span>
           ))
@@ -111,13 +119,55 @@ export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryVi
 }
 
 function pickPrimaryCapability(
+  providerId: string,
   capabilities: CapabilitySnapshotViewModel[],
 ): CapabilitySnapshotViewModel | undefined {
-  for (const capabilityId of PRIMARY_CAPABILITY_ORDER) {
+  const order = PRIMARY_ORDER[providerId] ?? DEFAULT_PRIMARY_ORDER;
+  for (const capabilityId of order) {
     const capability = capabilities.find((item) => item.capabilityId === capabilityId);
     if (capability) return capability;
   }
-  return capabilities[0];
+  return capabilities.find((item) => item.capabilityId !== "credits") ?? capabilities[0];
+}
+
+function pickSupportingCapabilities(
+  platform: PlatformSummaryViewModel,
+  capabilities: CapabilitySnapshotViewModel[],
+  primary: CapabilitySnapshotViewModel | undefined,
+): CapabilitySnapshotViewModel[] {
+  const order = SUPPORTING_ORDER[platform.providerId];
+  if (!order) {
+    return capabilities.slice(0, 3);
+  }
+  const preferredSourceId = primary?.sourceId;
+  const sameSource = preferredSourceId
+    ? capabilities.filter((item) => item.sourceId === preferredSourceId)
+    : capabilities;
+  const rows: CapabilitySnapshotViewModel[] = [];
+  for (const capabilityId of order) {
+    const capability = sameSource.find((item) => item.capabilityId === capabilityId);
+    if (capability) rows.push(capability);
+  }
+  for (const capability of capabilities) {
+    if (rows.includes(capability)) continue;
+    if (order.includes(capability.capabilityId)) rows.push(capability);
+  }
+  return rows;
+}
+
+function hoverbarCapabilityLabel(
+  platform: PlatformSummaryViewModel,
+  capability: CapabilitySnapshotViewModel,
+): string {
+  const short =
+    SHORT_LABEL[capability.capabilityId] ?? capability.displayName.replace(/^.*·\s*/, "");
+  const sameKind = platform.capabilities.filter(
+    (item) => item.capabilityId === capability.capabilityId && item.value.primary !== null,
+  ).length;
+  if (sameKind <= 1) return short;
+  const source = platform.sources.find((item) => item.sourceId === capability.sourceId);
+  const sourceName = source?.displayName.replace(/（当前 CLI）$/, "") ?? "账号";
+  return `${sourceName} · ${short}`;
 }
 
 function HoverbarStatus({ status }: { status: PlatformAggregateStatus }) {

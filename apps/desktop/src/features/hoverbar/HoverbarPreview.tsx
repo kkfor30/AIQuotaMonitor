@@ -62,6 +62,69 @@ const healthyPlatform: PlatformSummaryViewModel = {
   ],
 };
 
+const gptPlatform: PlatformSummaryViewModel = {
+  providerId: "openai",
+  displayName: "GPT / Codex",
+  aggregateStatus: "healthy",
+  accessSummary: "本机 Codex",
+  sources: [
+    {
+      sourceId: "openai-codex-local",
+      sourceType: "local_cli",
+      displayName: "本机 Codex（当前 CLI）",
+      state: "ready",
+      credentialConfigured: true,
+      lastValidatedAt: null,
+      lastSuccessAt: null,
+      errorCode: null,
+      errorMessage: null,
+      capabilityIds: ["quota_window_5h", "quota_window_7d", "credits", "plan_level"],
+    },
+  ],
+  capabilities: [
+    {
+      capabilityId: "quota_window_5h",
+      sourceId: "openai-codex-local",
+      displayName: "本机 Codex · 5 小时窗口",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "percent", primary: "62.5%", secondary: "已使用 37.5%", progress: 0.625 },
+      trend: [],
+    },
+    {
+      capabilityId: "quota_window_7d",
+      sourceId: "openai-codex-local",
+      displayName: "本机 Codex · 7 天窗口",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "percent", primary: "81.0%", secondary: "已使用 19.0%", progress: 0.81 },
+      trend: [],
+    },
+    {
+      capabilityId: "credits",
+      sourceId: "openai-codex-local",
+      displayName: "本机 Codex · Credits",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "credits", primary: "12.34", secondary: "仅展示额度接口实际返回值", progress: null },
+      trend: [],
+    },
+    {
+      capabilityId: "plan_level",
+      sourceId: "openai-codex-local",
+      displayName: "本机 Codex · 订阅计划",
+      freshness: "fresh",
+      capturedAt: null,
+      lastGoodAt: null,
+      value: { kind: "text", primary: "Plus", secondary: "ChatGPT / Codex 订阅", progress: null },
+      trend: [],
+    },
+  ],
+};
+
 const errorPlatform: PlatformSummaryViewModel = {
   ...healthyPlatform,
   aggregateStatus: "error",
@@ -206,6 +269,10 @@ function HoverbarPreview() {
         <section>
           <h2>成功</h2>
           <HoverbarPlatformCard platform={healthyPlatform} />
+        </section>
+        <section>
+          <h2>GPT 窗口额度</h2>
+          <HoverbarPlatformCard platform={gptPlatform} />
         </section>
         <section>
           <h2>错误与缓存</h2>

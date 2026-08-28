@@ -363,7 +363,7 @@ html.hoverbar-window #root {
     "logo main support"
     ". message message";
   flex: none;
-  min-height: 82px;
+  min-height: 88px;
   align-items: center;
   gap: 11px;
   padding: 10px 13px;
@@ -474,7 +474,7 @@ html.hoverbar-window #root {
 
 .hb-primary-value {
   display: block;
-  margin-top: 3px;
+  margin-top: 6px;
   overflow: hidden;
   color: var(--q-hoverbar-primary);
   font-size: 23px;
@@ -507,7 +507,7 @@ html.hoverbar-window #root {
   grid-area: support;
   min-width: 0;
   align-content: center;
-  gap: 5px;
+  gap: 4px;
   color: var(--q-hoverbar-muted-strong);
   font-variant-numeric: tabular-nums;
 }
