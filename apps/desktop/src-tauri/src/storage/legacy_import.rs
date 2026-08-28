@@ -15,8 +15,6 @@ pub const COMPLETED_SETTING: &str = "legacy_deepseek_import_completed";
 pub struct LegacyConfigInspection {
     pub available: bool,
     pub path: Option<String>,
-    pub has_api_key: bool,
-    pub has_usage_token: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -39,8 +37,6 @@ pub fn inspect(database: &Database) -> Result<LegacyConfigInspection, String> {
         return Ok(LegacyConfigInspection {
             available: false,
             path: None,
-            has_api_key: false,
-            has_usage_token: false,
         });
     }
     let Some(path) = config_path() else {
@@ -49,12 +45,9 @@ pub fn inspect(database: &Database) -> Result<LegacyConfigInspection, String> {
     if !path.is_file() {
         return Ok(empty());
     }
-    let secrets = read_from(path)?;
     Ok(LegacyConfigInspection {
-        available: secrets.api_key.is_some() || secrets.usage_token.is_some(),
-        path: Some(secrets.path.display().to_string()),
-        has_api_key: secrets.api_key.is_some(),
-        has_usage_token: secrets.usage_token.is_some(),
+        available: true,
+        path: Some(path.display().to_string()),
     })
 }
 
@@ -117,7 +110,5 @@ fn empty() -> LegacyConfigInspection {
     LegacyConfigInspection {
         available: false,
         path: None,
-        has_api_key: false,
-        has_usage_token: false,
     }
 }

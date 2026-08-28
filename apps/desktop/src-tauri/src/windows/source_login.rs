@@ -12,6 +12,7 @@ const WINDOW_LABEL: &str = "deepseek-source-login";
 const TOKEN_TITLE_PREFIX: &str = "AIQM_USAGE_TOKEN:";
 const CAPTURE_SCRIPT: &str = r#"
 (function() {
+  if (location.hostname !== 'platform.deepseek.com') return;
   if (window.__aiqm_token_hook__) return;
   window.__aiqm_token_hook__ = true;
   function deliver(token) {
@@ -96,6 +97,15 @@ fn start_watcher(app: tauri::AppHandle) {
             let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
                 return;
             };
+            let is_deepseek = window
+                .url()
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_string))
+                .is_some_and(|host| host == "platform.deepseek.com");
+            if !is_deepseek {
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                continue;
+            }
             if let Ok(title) = window.title() {
                 if let Some(token) = title.strip_prefix(TOKEN_TITLE_PREFIX) {
                     let token = token.trim().to_string();

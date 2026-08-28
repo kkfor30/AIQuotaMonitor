@@ -42,9 +42,7 @@ export function SourcesView({
         <div className="mb-4 rounded-q-card border border-q-warning/30 bg-q-warning-soft p-4">
           <p className="text-sm font-medium text-q-text-primary">检测到旧版 DeepSeek 配置</p>
           <p className="mt-1 text-xs leading-relaxed text-q-text-secondary">
-            可导入{legacyQuery.data.hasApiKey ? " API Key" : ""}
-            {legacyQuery.data.hasApiKey && legacyQuery.data.hasUsageToken ? " 和" : ""}
-            {legacyQuery.data.hasUsageToken ? "网页会话" : ""}。导入前会验证，成功后写入 Windows 凭据管理器。
+            点击后才会读取并验证其中的 DeepSeek 凭据，成功后写入 Windows 凭据管理器。
           </p>
           <label className="mt-3 flex items-center gap-2 text-xs text-q-text-secondary">
             <input

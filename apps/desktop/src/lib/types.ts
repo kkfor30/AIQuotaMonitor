@@ -31,8 +31,6 @@ export type RefreshHistoryEntry = {
 export type LegacyConfigInspection = {
   available: boolean;
   path: string | null;
-  hasApiKey: boolean;
-  hasUsageToken: boolean;
 };
 
 export type LegacyImportResult = {
