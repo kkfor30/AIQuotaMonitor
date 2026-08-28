@@ -1,6 +1,7 @@
 //! 平台模板注册、真实 ViewModel 聚合与 Source adapter 路由。
 
 pub mod catalog;
+pub mod coding_plan;
 pub mod codex;
 pub mod deepseek;
 
@@ -43,6 +44,26 @@ fn deepseek_templates() -> Vec<CapabilityTemplate> {
         template("response_tokens", deepseek::WEB_SOURCE_ID, "输出 Token", "tokens"),
         template("cache_hit_rate", deepseek::WEB_SOURCE_ID, "缓存命中率", "percent"),
         template("usage_trend", deepseek::WEB_SOURCE_ID, "近 7 日消费趋势", "trend"),
+    ]
+}
+
+fn coding_plan_source_id(platform_id: &str) -> &'static str {
+    match platform_id {
+        "kimi" => coding_plan::KIMI_SOURCE_ID,
+        "glm" => coding_plan::GLM_SOURCE_ID,
+        "glm_intl" => coding_plan::GLM_INTL_SOURCE_ID,
+        "minimax" => coding_plan::MINIMAX_SOURCE_ID,
+        "minimax_intl" => coding_plan::MINIMAX_INTL_SOURCE_ID,
+        _ => "",
+    }
+}
+
+fn coding_plan_templates(source_id: &str) -> Vec<CapabilityTemplate> {
+    let weekly = if source_id == coding_plan::KIMI_SOURCE_ID { "周限额" } else { "周窗口" };
+    vec![
+        template("quota_window_5h", source_id, "5 小时窗口", "percent"),
+        template("quota_window_7d", source_id, weekly, "percent"),
+        template("plan_level", source_id, "订阅计划", "text"),
     ]
 }
 
@@ -90,6 +111,17 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
                     official_url,
                     added.api_base_url.as_deref(),
                     &templates,
+                )?)
+            }
+            id if coding_plan::is_coding_plan_source(coding_plan_source_id(id)) => {
+                let source_id = coding_plan_source_id(id).to_string();
+                platforms.push(real_platform(
+                    database,
+                    id,
+                    display_name,
+                    official_url,
+                    added.api_base_url.as_deref(),
+                    &coding_plan_templates(&source_id),
                 )?)
             }
             id => platforms.push(real_platform(
@@ -278,6 +310,7 @@ fn real_platform(
                 _ => "尚未接入".to_string(),
             }
         }
+        "kimi" | "glm" | "glm_intl" | "minimax" | "minimax_intl" if configured_count > 0 => "API Key".to_string(),
         _ => "尚未接入".to_string(),
     };
     let refresh_history = database
@@ -336,7 +369,8 @@ fn aggregate_status(
     let all_ready = configured.iter().all(|source| matches!(source.state, SourceState::Ready));
     let all_fresh = capabilities.iter().all(|value| {
         value.freshness == DataFreshness::Fresh
-            || (value.capability_id == "credits" && value.freshness == DataFreshness::Missing)
+            || (matches!(value.capability_id.as_str(), "credits" | "plan_level" | "quota_window_7d")
+                && value.freshness == DataFreshness::Missing)
     });
     if all_ready && all_fresh {
         PlatformAggregateStatus::Healthy

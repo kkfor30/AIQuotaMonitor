@@ -40,6 +40,7 @@ AIQuotaMonitor/
 - 已接入 SQLite v1、Windows Credential Manager、Source 级刷新协调器和真实 ViewModel。
 - 平台中心从注册表添加平台；接入表单预填官网链接和官方 API 请求地址。
 - DeepSeek 已支持官方余额、网页用量与网页登录；GPT/Codex 已支持本地 app-server 优先、WHAM 回退的窗口额度查询。
+- Kimi、GLM 国内/国际、MiniMax 国内/国际已支持官方 Token Plan / Coding Plan 窗口查询。
 - 未配置或查询失败时继续使用 missing/stale，不再展示阶段一静态示例额度。
 
 ## 本地开发

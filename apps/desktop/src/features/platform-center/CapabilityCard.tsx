@@ -16,6 +16,9 @@ const CAPABILITY_ICON: Record<string, LucideIcon> = {
   cache_miss_tokens: Gauge,
   prompt_tokens: Gauge,
   response_tokens: Gauge,
+  quota_window_5h: Gauge,
+  quota_window_7d: Gauge,
+  plan_level: Gauge,
   usage_trend: TrendingUp,
 };
 

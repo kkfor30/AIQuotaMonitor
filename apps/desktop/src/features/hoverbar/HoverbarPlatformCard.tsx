@@ -13,13 +13,26 @@ import type {
 } from "@/lib/types";
 import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
 
+const WINDOW_PRIMARY = ["quota_window_5h", "quota_window_7d", "plan_level"];
+const WINDOW_SUPPORTING = ["quota_window_5h", "quota_window_7d", "credits", "plan_level"];
+
 const PRIMARY_ORDER: Record<string, string[]> = {
-  openai: ["quota_window_5h", "quota_window_7d", "plan_level"],
+  openai: WINDOW_PRIMARY,
+  kimi: WINDOW_PRIMARY,
+  glm: WINDOW_PRIMARY,
+  glm_intl: WINDOW_PRIMARY,
+  minimax: WINDOW_PRIMARY,
+  minimax_intl: WINDOW_PRIMARY,
   deepseek: ["balance", "today_spend", "month_spend"],
 };
 
 const SUPPORTING_ORDER: Record<string, string[]> = {
-  openai: ["quota_window_5h", "quota_window_7d", "credits", "plan_level"],
+  openai: WINDOW_SUPPORTING,
+  kimi: WINDOW_SUPPORTING,
+  glm: WINDOW_SUPPORTING,
+  glm_intl: WINDOW_SUPPORTING,
+  minimax: WINDOW_SUPPORTING,
+  minimax_intl: WINDOW_SUPPORTING,
   deepseek: ["balance", "today_spend", "month_spend"],
 };
 
