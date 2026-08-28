@@ -13,7 +13,7 @@
 
 详细说明见 [架构概览](./docs/architecture/overview.md)、[技术选型决策](./docs/architecture/technology-decision.md) 和 [迁移计划](./docs/architecture/migration-plan.md)。
 
-换机继续开发请先阅读 [跨终端交接](./docs/project/handoff.md)，完整需求见 [产品需求](./docs/product/requirements.md)，阶段进度见 [路线图](./docs/project/roadmap.md)。
+换机继续开发请先阅读 [跨终端交接](./docs/project/handoff.md)，完整需求见 [产品需求](./docs/product/requirements.md)，平台如何接入见 [平台接入需求](./docs/product/platform-access.md)，阶段进度见 [路线图](./docs/project/roadmap.md)。
 
 ## 目录
 

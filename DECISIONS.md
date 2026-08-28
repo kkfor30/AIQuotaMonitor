@@ -35,3 +35,7 @@ GPT 雷达的 AI 默认关闭，只接收 Codex Radar 同步的 Tibo 英文原�
 ## D009：GPT 雷达 V1 使用 Codex Radar 聚合来源
 
 V1 不直接访问 X，使用独立的 `CodexRadarSource` 从 Codex Radar 公开页面同步其转载的 Tibo 原文。只把英文原文、发布时间、X 原帖链接、来源链接和同步元数据作为用户配置 AI 的输入基础；上游翻译、信号标签和模型语境解读不进入用户配置 AI。直接访问 X 保留为后续可替换 Source。雷达领域独立于平台额度领域，不能把第三方页面状态混入 `Platform → Account → Source → Capability → Snapshot` 的平台聚合状态。
+
+## D010：官方查询默认走 cc-switch，网页登录只补官方缺口
+
+有官方余额、Token Plan 或本机 CLI/OAuth 订阅接口的 Source，按 `cc-switch` 的 `balance.rs` / `coding_plan.rs` / `subscription.rs` 改造接入，不复制其 Provider 路由和代理。仅当目标字段没有官方接口时，才使用隔离登录窗抓取会话，例如 DeepSeek 网页用量与缓存、GLM 个人余额、MiMo 网页会话。平台中心不提供用户自定义添加平台。
