@@ -31,7 +31,14 @@
 | Kimi / GLM / MiniMax Token Plan | `src-tauri/src/services/coding_plan.rs` |
 | Codex / Claude / Gemini 本地订阅 | `src-tauri/src/services/subscription.rs` |
 
-用户侧：选中平台 → 填该平台 API Key → 验证成功后保存并刷新。端点由注册表写死，不让用户填任意 Base URL。
+用户侧固定四步，对齐 cc-switch 的添加供应商习惯，但只用于额度监控：
+
+1. 点「添加平台」，从注册表选择平台。
+2. 立刻展示该平台需要填写的信息（通常只有 API Key，端点由注册表写死）。
+3. 点「验证连接」，调用官方接口，成功才解锁保存。
+4. 用户再点「保存」，凭据写入 Credential Manager 并刷新。
+
+不要把「验证」和「保存」合成一个按钮。验证失败不能保存。
 
 金额用 Decimal/文本定点。凭据进 Windows Credential Manager。失败时保留最后成功快照。
 

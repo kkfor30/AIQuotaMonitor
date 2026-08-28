@@ -18,6 +18,13 @@ export async function refreshPlatform(providerId: string): Promise<PlatformSumma
   return invoke<PlatformSummaryViewModel[]>("refresh_platform", { providerId });
 }
 
+export async function validateSourceCredential(
+  sourceId: string,
+  secret: string,
+): Promise<string> {
+  return invoke<string>("validate_source_credential", { sourceId, secret });
+}
+
 export async function saveSourceCredential(
   sourceId: string,
   secret: string,

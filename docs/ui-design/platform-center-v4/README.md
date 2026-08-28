@@ -25,7 +25,7 @@
 | `03-platform-center-deepseek-partial-stale.png` | 单 Source 失败；成功数据保留，失败数据使用上次成功快照并明确标记 |
 | `10-platform-center-empty.png` | 尚未添加任何平台；空目录与「添加平台」引导 |
 | `11-platform-center-add-catalog.png` | 从产品注册表勾选要监控的平台，不是自定义中转 URL |
-| `12-platform-center-added-apikey.png` | 刚添加 GLM；接入与来源默认填 API Key 并验证保存 |
+| `12-platform-center-setup-apikey.png` | 添加平台后立刻展示该平台表单：API Key、「验证连接」、未验证时保存不可用 |
 
 ## 页面职责
 

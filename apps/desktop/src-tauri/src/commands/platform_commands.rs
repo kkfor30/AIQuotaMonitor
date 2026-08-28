@@ -26,6 +26,26 @@ pub async fn refresh_platform(
 }
 
 #[tauri::command]
+pub async fn validate_source_credential(
+    source_id: String,
+    secret: String,
+    database: State<'_, Database>,
+    coordinator: State<'_, RefreshCoordinator>,
+) -> Result<String, String> {
+    let source = database.source(&source_id)?;
+    if source.platform_id != "deepseek" {
+        return Err("此来源不接受手动凭据".into());
+    }
+    let output = coordinator.validate_secret(&source, secret.trim()).await?;
+    let summary = output
+        .capabilities
+        .iter()
+        .find_map(|capability| capability.primary_value.clone())
+        .unwrap_or_else(|| "已通过官方接口验证".into());
+    Ok(format!("连接成功：{summary}"))
+}
+
+#[tauri::command]
 pub async fn save_source_credential(
     source_id: String,
     secret: String,

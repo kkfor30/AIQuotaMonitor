@@ -80,22 +80,27 @@ pub async fn open(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|_| "DeepSeek 用量地址无效".to_string())?,
     );
     let window = WebviewWindowBuilder::new(app, WINDOW_LABEL, url)
-        .title("DeepSeek 账号登录")
-        .inner_size(480.0, 720.0)
-        .min_inner_size(360.0, 480.0)
+        .title("DeepSeek 用量同步")
+        .inner_size(1200.0, 800.0)
+        .min_inner_size(960.0, 640.0)
         .resizable(true)
         .center()
         .visible(true)
         .initialization_script(CAPTURE_SCRIPT)
         .on_page_load(|window, payload| {
-            if matches!(payload.event(), PageLoadEvent::Finished)
-                && payload
-                    .url()
-                    .host_str()
-                    .is_some_and(|host| host == "platform.deepseek.com")
-            {
-                let _ = window.eval(CAPTURE_SCRIPT);
+            if !matches!(payload.event(), PageLoadEvent::Finished) {
+                return;
             }
+            let host = payload.url().host_str().unwrap_or_default();
+            if host != "platform.deepseek.com" {
+                return;
+            }
+            let path = payload.url().path();
+            if path == "/" || path.is_empty() {
+                let _ = window.eval("location.replace('https://platform.deepseek.com/usage');");
+                return;
+            }
+            let _ = window.eval(CAPTURE_SCRIPT);
         })
         .build()
         .map_err(|error| format!("打开 DeepSeek 登录窗口失败：{error}"))?;

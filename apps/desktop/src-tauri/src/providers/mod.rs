@@ -211,7 +211,7 @@ fn credential_input(source_id: &str) -> Option<CredentialInputViewModel> {
         deepseek::BALANCE_SOURCE_ID => Some(CredentialInputViewModel {
             label: "DeepSeek API Key".into(),
             placeholder: "sk-…".into(),
-            help_text: "保存前会调用官方余额接口验证；密钥只进入 Windows Credential Manager。".into(),
+            help_text: "先点「验证连接」，通过后再保存。密钥只进入 Windows Credential Manager。".into(),
             secret_kind: "api_key".into(),
         }),
         deepseek::WEB_SOURCE_ID => Some(CredentialInputViewModel {
