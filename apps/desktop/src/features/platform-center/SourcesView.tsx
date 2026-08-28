@@ -1,11 +1,15 @@
 import { SourceCard } from "./SourceCard";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { SourceEditorDrawer } from "./SourceEditorDrawer";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/Button";
+import { importLegacyConfig, inspectLegacyConfig } from "@/lib/ipc";
+import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { PlatformSummaryViewModel } from "@/lib/types";
 
 /**
  * 平台中心 / 接入与来源：
  * 一个「来源」对应一个独立获取能力；每个 Source 独立保存凭据状态与验证结果。
- * 编辑抽屉（覆盖式）与保存前验证在阶段二实现。
  * focusSourceId 用于从总览关注项定位并高亮某个 Source。
  */
 export function SourcesView({
@@ -15,29 +19,70 @@ export function SourcesView({
   platform: PlatformSummaryViewModel;
   focusSourceId?: string;
 }) {
-  if (platform.aggregateStatus === "setup_required") {
-    return (
-      <EmptyState
-        title={`接入 ${platform.displayName}`}
-        description="为该平台添加 API Key、网页会话或其他来源。每种来源独立验证与刷新，互不影响。"
-      />
-    );
-  }
+  const queryClient = useQueryClient();
+  const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
+  const [archiveOldFile, setArchiveOldFile] = useState(true);
+  const editingSource = platform.sources.find((source) => source.sourceId === editingSourceId) ?? null;
+  const legacyQuery = useQuery({
+    queryKey: ["legacy-deepseek-config"],
+    queryFn: inspectLegacyConfig,
+    enabled: platform.providerId === "deepseek",
+  });
+  const legacyImport = useMutation({
+    mutationFn: () => importLegacyConfig(archiveOldFile),
+    onSuccess: (result) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, result.platforms);
+      void queryClient.invalidateQueries({ queryKey: ["legacy-deepseek-config"] });
+    },
+  });
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+      {legacyQuery.data?.available && (
+        <div className="mb-4 rounded-q-card border border-q-warning/30 bg-q-warning-soft p-4">
+          <p className="text-sm font-medium text-q-text-primary">检测到旧版 DeepSeek 配置</p>
+          <p className="mt-1 text-xs leading-relaxed text-q-text-secondary">
+            可导入{legacyQuery.data.hasApiKey ? " API Key" : ""}
+            {legacyQuery.data.hasApiKey && legacyQuery.data.hasUsageToken ? " 和" : ""}
+            {legacyQuery.data.hasUsageToken ? "网页会话" : ""}。导入前会验证，成功后写入 Windows 凭据管理器。
+          </p>
+          <label className="mt-3 flex items-center gap-2 text-xs text-q-text-secondary">
+            <input
+              type="checkbox"
+              checked={archiveOldFile}
+              onChange={(event) => setArchiveOldFile(event.target.checked)}
+            />
+            导入成功后把旧明文配置重命名为可恢复的 .bak 文件
+          </label>
+          {legacyImport.error && (
+            <p className="mt-2 text-xs text-q-danger">
+              {legacyImport.error instanceof Error ? legacyImport.error.message : String(legacyImport.error)}
+            </p>
+          )}
+          <Button
+            className="mt-3"
+            size="sm"
+            onClick={() => legacyImport.mutate()}
+            disabled={legacyImport.isPending}
+          >
+            {legacyImport.isPending ? "验证并导入中…" : "导入旧配置"}
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {platform.sources.map((source) => (
           <SourceCard
             key={source.sourceId}
             source={source}
             focused={source.sourceId === focusSourceId}
+            onEdit={() => setEditingSourceId(source.sourceId)}
           />
         ))}
       </div>
-      <p className="px-1 py-3 text-xs text-q-text-muted">
-        阶段一展示静态来源状态；来源编辑抽屉、保存前验证与凭据安全存储在阶段二实现。
-      </p>
+      {platform.sources.length === 0 && (
+        <p className="px-1 py-3 text-xs text-q-text-muted">该平台暂未提供可配置来源。</p>
+      )}
+      <SourceEditorDrawer source={editingSource} onClose={() => setEditingSourceId(null)} />
     </div>
   );
 }

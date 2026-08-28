@@ -11,6 +11,36 @@ export type SourceState = "ready" | "refreshing" | "auth_required" | "error";
 
 export type SourceType = "api_key" | "web_session" | "local_cli" | "oauth";
 
+export type CredentialInput = {
+  label: string;
+  placeholder: string;
+  helpText: string;
+  secretKind: "api_key" | "bearer_token";
+};
+
+export type RefreshHistoryEntry = {
+  id: string;
+  sourceId: string;
+  sourceName: string;
+  status: "running" | "success" | "partial" | "failed";
+  /** epoch 毫秒；进行中的记录尚未结束。 */
+  finishedAt: number | null;
+  errorMessage: string | null;
+};
+
+export type LegacyConfigInspection = {
+  available: boolean;
+  path: string | null;
+  hasApiKey: boolean;
+  hasUsageToken: boolean;
+};
+
+export type LegacyImportResult = {
+  platforms: PlatformSummaryViewModel[];
+  importedSourceIds: string[];
+  archivedPath: string | null;
+};
+
 export interface SourceSummaryViewModel {
   sourceId: string;
   sourceType: SourceType;
@@ -24,6 +54,9 @@ export interface SourceSummaryViewModel {
   errorCode: string | null;
   errorMessage: string | null;
   capabilityIds: string[];
+  /** 阶段一预览对象可能缺失；真实后端始终返回。 */
+  credentialInput?: CredentialInput | null;
+  supportsInteractiveLogin?: boolean;
 }
 
 export interface CapabilityDisplayValue {
@@ -57,8 +90,11 @@ export interface PlatformSummaryViewModel {
   displayName: string;
   aggregateStatus: PlatformAggregateStatus;
   accessSummary: string;
+  /** 阶段一预览对象可能缺失；真实后端始终返回。 */
+  officialUrl?: string | null;
   sources: SourceSummaryViewModel[];
   capabilities: CapabilitySnapshotViewModel[];
+  refreshHistory?: RefreshHistoryEntry[];
 }
 
 /** 悬浮球偏好（与 src-tauri/src/storage/mod.rs 对齐） */

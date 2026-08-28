@@ -6,13 +6,15 @@ import { ProviderRail } from "./ProviderRail";
 import { SourcesView } from "./SourcesView";
 import { UsageView } from "./UsageView";
 import { fetchPlatformSummaries } from "@/lib/ipc";
+import { refreshPlatform } from "@/lib/ipc";
+import { listen } from "@tauri-apps/api/event";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { PlatformCenterTarget } from "@/app/navigation";
 
 /**
  * 平台中心：平台目录 + 页面头部 + 内部双 Tab。
  * - 切换平台保留当前 Tab
- * - 刷新按钮并行请求该平台全部 Source（阶段一为静态占位反馈）
+ * - 刷新按钮请求当前平台全部已配置 Source
  * - 支持从总览携带 providerId/sourceId/tab 定位（v5 交互 2）
  */
 export function PlatformCenterPage({
@@ -53,13 +55,25 @@ export function PlatformCenterPage({
 
   const platform = platforms.find((p) => p.providerId === effectiveId) ?? null;
 
-  const refreshMutation = useMutation({
-    mutationFn: async () => {
-      // 阶段一：模拟并行刷新全部 Source 的短暂反馈；阶段二替换为真实命令
-      await new Promise((resolve) => setTimeout(resolve, 800));
-    },
-    onSuccess: () => {
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("source-credential-updated", () => {
       void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
+    }).then((nextUnlisten) => {
+      unlisten = nextUnlisten;
+      if (disposed) nextUnlisten();
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [queryClient]);
+
+  const refreshMutation = useMutation({
+    mutationFn: (providerId: string) => refreshPlatform(providerId),
+    onSuccess: (nextPlatforms) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, nextPlatforms);
     },
   });
 
@@ -92,7 +106,7 @@ export function PlatformCenterPage({
         <ProviderHeader
           platform={platform}
           refreshing={refreshMutation.isPending}
-          onRefresh={() => refreshMutation.mutate()}
+          onRefresh={() => refreshMutation.mutate(platform.providerId)}
         />
         <PlatformTabs value={tab} onChange={setTab} />
         {tab === "usage" ? (

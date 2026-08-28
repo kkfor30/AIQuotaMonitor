@@ -23,9 +23,11 @@ const SOURCE_TYPE_ICON: Record<string, LucideIcon> = {
 export function SourceCard({
   source,
   focused = false,
+  onEdit,
 }: {
   source: SourceSummaryViewModel;
   focused?: boolean;
+  onEdit: () => void;
 }) {
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const meta = SOURCE_STATE_META[source.state];
@@ -91,12 +93,10 @@ export function SourceCard({
       )}
 
       <div className="mt-auto flex items-center gap-2">
-        <Button variant="secondary" size="sm" disabled title="阶段二接入来源编辑抽屉">
+        <Button variant="secondary" size="sm" disabled={!source.credentialInput} onClick={onEdit}>
           编辑来源
         </Button>
-        <Button variant="ghost" size="sm" disabled title="阶段二接入（需二次确认）">
-          清除凭据
-        </Button>
+        {source.supportsInteractiveLogin && <Button variant="ghost" size="sm" onClick={onEdit}>网页登录</Button>}
       </div>
     </div>
   );

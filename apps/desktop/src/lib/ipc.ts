@@ -3,10 +3,42 @@
  * 事件名与 src-tauri/src/commands/window_commands.rs 保持一致。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { HoverbarPreferencesDto, PlatformSummaryViewModel } from "./types";
+import type {
+  HoverbarPreferencesDto,
+  LegacyConfigInspection,
+  LegacyImportResult,
+  PlatformSummaryViewModel,
+} from "./types";
 
 export async function fetchPlatformSummaries(): Promise<PlatformSummaryViewModel[]> {
   return invoke<PlatformSummaryViewModel[]>("get_platform_summaries");
+}
+
+export async function refreshPlatform(providerId: string): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("refresh_platform", { providerId });
+}
+
+export async function saveSourceCredential(
+  sourceId: string,
+  secret: string,
+): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("save_source_credential", { sourceId, secret });
+}
+
+export async function clearSourceCredential(sourceId: string): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("clear_source_credential", { sourceId });
+}
+
+export async function startSourceLogin(sourceId: string): Promise<void> {
+  return invoke<void>("start_source_login", { sourceId });
+}
+
+export async function inspectLegacyConfig(): Promise<LegacyConfigInspection> {
+  return invoke<LegacyConfigInspection>("inspect_legacy_config");
+}
+
+export async function importLegacyConfig(archiveOldFile: boolean): Promise<LegacyImportResult> {
+  return invoke<LegacyImportResult>("import_legacy_config", { archiveOldFile });
 }
 
 export async function fetchHoverbarPreferences(): Promise<HoverbarPreferencesDto> {

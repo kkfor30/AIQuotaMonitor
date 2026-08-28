@@ -6,7 +6,6 @@ import type { PlatformSummaryViewModel } from "@/lib/types";
 
 /**
  * 页面头部：当前平台、接入方式摘要、聚合状态与操作区。
- * 阶段一刷新为静态占位（无真实请求）。
  */
 export function ProviderHeader({
   platform,
@@ -33,7 +32,13 @@ export function ProviderHeader({
       </div>
 
       <div className="flex items-center gap-2">
-        <Button variant="secondary" size="sm" disabled title="阶段二接入">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={!platform.officialUrl}
+          onClick={() => platform.officialUrl && window.open(platform.officialUrl, "_blank", "noopener,noreferrer")}
+          title={platform.officialUrl ? "打开官方页面" : "暂未提供官方页面"}
+        >
           <ExternalLink size={15} aria-hidden />
           官方页面
         </Button>
