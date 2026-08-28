@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 import { LoaderCircle, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/Button";
-import { clearSourceCredential, saveSourceCredential, startSourceLogin } from "@/lib/ipc";
+import {
+  clearSourceCredential,
+  closeSourceLogin,
+  ipcErrorMessage,
+  saveSourceCredential,
+  startSourceLogin,
+} from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { SourceSummaryViewModel } from "@/lib/types";
 
@@ -12,16 +19,42 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
   const [secret, setSecret] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [loginOpened, setLoginOpened] = useState(false);
 
   useEffect(() => {
     setSecret("");
     setError(null);
     setConfirmClear(false);
+    setLoginOpened(false);
   }, [source?.sourceId]);
 
+  useEffect(() => {
+    if (!source?.supportsInteractiveLogin) return;
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    void listen<string>("source-login-error", (event) => {
+      setError(event.payload);
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    void listen("source-login-closed", () => {
+      setLoginOpened(false);
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    void listen<string>("source-credential-updated", (event) => {
+      if (event.payload === source.sourceId) {
+        setLoginOpened(false);
+        onClose();
+      }
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
+  }, [source?.sourceId, source?.supportsInteractiveLogin, onClose]);
+
   const close = () => {
+    if (loginOpened && source) void closeSourceLogin(source.sourceId);
     setSecret("");
     setError(null);
+    setLoginOpened(false);
     onClose();
   };
   const updatePlatforms = (platforms: Awaited<ReturnType<typeof saveSourceCredential>>) => {
@@ -30,21 +63,27 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
   const saveMutation = useMutation({
     mutationFn: () => saveSourceCredential(source!.sourceId, secret),
     onSuccess: (platforms) => { updatePlatforms(platforms); close(); },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "保存失败，请检查凭据后重试。"),
+    onError: (cause) => setError(ipcErrorMessage(cause, "保存失败，请检查凭据后重试。")),
   });
   const clearMutation = useMutation({
     mutationFn: () => clearSourceCredential(source!.sourceId),
     onSuccess: (platforms) => { updatePlatforms(platforms); close(); },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "清除凭据失败，请稍后重试。"),
+    onError: (cause) => setError(ipcErrorMessage(cause, "清除凭据失败，请稍后重试。")),
   });
   const loginMutation = useMutation({
     mutationFn: () => startSourceLogin(source!.sourceId),
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "无法启动网页登录。"),
+    onSuccess: () => setLoginOpened(true),
+    onError: (cause) => setError(ipcErrorMessage(cause, "无法启动网页登录。")),
+  });
+  const closeLoginMutation = useMutation({
+    mutationFn: () => closeSourceLogin(source!.sourceId),
+    onSuccess: () => setLoginOpened(false),
+    onError: (cause) => setError(ipcErrorMessage(cause, "无法关闭网页登录页。")),
   });
 
   if (!source) return null;
   const input = source.credentialInput ?? null;
-  const busy = saveMutation.isPending || clearMutation.isPending || loginMutation.isPending;
+  const busy = saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20" role="presentation" onMouseDown={close}>
@@ -61,7 +100,16 @@ export function SourceEditorDrawer({ source, onClose }: { source: SourceSummaryV
             </label>
             <p className="text-xs leading-relaxed text-q-text-muted">{input.helpText}</p>
           </> : <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">此本地来源由应用自动检测，无需输入凭据。</p>}
-          {source.supportsInteractiveLogin === true && <Button variant="secondary" size="sm" onClick={() => { setError(null); loginMutation.mutate(); }} disabled={busy}>{loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}网页登录</Button>}
+          {source.supportsInteractiveLogin === true && <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" onClick={() => { setError(null); loginMutation.mutate(); }} disabled={busy}>
+                {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
+                {loginOpened ? "重新加载登录页" : "网页登录"}
+              </Button>
+              {loginOpened && <Button variant="ghost" size="sm" onClick={() => closeLoginMutation.mutate()} disabled={busy}>关闭登录页</Button>}
+            </div>
+            <p className="text-xs leading-relaxed text-q-text-muted">登录完成后会自动验证并保存网页会话；关闭抽屉也会关闭登录页。</p>
+          </div>}
           {error && <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">{error}</p>}
           {source.credentialConfigured && (confirmClear ? <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3"><p className="text-xs leading-relaxed text-q-danger">清除后将无法通过此来源获取对应额度，确定继续？</p><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => clearMutation.mutate()} disabled={busy}>{clearMutation.isPending ? "清除中…" : "确认清除"}</Button><Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)} disabled={busy}>取消</Button></div></div> : <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)} disabled={busy}>清除凭据</Button>)}
         </div>

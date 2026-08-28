@@ -5,7 +5,12 @@ use crate::providers::deepseek;
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use crate::storage::vault;
+use std::fs;
+use std::io::Read;
+use std::os::windows::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const WINDOW_LABEL: &str = "deepseek-source-login";
@@ -13,6 +18,7 @@ const TOKEN_TITLE_PREFIX: &str = "AIQM_USAGE_TOKEN:";
 const CAPTURE_SCRIPT: &str = r#"
 (function() {
   if (location.hostname !== 'platform.deepseek.com') return;
+  if (!document.body || document.body.innerText.trim().length < 10) return;
   if (window.__aiqm_token_hook__) return;
   window.__aiqm_token_hook__ = true;
   function deliver(token) {
@@ -68,35 +74,63 @@ pub fn open(app: &tauri::AppHandle) -> Result<(), String> {
             .parse()
             .map_err(|_| "DeepSeek 登录地址无效".to_string())?,
     );
-    WebviewWindowBuilder::new(app, WINDOW_LABEL, url)
+    let window = WebviewWindowBuilder::new(app, WINDOW_LABEL, url)
         .title("DeepSeek 账号登录")
         .inner_size(480.0, 720.0)
         .min_inner_size(360.0, 480.0)
         .resizable(true)
         .center()
         .visible(true)
-        .initialization_script(CAPTURE_SCRIPT)
         .on_page_load(|window, payload| {
-            if payload
-                .url()
-                .host_str()
-                .is_some_and(|host| host == "platform.deepseek.com")
+            if matches!(payload.event(), PageLoadEvent::Finished)
+                && payload
+                    .url()
+                    .host_str()
+                    .is_some_and(|host| host == "platform.deepseek.com")
             {
                 let _ = window.eval(CAPTURE_SCRIPT);
             }
         })
         .build()
         .map_err(|error| format!("打开 DeepSeek 登录窗口失败：{error}"))?;
+    let app_handle = app.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+            let _ = app_handle.emit("source-login-closed", deepseek::WEB_SOURCE_ID);
+        }
+    });
     start_watcher(app.clone());
+    Ok(())
+}
+
+pub fn close(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
+        window
+            .close()
+            .map_err(|error| format!("关闭 DeepSeek 登录窗口失败：{error}"))?;
+    }
     Ok(())
 }
 
 fn start_watcher(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(3)).await;
         for _ in 0..1200 {
             let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
                 return;
             };
+            if let Some(token) = find_webview_cached_usage_token() {
+                match capture(&app, &token).await {
+                    Ok(()) => {
+                        let _ = window.close();
+                        let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
+                        return;
+                    }
+                    Err(error) => {
+                        let _ = app.emit("source-login-error", error);
+                    }
+                }
+            }
             let is_deepseek = window
                 .url()
                 .ok()
@@ -110,16 +144,87 @@ fn start_watcher(app: tauri::AppHandle) {
                 if let Some(token) = title.strip_prefix(TOKEN_TITLE_PREFIX) {
                     let token = token.trim().to_string();
                     let _ = window.set_title("DeepSeek 账号登录");
-                    if capture(&app, &token).await.is_ok() {
-                        let _ = window.close();
-                        let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
-                        return;
+                    match capture(&app, &token).await {
+                        Ok(()) => {
+                            let _ = window.close();
+                            let _ = app.emit("source-credential-updated", deepseek::WEB_SOURCE_ID);
+                            return;
+                        }
+                        Err(error) => {
+                            let _ = app.emit("source-login-error", error);
+                        }
                     }
                 }
             }
             tokio::time::sleep(Duration::from_millis(1500)).await;
         }
     });
+}
+
+fn read_shared_text(path: &Path) -> Option<String> {
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0x1 | 0x2 | 0x4)
+        .open(path)
+        .ok()?;
+    let metadata = file.metadata().ok()?;
+    if metadata.len() == 0 || metadata.len() > 20 * 1024 * 1024 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.read_to_end(&mut bytes).ok()?;
+    Some(String::from_utf8_lossy(&bytes).replace('\0', ""))
+}
+
+fn extract_user_api_token(text: &str) -> Option<String> {
+    let mut search_from = 0;
+    let marker = "\"token\":\"";
+    while let Some(relative_index) = text[search_from..].find(marker) {
+        let token_start = search_from + relative_index + marker.len();
+        let token_end = token_start + text[token_start..].find('"')?;
+        let token = &text[token_start..token_end];
+        let context_end = (token_end + 1800).min(text.len());
+        let context = &text[token_end..context_end];
+        if token.len() > 20
+            && context.contains("\"id_profile\"")
+            && context.contains("\"feature_gates\"")
+        {
+            return Some(token.to_string());
+        }
+        search_from = token_end + 1;
+    }
+    None
+}
+
+fn find_webview_cached_usage_token() -> Option<String> {
+    let local_app_data = std::env::var_os("LOCALAPPDATA")?;
+    let cache_dir = PathBuf::from(local_app_data)
+        .join("com.aiquotamonitor.desktop")
+        .join("EBWebView")
+        .join("Default")
+        .join("Cache")
+        .join("Cache_Data");
+    let mut files = fs::read_dir(cache_dir)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    files.sort_by_key(|path| {
+        std::cmp::Reverse(
+            path.metadata()
+                .and_then(|metadata| metadata.modified())
+                .ok(),
+        )
+    });
+    for path in files {
+        if let Some(token) =
+            read_shared_text(&path).and_then(|text| extract_user_api_token(&text))
+        {
+            return Some(token);
+        }
+    }
+    None
 }
 
 async fn capture(app: &tauri::AppHandle, token: &str) -> Result<(), String> {

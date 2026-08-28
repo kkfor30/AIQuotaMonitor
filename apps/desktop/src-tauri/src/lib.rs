@@ -24,6 +24,7 @@ pub fn run() {
             commands::platform_commands::save_source_credential,
             commands::platform_commands::clear_source_credential,
             commands::platform_commands::start_source_login,
+            commands::platform_commands::close_source_login,
             commands::platform_commands::inspect_legacy_config,
             commands::platform_commands::import_legacy_config,
             commands::window_commands::show_hoverbar_detail,

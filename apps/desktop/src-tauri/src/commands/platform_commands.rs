@@ -91,6 +91,21 @@ pub fn start_source_login(
 }
 
 #[tauri::command]
+pub fn close_source_login(
+    source_id: String,
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("仅主窗口可以关闭来源登录".into());
+    }
+    if source_id != crate::providers::deepseek::WEB_SOURCE_ID {
+        return Err("此来源没有网页登录页".into());
+    }
+    crate::windows::source_login::close(&app)
+}
+
+#[tauri::command]
 pub fn inspect_legacy_config(
     database: State<'_, Database>,
 ) -> Result<LegacyConfigInspection, String> {

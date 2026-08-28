@@ -24,10 +24,14 @@ export function SourceCard({
   source,
   focused = false,
   onEdit,
+  onRefresh,
+  refreshing = false,
 }: {
   source: SourceSummaryViewModel;
   focused?: boolean;
   onEdit: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }) {
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const meta = SOURCE_STATE_META[source.state];
@@ -93,9 +97,12 @@ export function SourceCard({
       )}
 
       <div className="mt-auto flex items-center gap-2">
-        <Button variant="secondary" size="sm" disabled={!source.credentialInput} onClick={onEdit}>
-          编辑来源
-        </Button>
+        {source.credentialInput && <Button variant="secondary" size="sm" onClick={onEdit}>编辑来源</Button>}
+        {source.sourceType === "local_cli" && onRefresh && (
+          <Button variant="secondary" size="sm" onClick={onRefresh} disabled={refreshing}>
+            {refreshing ? "检测中…" : "检测并刷新"}
+          </Button>
+        )}
         {source.supportsInteractiveLogin && <Button variant="ghost" size="sm" onClick={onEdit}>网页登录</Button>}
       </div>
     </div>

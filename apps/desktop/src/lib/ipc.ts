@@ -33,6 +33,16 @@ export async function startSourceLogin(sourceId: string): Promise<void> {
   return invoke<void>("start_source_login", { sourceId });
 }
 
+export async function closeSourceLogin(sourceId: string): Promise<void> {
+  return invoke<void>("close_source_login", { sourceId });
+}
+
+export function ipcErrorMessage(cause: unknown, fallback: string): string {
+  if (cause instanceof Error) return cause.message;
+  if (typeof cause === "string" && cause.trim()) return cause;
+  return fallback;
+}
+
 export async function inspectLegacyConfig(): Promise<LegacyConfigInspection> {
   return invoke<LegacyConfigInspection>("inspect_legacy_config");
 }

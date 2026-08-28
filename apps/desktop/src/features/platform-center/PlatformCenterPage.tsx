@@ -5,8 +5,7 @@ import { ProviderHeader } from "./ProviderHeader";
 import { ProviderRail } from "./ProviderRail";
 import { SourcesView } from "./SourcesView";
 import { UsageView } from "./UsageView";
-import { fetchPlatformSummaries } from "@/lib/ipc";
-import { refreshPlatform } from "@/lib/ipc";
+import { fetchPlatformSummaries, ipcErrorMessage, refreshPlatform } from "@/lib/ipc";
 import { listen } from "@tauri-apps/api/event";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { PlatformCenterTarget } from "@/app/navigation";
@@ -108,6 +107,11 @@ export function PlatformCenterPage({
           refreshing={refreshMutation.isPending}
           onRefresh={() => refreshMutation.mutate(platform.providerId)}
         />
+        {refreshMutation.error && (
+          <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
+            {ipcErrorMessage(refreshMutation.error, "平台刷新失败，请稍后重试。")}
+          </p>
+        )}
         <PlatformTabs value={tab} onChange={setTab} />
         {tab === "usage" ? (
           <UsageView key={`${platform.providerId}-usage`} platform={platform} />

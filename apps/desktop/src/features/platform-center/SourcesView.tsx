@@ -3,7 +3,12 @@ import { SourceEditorDrawer } from "./SourceEditorDrawer";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
-import { importLegacyConfig, inspectLegacyConfig } from "@/lib/ipc";
+import {
+  importLegacyConfig,
+  inspectLegacyConfig,
+  ipcErrorMessage,
+  refreshPlatform,
+} from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { PlatformSummaryViewModel } from "@/lib/types";
 
@@ -33,6 +38,12 @@ export function SourcesView({
     onSuccess: (result) => {
       queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, result.platforms);
       void queryClient.invalidateQueries({ queryKey: ["legacy-deepseek-config"] });
+    },
+  });
+  const refreshMutation = useMutation({
+    mutationFn: () => refreshPlatform(platform.providerId),
+    onSuccess: (platforms) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
     },
   });
 
@@ -74,9 +85,16 @@ export function SourcesView({
             source={source}
             focused={source.sourceId === focusSourceId}
             onEdit={() => setEditingSourceId(source.sourceId)}
+            onRefresh={source.sourceType === "local_cli" ? () => refreshMutation.mutate() : undefined}
+            refreshing={refreshMutation.isPending}
           />
         ))}
       </div>
+      {refreshMutation.error && (
+        <p className="mt-3 rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
+          {ipcErrorMessage(refreshMutation.error, "本地来源检测失败，请稍后重试。")}
+        </p>
+      )}
       {platform.sources.length === 0 && (
         <p className="px-1 py-3 text-xs text-q-text-muted">该平台暂未提供可配置来源。</p>
       )}
