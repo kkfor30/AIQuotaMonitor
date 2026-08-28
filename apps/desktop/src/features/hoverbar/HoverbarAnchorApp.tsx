@@ -212,7 +212,6 @@ export function HoverbarOrb({
     <button
       type="button"
       aria-label={ariaLabel}
-      title={ariaLabel}
       disabled={disabled}
       onDragStart={preventNativeAssetDrag}
       onClick={onActivate}

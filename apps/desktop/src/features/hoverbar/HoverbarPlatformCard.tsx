@@ -33,9 +33,12 @@ export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryVi
         capability.value.kind !== "trend",
     )
     .slice(0, 2);
-  const problemSource = platform.sources.find(
-    (source) => source.state === "error" || source.state === "auth_required",
-  );
+  const problemSource =
+    platform.aggregateStatus === "setup_required"
+      ? undefined
+      : platform.sources.find(
+          (source) => source.state === "error" || source.state === "auth_required",
+        );
   const hasStale = visibleCapabilities.some((capability) => capability.freshness === "stale");
   const visual = HOVERBAR_PROVIDER_VISUALS[platform.providerId];
 

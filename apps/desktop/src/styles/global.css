@@ -194,6 +194,7 @@ html.hoverbar-window #root {
   flex-direction: column;
   width: auto;
   height: auto;
+  box-sizing: border-box;
   padding: 14px;
   border: 0;
   border-radius: 28px;
@@ -358,6 +359,9 @@ html.hoverbar-window #root {
   position: relative;
   display: grid;
   grid-template-columns: 44px minmax(100px, 1fr) minmax(116px, 0.95fr);
+  grid-template-areas:
+    "logo main support"
+    ". message message";
   flex: none;
   min-height: 82px;
   align-items: center;
@@ -376,16 +380,15 @@ html.hoverbar-window #root {
 
 .hb-service-card[data-status="partial"],
 .hb-service-card[data-freshness="stale"] {
-  padding-bottom: 31px;
   border-color: color-mix(in srgb, var(--q-hoverbar-warning) 42%, var(--q-hoverbar-card-border));
 }
 
 .hb-service-card[data-status="error"] {
-  padding-bottom: 31px;
   border-color: color-mix(in srgb, var(--q-hoverbar-danger) 52%, var(--q-hoverbar-card-border));
 }
 
 .hb-provider-logo {
+  grid-area: logo;
   display: grid;
   width: 44px;
   height: 44px;
@@ -413,6 +416,7 @@ html.hoverbar-window #root {
 }
 
 .hb-service-main {
+  grid-area: main;
   min-width: 0;
 }
 
@@ -500,6 +504,7 @@ html.hoverbar-window #root {
 
 .hb-supporting-values {
   display: grid;
+  grid-area: support;
   min-width: 0;
   align-content: center;
   gap: 5px;
@@ -538,14 +543,12 @@ html.hoverbar-window #root {
 }
 
 .hb-card-message {
-  position: absolute;
-  right: 13px;
-  bottom: 8px;
-  left: 68px;
   display: flex;
+  grid-area: message;
   min-width: 0;
   align-items: center;
   gap: 5px;
+  margin-top: 1px;
   color: var(--q-hoverbar-warning);
   font-size: 10px;
   font-weight: 650;
@@ -589,28 +592,41 @@ html.hoverbar-window #root {
 .hb-detail-root[data-edge="left"] .hb-service-card,
 .hb-detail-root[data-edge="right"] .hb-service-card {
   grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-areas:
+    "logo main"
+    "support support"
+    "message message";
   min-height: 0;
   align-items: start;
   gap: 10px;
   padding: 11px;
 }
 
-.hb-detail-root[data-edge="left"] .hb-service-main,
-.hb-detail-root[data-edge="right"] .hb-service-main {
-  grid-column: 2;
+.hb-detail-root[data-edge="left"] .hb-head,
+.hb-detail-root[data-edge="right"] .hb-head {
+  flex: 0 0 auto;
+  min-height: 64px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 2px 5px 7px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-actions,
+.hb-detail-root[data-edge="right"] .hb-actions {
+  align-self: flex-end;
 }
 
 .hb-detail-root[data-edge="left"] .hb-supporting-values,
 .hb-detail-root[data-edge="right"] .hb-supporting-values {
-  grid-column: 1 / -1;
   width: 100%;
-  margin-top: 3px;
+  margin-top: 1px;
   padding-left: 54px;
 }
 
 .hb-detail-root[data-edge="left"] .hb-card-message,
 .hb-detail-root[data-edge="right"] .hb-card-message {
-  left: 66px;
+  padding-left: 54px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -666,8 +682,8 @@ html.hoverbar-window #root {
 
 .hb-preview-detail-frame {
   position: relative;
-  width: min(420px, 100%);
-  height: 180px;
+  width: min(300px, 100%);
+  height: 480px;
 }
 
 .hb-preview-tile,

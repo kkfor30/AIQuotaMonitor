@@ -124,11 +124,8 @@ export function HoverbarDetailApp() {
       .catch((error) => console.error("无法调整悬浮详情尺寸", error));
   }, [anchor.edge, contentHeight]);
 
-  const connectedPlatforms = platforms.filter(
-    (platform) => platform.aggregateStatus !== "setup_required",
-  );
   const orderedPlatforms = sortHoverbarPlatforms(
-    connectedPlatforms,
+    platforms,
     DEFAULT_HOVERBAR_PROVIDER_ORDER,
     "manual",
   );

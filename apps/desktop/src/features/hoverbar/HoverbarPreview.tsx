@@ -79,6 +79,43 @@ const errorPlatform: PlatformSummaryViewModel = {
   })),
 };
 
+function setupRequiredPlatform(
+  providerId: string,
+  displayName: string,
+): PlatformSummaryViewModel {
+  return {
+    providerId,
+    displayName,
+    aggregateStatus: "setup_required",
+    accessSummary: "尚未接入",
+    sources: [
+      {
+        sourceId: `preview-${providerId}`,
+        sourceType: "api_key",
+        displayName: "默认来源",
+        state: "auth_required",
+        credentialConfigured: false,
+        lastValidatedAt: null,
+        lastSuccessAt: null,
+        errorCode: null,
+        errorMessage: null,
+        capabilityIds: [],
+      },
+    ],
+    capabilities: [],
+  };
+}
+
+const previewPlatforms: PlatformSummaryViewModel[] = [
+  errorPlatform,
+  setupRequiredPlatform("openai", "GPT / Codex"),
+  setupRequiredPlatform("claude_code", "Claude Code"),
+  setupRequiredPlatform("glm", "GLM"),
+  setupRequiredPlatform("kimi", "Kimi"),
+  setupRequiredPlatform("mimo", "MiMo"),
+  setupRequiredPlatform("minimax", "MiniMax"),
+];
+
 function OrbState({
   label,
   forceState,
@@ -127,7 +164,7 @@ function HoverbarPreview() {
       <section className="hb-preview-detail-section">
         <h2>完整详情面板</h2>
         <div className="hb-preview-detail-frame">
-          <div className="hb-detail-root" data-edge="top" data-motion="visible">
+          <div className="hb-detail-root" data-edge="right" data-motion="visible">
             <section className="hb-panel">
               <header className="hb-head">
                 <p className="hb-refresh-status">刚刚更新</p>
@@ -156,7 +193,9 @@ function HoverbarPreview() {
                 </div>
               </header>
               <div className="hb-service-list">
-                <HoverbarPlatformCard platform={healthyPlatform} />
+                {previewPlatforms.map((platform) => (
+                  <HoverbarPlatformCard key={platform.providerId} platform={platform} />
+                ))}
               </div>
             </section>
           </div>
