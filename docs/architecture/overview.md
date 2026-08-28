@@ -43,6 +43,20 @@ Platform Template
 - Capability：余额、消费、窗口额度、Token Plan、缓存命中、Credits、重置信号等。
 - Snapshot：某个 Source 在某个时间点获得的真实能力数据。
 
+GPT 重置雷达使用独立边界，不把第三方内容源伪装成模型平台账户：
+
+```text
+CodexRadarSource
+└─ TiboPostSnapshot[]
+   └─ UserConfiguredAiAnalyzer
+      └─ RadarAnalysisSnapshot
+```
+
+- `CodexRadarSource`：V1 从 Codex Radar 公开页面同步其转载的 Tibo 原文；直接访问 X 是后续可选实现。
+- `TiboPostSnapshot`：保存英文原文、发布时间、X 原帖链接、Codex Radar 来源链接、同步时间和 freshness。
+- `RadarAnalysisSnapshot`：保存模型标识、输入动态 ID、提示词版本、结论、把握度、引用、正反依据和不确定性。
+- Codex Radar 的翻译、信号标签和模型语境解读不得作为用户配置 AI 输入；来源或 AI 失败不改变平台额度状态。
+
 ## 前后端边界
 
 ### React 前端

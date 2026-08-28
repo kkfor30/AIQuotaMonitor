@@ -30,6 +30,7 @@ Refresh Coordinator
 - Source 独立认证、独立刷新、独立缓存和独立错误状态。
 - 主窗口与悬浮球共享同一份后端 ViewModel 和前端 Query Cache。
 - 平台模板描述能力；页面根据 capability renderer 渲染，禁止为每个平台复制整页。
+- GPT 重置雷达是独立领域：`CodexRadarSource → TiboPostSnapshot → UserConfiguredAiAnalyzer → RadarAnalysisSnapshot`。V1 不直接访问 X；雷达来源失败不污染平台额度聚合状态。
 
 ## 当前代码布局
 

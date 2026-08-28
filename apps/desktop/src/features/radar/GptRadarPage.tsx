@@ -3,9 +3,10 @@ import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 
 /**
- * GPT 重置雷达（product-shell-v5，设计稿 05/06/07 预留）：
- * 内部固定三个 Tab——信号摘要 / Tibo 动态 / 规则与 AI。
- * 阶段一仅实现页面骨架与结构占位；抓取、规则计算与 AI 均为阶段四业务，
+ * GPT 重置雷达（V1，设计稿 05/06/07 预留）：
+ * 内部固定三个 Tab——信号摘要 / Tibo 动态 / AI 辅助分析。
+ * V1 从 Codex Radar 同步其转载的 Tibo 英文原文，再交给用户配置的可选 AI 分析。
+ * 阶段一仅实现页面骨架与结构占位；内容同步与 AI 分析均为阶段四业务，
  * 缺失数据一律显示「未接入」，不使用设计稿示例数字补位。
  */
 export function GptRadarPage() {
@@ -23,8 +24,8 @@ export function GptRadarPage() {
             </span>
           </div>
           <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-q-text-secondary">
-            只服务 GPT 重置判断。公开来源、本地规则和可选 AI 独立产出证据；
-            综合判断仅为推测，不代表官方结论。
+            V1 从 Codex Radar 同步 Tibo 英文原文，由用户配置的可选 AI 辅助研判；
+            直接访问 X 留作后续 Source。所有结论仅为推测，不代表官方结论。
           </p>
         </div>
         <button
@@ -64,42 +65,46 @@ export function GptRadarPage() {
 
       {tab === "signal" && <SignalSummaryView />}
       {tab === "tibo" && <TiboFeedView />}
-      {tab === "rules" && <RulesAiView />}
+      {tab === "ai" && <AiAnalysisView />}
     </div>
   );
 }
 
-type RadarTabId = "signal" | "tibo" | "rules";
+type RadarTabId = "signal" | "tibo" | "ai";
 
 const RADAR_TABS: Array<{ id: RadarTabId; label: string }> = [
   { id: "signal", label: "信号摘要" },
   { id: "tibo", label: "Tibo 动态" },
-  { id: "rules", label: "规则与 AI" },
+  { id: "ai", label: "AI 辅助分析" },
 ];
 
-/** 信号摘要（05）：综合判断、额度上下文、独立证据链、检查历史。 */
+/** 信号摘要（05）：来源状态、AI 辅助结论、独立额度上下文和检查历史。 */
 function SignalSummaryView() {
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Card className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-q-text-primary">综合判断</h2>
+          <h2 className="text-sm font-semibold text-q-text-primary">Codex Radar 来源</h2>
           <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-[13px] text-q-neutral">
-            未接入：待信号源接入后给出推测性判断，并始终标注「仅为推测，不代表官方结论」。
+            未接入：待 `CodexRadarSource` 接入后展示同步状态、最后成功时间和 freshness。
           </p>
-          <div className="grid grid-cols-3 gap-3 text-xs">
-            {["公开来源证据", "本地规则命中", "AI 分析（默认关闭）"].map((label) => (
-              <div key={label} className="glass-inset px-3 py-2">
-                <p className="text-q-text-muted">{label}</p>
-                <p className="mt-1 font-medium text-q-text-secondary">未提供</p>
-              </div>
-            ))}
-          </div>
+          <p className="text-xs leading-relaxed text-q-text-muted">
+            来源失败时保留最后成功的 Tibo 快照并标记 stale；没有真实快照时显示 missing。
+          </p>
         </Card>
         <Card className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-q-text-primary">额度上下文</h2>
+          <h2 className="text-sm font-semibold text-q-text-primary">AI 辅助结论</h2>
+          <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-[13px] text-q-neutral">
+            未分析：AI 默认关闭，启用后只分析 Codex Radar 同步的 Tibo 英文原文。
+          </p>
+          <p className="text-xs leading-relaxed text-q-text-muted">
+            输出必须引用原文并展示把握度、正反依据和不确定性；仅为推测，不代表官方结论。
+          </p>
+        </Card>
+        <Card className="flex flex-col gap-3">
+          <h2 className="text-sm font-semibold text-q-text-primary">独立额度上下文</h2>
           <p className="text-[13px] leading-relaxed text-q-text-secondary">
-            窗口额度、Credits 与可重置次数来自 GPT / Codex 平台 Source，接入后在此展示。
+            窗口额度与 Credits 来自 GPT / Codex 平台 Source，接入后独立展示，不把估算值当成重置结论。
           </p>
           <div className="mt-auto rounded-q-control border border-dashed border-q-border-strong px-3 py-3 text-center text-xs text-q-text-muted">
             未接入
@@ -108,7 +113,9 @@ function SignalSummaryView() {
       </div>
       <Card className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold text-q-text-primary">检查历史</h2>
-        <p className="text-xs text-q-text-muted">尚未执行检查；「立即检查」将展示抓取、规则计算与可选 AI 三个阶段的独立进度。</p>
+        <p className="text-xs text-q-text-muted">
+          尚未执行检查；「立即检查」将展示 Codex Radar 同步、原文解析与可选 AI 分析三个阶段的独立进度。
+        </p>
       </Card>
     </div>
   );
@@ -119,47 +126,48 @@ function TiboFeedView() {
   return (
     <div className="grid min-h-[320px] grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-4">
       <Card className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-q-text-primary">动态列表</h2>
-        <p className="text-xs text-q-text-muted">筛选（来源 / 相关性 / 时间）与列表占位；「内容相关」不等于「新重置信号」，上一轮内容会明确标注。</p>
+        <h2 className="text-sm font-semibold text-q-text-primary">Codex Radar 同步动态</h2>
+        <p className="text-xs leading-relaxed text-q-text-muted">
+          V1 只展示 Codex Radar 转载的 Tibo 动态；列表标签来自用户配置 AI，未分析时明确显示未分析。
+        </p>
         <div className="mt-auto rounded-q-control border border-dashed border-q-border-strong px-3 py-4 text-center text-xs text-q-text-muted">
-          未接入：待抓取源接入
+          未接入：待 CodexRadarSource 接入
         </div>
       </Card>
       <Card className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold text-q-text-primary">动态详情</h2>
         <p className="text-xs leading-relaxed text-q-text-muted">
-          原文、翻译、来源、抓取时间、规则命中与额度关联将分区显示；
-          「加入证据」只改变当前检查的证据集合，不直接修改综合结论。
+          英文原文、发布时间、X 原帖链接、Codex Radar 来源链接、同步时间和 freshness 分区显示。
+          中文翻译仅供阅读，不参与 AI 输入；上游信号标签和模型语境解读也不进入用户配置 AI 分析。
         </p>
       </Card>
     </div>
   );
 }
 
-/** 规则与 AI（07）：可视化条件构建器，不暴露任意脚本编辑器。 */
-function RulesAiView() {
+/** AI 辅助分析（07）：用户配置 AI、输入预览、引用式结论和分析历史。 */
+function AiAnalysisView() {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-4">
         <Card className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">规则列表</h2>
+          <h2 className="text-sm font-semibold text-q-text-primary">AI 分析配置</h2>
           <p className="text-xs leading-relaxed text-q-text-muted">
-            规则拥有优先级、权重、时间窗口、冷却期、启用状态与版本历史；
-            保存前展示最近 30 天回测摘要，回测不修改正式规则。
+            AI 默认关闭。用户选择已安全配置的提供商、模型和分析范围；前端只接收模型别名，不接触完整凭据。
           </p>
         </Card>
         <Card className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">条件构建器</h2>
+          <h2 className="text-sm font-semibold text-q-text-primary">本次分析输入</h2>
           <p className="text-xs leading-relaxed text-q-text-muted">
-            可视化条件构建占位；MVP 不提供任意脚本编辑器。
+            只发送 Tibo 公开英文原文、发布时间和原帖链接；不发送翻译、上游判断、账号、额度、凭据或 Cookie。
           </p>
         </Card>
       </div>
       <Card className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-q-text-primary">AI 分析</h2>
+        <h2 className="text-sm font-semibold text-q-text-primary">辅助结论与历史</h2>
         <p className="text-xs leading-relaxed text-q-text-muted">
-          AI 默认关闭，影响最终结论的权重有上限；发送内容仅限公开文本与脱敏摘要，
-          禁止发送凭据和 Cookie。审计日志在此记录。
+          结论包含把握度、引用原文、支持依据、反向依据、不确定性、模型和分析时间。
+          相同原文、模型与提示词版本复用结果；没有真实原文或分析失败时不生成结论。
         </p>
       </Card>
     </div>

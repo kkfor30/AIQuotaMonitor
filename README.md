@@ -1,6 +1,6 @@
 # AIQuotaMonitor
 
-多模型平台统一额度监控中心。目标平台包括 GPT/Codex、Claude Code、DeepSeek、GLM、Kimi、MiMo、MiniMax，并为后续 GPT 重置雷达和 Tibo 言论监控保留扩展位置。
+多模型平台统一额度监控中心。目标平台包括 GPT/Codex、Claude Code、DeepSeek、GLM、Kimi、MiMo、MiniMax，并为 GPT 重置雷达保留独立扩展位置。雷达 V1 从 Codex Radar 公开页面同步其转载的 Tibo 原文，再由用户配置的 AI 提供可回链原文的辅助研判；直接访问 X 作为后续可选 Source。
 
 ## 项目策略
 
