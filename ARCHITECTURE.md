@@ -45,7 +45,8 @@ apps/desktop/src/
 apps/desktop/src-tauri/src/
 ├─ commands/           # Tauri IPC 命令
 ├─ domain/             # 脱敏 ViewModel 与领域类型
-├─ providers/          # 阶段一静态数据；阶段二替换为 Source adapters
-├─ storage/            # 当前悬浮球偏好；阶段二加入 SQLite/Vault
-└─ windows/            # 悬浮球与桌面窗口能力
+├─ providers/          # DeepSeek、GPT/Codex Source adapters 与平台模板
+├─ refresh/            # Source 并行刷新、去重与 generation 协调
+├─ storage/            # SQLite、Windows Credential Manager、旧配置导入与窗口偏好
+└─ windows/            # 悬浮球、DeepSeek 隔离登录窗与桌面窗口能力
 ```
