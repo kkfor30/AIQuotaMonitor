@@ -2,7 +2,7 @@ use crate::commands::require_label;
 use crate::radar::{self, RadarSnapshot};
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
-use tauri::{State, WebviewWindow};
+use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
 #[tauri::command]
 pub fn get_radar_snapshot(database: State<'_, Database>) -> Result<RadarSnapshot, String> {
@@ -16,11 +16,12 @@ pub async fn run_radar_check(
     source_id: Option<String>,
     model: Option<String>,
     window: WebviewWindow,
+    app: AppHandle,
     database: State<'_, Database>,
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main"])?;
-    radar::run_check(
+    let snapshot = radar::run_check(
         &database,
         &coordinator,
         analyze,
@@ -28,7 +29,9 @@ pub async fn run_radar_check(
         source_id.as_deref(),
         model.as_deref(),
     )
-    .await
+    .await?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
 }
 
 /// 翻译单条 Tibo 动态：主窗口与悬浮详情二级页都可调用。
@@ -37,9 +40,12 @@ pub async fn translate_radar_post(
     post_id: String,
     source_id: Option<String>,
     window: WebviewWindow,
+    app: AppHandle,
     database: State<'_, Database>,
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
-    radar::translate_post(&database, &coordinator, &post_id, source_id.as_deref()).await
+    let snapshot = radar::translate_post(&database, &coordinator, &post_id, source_id.as_deref()).await?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
 }

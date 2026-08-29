@@ -59,7 +59,7 @@ export function HoverbarDetailApp() {
     retry: false,
   });
   // GPT 重置雷达：只读快照，检查动作仍由主窗口执行，失败不影响额度状态。
-  const { data: radar } = useQuery({
+  const { data: radar, refetch: refetchRadar } = useQuery({
     queryKey: RADAR_SNAPSHOT_QUERY_KEY,
     queryFn: fetchRadarSnapshot,
     retry: false,
@@ -88,6 +88,7 @@ export function HoverbarDetailApp() {
       window.clearTimeout(exitTimer.current);
       setView("quota");
       setAnchor(normalizeHoverbarAnchor(event.payload));
+      void refetchRadar();
       setMotion("opening");
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         setMotion("visible");
@@ -108,7 +109,7 @@ export function HoverbarDetailApp() {
       window.clearTimeout(exitTimer.current);
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, [finishClose, setMotion]);
+  }, [finishClose, refetchRadar, setMotion]);
 
   // 内容测高：观察头部与内容盒，额度列表与雷达二级页共用同一滚动容器
   useLayoutEffect(() => {

@@ -5,6 +5,7 @@ import {
   APP_SETTINGS_QUERY_KEY,
   HOVERBAR_PREFERENCES_QUERY_KEY,
   PLATFORM_SUMMARIES_QUERY_KEY,
+  RADAR_SNAPSHOT_QUERY_KEY,
 } from "./query-client";
 
 /** 主窗口和悬浮窗共用：后端变更后立刻失效对应 Query。预览页没有 Tauri 时静默跳过。 */
@@ -28,6 +29,7 @@ export function useBackendQuerySync() {
     };
 
     watch("platform-data-changed", [PLATFORM_SUMMARIES_QUERY_KEY]);
+    watch("radar-data-changed", [RADAR_SNAPSHOT_QUERY_KEY]);
     watch("source-credential-updated", [PLATFORM_SUMMARIES_QUERY_KEY]);
     watch("app-settings-changed", [
       APP_SETTINGS_QUERY_KEY,
