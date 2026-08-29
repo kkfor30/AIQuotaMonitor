@@ -301,13 +301,15 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
               </div>
               {data.analysis.analysisBasis ? (
                 <div className="flex flex-col gap-1">
-                  <p className="text-[11px] font-medium text-q-text-muted">分析依据</p>
-                  <p
-                    className="rounded-q-control border-l-2 border-q-primary/50 bg-q-surface-muted px-3 py-2 text-xs leading-relaxed text-q-text-secondary"
+                  <p className="text-[11px] font-medium text-q-text-muted">
+                    分析依据 · {data.analysis.analysisBasis.length} 字
+                  </p>
+                  <div
+                    className="max-h-44 overflow-y-auto rounded-q-control bg-q-surface-muted px-3 py-2.5 text-xs leading-relaxed text-q-text-secondary"
                     data-selectable="true"
                   >
                     {data.analysis.analysisBasis}
-                  </p>
+                  </div>
                 </div>
               ) : null}
               <div className="mt-auto flex flex-wrap items-center gap-2">
@@ -756,13 +758,15 @@ function AiAnalysisView({
             </div>
             {analysis.analysisBasis ? (
               <div className="flex flex-col gap-1.5">
-                <p className="text-[11px] font-medium text-q-text-muted">分析依据</p>
-                <p
-                  className="rounded-q-control border-l-2 border-q-primary/50 bg-q-surface-muted px-3.5 py-2.5 text-[13px] leading-relaxed text-q-text-secondary"
+                <p className="text-[11px] font-medium text-q-text-muted">
+                  分析依据 · {analysis.analysisBasis.length} 字
+                </p>
+                <div
+                  className="max-h-72 overflow-y-auto rounded-q-control bg-q-surface-muted px-3.5 py-3 text-[13px] leading-relaxed text-q-text-secondary"
                   data-selectable="true"
                 >
                   {analysis.analysisBasis}
-                </p>
+                </div>
               </div>
             ) : null}
             <div className="grid grid-cols-1 gap-x-8 gap-y-3 xl:grid-cols-2">

@@ -1038,15 +1038,18 @@ html.hoverbar-window #root {
 
 .hb-radar-basis {
   margin: 0;
-  padding: 7px 9px;
-  border-left: 2px solid color-mix(in srgb, var(--q-hoverbar-primary) 55%, transparent);
-  border-radius: 0 8px 8px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
   color: var(--q-hoverbar-muted-strong);
   background: var(--q-hoverbar-empty-bg);
   font-size: 12px;
   font-weight: 600;
   line-height: 17px;
   overflow-wrap: anywhere;
+  /* 依据超长时在自身窗口内滚动，不把悬浮页撑出屏幕 */
+  max-height: 132px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .hb-radar-meta-row {
