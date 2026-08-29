@@ -1171,17 +1171,16 @@ html.hoverbar-window #root {
   align-self: flex-end;
 }
 
-/* 左右侧停靠：重置信号条窄版兼容——标题行与操作行分离，操作右对齐不脱节。 */
+/* 左右侧停靠：重置信号条压缩为单行（隐藏装饰图标、收紧间距，避免操作组换行脱节）。 */
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-head {
-  row-gap: 4px;
+  flex-wrap: nowrap;
+  column-gap: 4px;
 }
 
-.hb-detail-root[data-edge="left"] .hb-radar-strip-actions,
-.hb-detail-root[data-edge="right"] .hb-radar-strip-actions {
-  flex: 1 0 100%;
-  justify-content: flex-end;
-  margin-left: 0;
+.hb-detail-root[data-edge="left"] .hb-radar-strip-head > svg,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-head > svg {
+  display: none;
 }
 
 .hb-detail-root[data-edge="left"] .hb-service-card,
