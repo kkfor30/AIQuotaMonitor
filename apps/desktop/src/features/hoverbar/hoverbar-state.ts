@@ -152,9 +152,9 @@ export function radarConfidenceLabel(confidence: string): string {
 
 /** 摘要条第二行的来源状态：只用真实同步时间，不编造。 */
 export function radarSourceLine(radar: RadarSnapshot): string {
-  if (radar.sourceStatus === "stale") return "来源 Codex Radar · 缓存可能过期";
-  if (radar.lastSyncedAt) return `来源 Codex Radar · 更新 ${formatHoverbarClock(radar.lastSyncedAt)}`;
-  return "来源 Codex Radar · 未同步";
+  if (radar.sourceStatus === "stale") return "来源 CodexRadar · 缓存可能过期";
+  if (radar.lastSyncedAt) return `来源 CodexRadar · 更新 ${formatHoverbarClock(radar.lastSyncedAt)}`;
+  return "来源 CodexRadar · 未同步";
 }
 
 /** 悬浮球头部状态文案：成功/部分/失败同时用文字表达。 */

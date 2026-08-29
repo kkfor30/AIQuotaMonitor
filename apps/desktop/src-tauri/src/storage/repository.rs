@@ -656,19 +656,22 @@ impl Database {
         for post in posts {
             transaction
                 .execute(
-                    "INSERT INTO tibo_posts(id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                    "INSERT INTO tibo_posts(id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                      ON CONFLICT(id) DO UPDATE SET
                         url = excluded.url, text = excluded.text, posted_at = excluded.posted_at, kind = excluded.kind,
                         tibo_lane = excluded.tibo_lane, explicit_reset = excluded.explicit_reset,
                         verification_status = excluded.verification_status, is_reply = excluded.is_reply,
                         replies = excluded.replies, reposts = excluded.reposts, likes = excluded.likes,
-                        extra_json = excluded.extra_json, synced_at = excluded.synced_at",
-                    // 冲突时不动 translated_* 列：重新同步不冲掉已缓存的中文翻译
+                        extra_json = excluded.extra_json, synced_at = excluded.synced_at,
+                        translated_text = COALESCE(excluded.translated_text, tibo_posts.translated_text),
+                        translated_at = COALESCE(excluded.translated_at, tibo_posts.translated_at),
+                        translation_source = COALESCE(excluded.translation_source, tibo_posts.translation_source)",
                     params![
                         post.id, post.url, post.text, post.posted_at, post.kind, post.tibo_lane,
                         i64::from(post.explicit_reset), post.verification_status, i64::from(post.is_reply),
-                        post.replies, post.reposts, post.likes, post.extra_json, synced_at
+                        post.replies, post.reposts, post.likes, post.extra_json, synced_at,
+                        post.translated_text, post.translated_at, post.translation_source
                     ],
                 )
                 .map_err(|err| format!("写入雷达动态失败: {err}"))?;

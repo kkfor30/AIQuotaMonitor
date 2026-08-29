@@ -10,7 +10,7 @@ import type { RadarPost } from "@/lib/ipc";
 export function GptRadarPage() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<RadarTabId>("signal");
-  const [filter, setFilter] = useState<"all" | "signal" | "limits">("all");
+  const [filter, setFilter] = useState<"all" | "related" | "none">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [rangeKey, setRangeKey] = useState("3d");
   const [analyze, setAnalyze] = useState(false);
@@ -35,7 +35,11 @@ export function GptRadarPage() {
   });
 
   const posts = data?.posts ?? [];
-  const visible = posts.filter((post) => filter === "all" || post.filter === filter);
+  const visible = posts.filter((post) => {
+    if (filter === "all") return true;
+    if (filter === "related") return post.filter === "related" || post.filter === "signal";
+    return post.filter === "none";
+  });
   const selected = visible.find((post) => post.id === selectedId) ?? visible[0] ?? null;
   const models = data?.models ?? [];
 
@@ -50,7 +54,7 @@ export function GptRadarPage() {
             </span>
           </div>
           <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-q-text-secondary">
-            手动同步 Codex Radar 公开 feed。英文为 Tibo 原话转述；直接访问 X 留待后续。
+            手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译。我们自己的 AI 分析默认关闭，且只使用英文原文。
           </p>
         </div>
         <Button onClick={() => checkMutation.mutate()} disabled={checkMutation.isPending}>
@@ -118,27 +122,39 @@ const RADAR_TABS: Array<{ id: RadarTabId; label: string }> = [
 
 function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined }) {
   const latest = data?.latest;
+  const notice = data?.notice;
   const latestCheck = data?.checks[0];
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">Codex Radar 来源</h2>
+          <h2 className="text-sm font-semibold text-q-text-primary">CodexRadar 来源</h2>
           <p className="text-[13px] text-q-text-secondary">状态：{sourceLabel(data?.sourceStatus)}</p>
           <p className="text-xs text-q-text-muted">
             {data?.lastSyncedAt ? `上次同步 ${formatTime(data.lastSyncedAt)}` : "尚未同步，请点立即检查"}
           </p>
+          <Button variant="ghost" size="sm" onClick={() => void openExternalUrl("https://codexradar.com/")}>
+            打开 CodexRadar
+          </Button>
         </Card>
         <Card className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">最新动态</h2>
-          {latest ? (
+          <h2 className="text-sm font-semibold text-q-text-primary">顶部公告</h2>
+          {notice ? (
+            <>
+              <p className="text-[13px] font-medium leading-relaxed text-q-text-primary">{notice.headline}</p>
+              {notice.lead ? <p className="text-xs text-q-text-secondary">{notice.lead}</p> : null}
+              {notice.items[0] ? <p className="text-xs leading-relaxed text-q-text-muted">{notice.items[0]}</p> : null}
+            </>
+          ) : latest ? (
             <>
               <p className="text-xs font-medium text-q-primary">{latest.badge}</p>
-              <p className="text-[13px] leading-relaxed text-q-text-primary">{latest.text}</p>
+              <p className="text-[13px] leading-relaxed text-q-text-primary">
+                {latest.summary ?? latest.translatedText ?? latest.text}
+              </p>
               <p className="text-xs text-q-text-muted">{formatTime(latest.postedAt)}</p>
             </>
           ) : (
-            <p className="text-xs text-q-text-muted">暂无动态</p>
+            <p className="text-xs text-q-text-muted">暂无公告</p>
           )}
         </Card>
         <Card className="flex flex-col gap-2">
@@ -185,8 +201,8 @@ function TiboFeedView({
 }: {
   posts: RadarPost[];
   selected: RadarPost | null;
-  filter: "all" | "signal" | "limits";
-  onFilter: (value: "all" | "signal" | "limits") => void;
+  filter: "all" | "related" | "none";
+  onFilter: (value: "all" | "related" | "none") => void;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -197,8 +213,8 @@ function TiboFeedView({
           <div className="flex gap-1">
             {[
               ["all", "全部"],
-              ["signal", "信号"],
-              ["limits", "限制"],
+              ["related", "重置相关"],
+              ["none", "无重置信号"],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -215,7 +231,7 @@ function TiboFeedView({
           </div>
         </div>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-          {posts.length === 0 && <p className="text-xs text-q-text-muted">点「立即检查」同步 Codex Radar。</p>}
+          {posts.length === 0 && <p className="text-xs text-q-text-muted">点「立即检查」同步 CodexRadar。</p>}
           {posts.map((post) => (
             <button
               key={post.id}
@@ -230,9 +246,8 @@ function TiboFeedView({
                 <span className="text-[11px] font-bold text-q-primary">{post.badge}</span>
                 <span className="text-[11px] text-q-text-muted">{formatTime(post.postedAt)}</span>
               </div>
-              <p className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-q-text-primary">{post.text}</p>
-              <p className="mt-1 text-[11px] text-q-text-muted">
-                {post.replies} 回复 · {post.reposts} 转发 · {post.likes} 喜欢
+              <p className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-q-text-primary">
+                {post.summary ?? post.translatedText ?? post.text}
               </p>
             </button>
           ))}
@@ -243,16 +258,31 @@ function TiboFeedView({
         {selected ? (
           <>
             <p className="text-xs font-medium text-q-primary">{selected.badge}</p>
-            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-q-text-primary">{selected.text}</p>
             <p className="text-xs text-q-text-muted">{formatTime(selected.postedAt)}</p>
+            <div>
+              <p className="text-xs font-medium text-q-text-secondary">中文翻译</p>
+              <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-q-text-primary">
+                {selected.translatedText ?? selected.summary ?? "尚无中文翻译"}
+              </p>
+            </div>
+            <details>
+              <summary className="cursor-pointer text-xs text-q-text-secondary">英文原文</summary>
+              <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-q-text-muted">{selected.text}</p>
+            </details>
+            {selected.analysis ? (
+              <div className="rounded-q-control border border-q-border bg-q-surface-muted/70 px-3 py-2">
+                <p className="text-xs font-medium text-q-text-secondary">CodexRadar 解读 · 仅为上游参考</p>
+                <p className="mt-1 text-[13px] leading-relaxed text-q-text-primary">{selected.analysis}</p>
+              </div>
+            ) : null}
             <div className="mt-auto flex gap-2">
               {selected.url && (
                 <Button variant="secondary" size="sm" onClick={() => void openExternalUrl(selected.url)}>
                   打开 X 原帖
                 </Button>
               )}
-              <Button variant="ghost" size="sm" onClick={() => void openExternalUrl("https://codex-reset.com/tibo")}>
-                Codex Radar 来源
+              <Button variant="ghost" size="sm" onClick={() => void openExternalUrl("https://codexradar.com/")}>
+                CodexRadar 来源
               </Button>
             </div>
           </>
@@ -336,7 +366,7 @@ function AiAnalysisView({
         <Card className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-q-text-primary">本次输入</h2>
           <p className="text-xs leading-relaxed text-q-text-muted">
-            只发送英文原文、时间和原帖链接。不发送翻译、上游标签、账号或凭据。
+            只发送英文原文、时间和原帖链接。不发送 CodexRadar 的中文翻译、信号标签或模型语境解读。
             上次已落地重置之后的帖才会进入分析。
           </p>
           {analysisInput.length === 0 ? (

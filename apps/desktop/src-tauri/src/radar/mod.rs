@@ -1,5 +1,7 @@
-//! GPT 重置雷达：Codex Radar 公开 feed 同步与可选 AI 分析。
+//! GPT 重置雷达：从 CodexRadar 公开首页同步 Tibo 动态，并保留可选 AI 分析。
 //! 与平台额度域隔离，失败不改写 Source 聚合状态。
+
+mod codexradar;
 
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
@@ -11,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const FEED_URL: &str = "https://codex-reset.com/api/feed";
+pub const FEED_URL: &str = "https://codexradar.com/";
 pub const PROMPT_VERSION: &str = "radar-v1";
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,6 +35,8 @@ pub struct TiboPostView {
     pub translated_text: Option<String>,
     pub translated_at: Option<i64>,
     pub translation_source: Option<String>,
+    pub summary: Option<String>,
+    pub analysis: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,28 +93,15 @@ pub struct RadarSnapshot {
     pub analysis: Option<RadarAnalysisView>,
     pub models: Vec<RadarModelOption>,
     pub cut: Option<TiboPostView>,
+    pub notice: Option<RadarNotice>,
 }
 
-#[derive(Debug, Deserialize)]
-struct FeedFile {
-    stale: Option<bool>,
-    tweets: Option<Vec<FeedTweet>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct FeedTweet {
-    id: String,
-    url: Option<String>,
-    text: Option<String>,
-    at: Option<String>,
-    kind: Option<String>,
-    tibo_lane: Option<String>,
-    explicit_reset_claim: Option<bool>,
-    reset_verification_status: Option<String>,
-    is_reply: Option<bool>,
-    replies: Option<i64>,
-    reposts: Option<i64>,
-    likes: Option<i64>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarNotice {
+    pub headline: String,
+    pub lead: Option<String>,
+    pub items: Vec<String>,
 }
 
 pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
@@ -145,6 +136,7 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         analysis: database.latest_radar_analysis()?.map(analysis_view),
         models: chat_models(database)?,
         cut,
+        notice: load_notice(database)?,
     })
 }
 
@@ -159,19 +151,15 @@ pub async fn run_check(
     let started = epoch_ms();
     let id = format!("radar-{started}");
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|error| format!("初始化雷达客户端失败：{error}"))?;
     let (sync_status, parse_status, post_count, error_message) = match fetch_feed(&client).await {
-        Ok((posts, stale)) => {
+        Ok((posts, notice)) => {
             let count = posts.len() as i64;
             database.replace_tibo_posts(&posts, started)?;
-            (
-                "success".into(),
-                if stale { "stale".into() } else { "success".into() },
-                count,
-                None,
-            )
+            save_notice(database, notice.as_ref())?;
+            ("success".into(), "success".into(), count, None)
         }
         Err(error) => ("failed".into(), "failed".into(), 0, Some(error)),
     };
@@ -303,78 +291,58 @@ fn extract_chat_text(body: &str) -> Result<String, String> {
         .to_string())
 }
 
-async fn fetch_feed(client: &Client) -> Result<(Vec<TiboPostRecord>, bool), String> {
+async fn fetch_feed(client: &Client) -> Result<(Vec<TiboPostRecord>, Option<RadarNotice>), String> {
     let response = client
         .get(FEED_URL)
-        .header("Accept", "application/json")
+        .header("Accept", "text/html")
+        .header(
+            "User-Agent",
+            "AIQuotaMonitor/0.1 (desktop; Tibo radar sync; +https://codexradar.com/)",
+        )
         .send()
         .await
-        .map_err(|error| format!("无法连接 Codex Radar：{error}"))?;
+        .map_err(|error| format!("无法连接 CodexRadar：{error}"))?;
     if !response.status().is_success() {
-        return Err(format!("Codex Radar 返回 HTTP {}", response.status().as_u16()));
+        return Err(format!("CodexRadar 返回 HTTP {}", response.status().as_u16()));
     }
     let body = response
         .text()
         .await
-        .map_err(|error| format!("读取 Codex Radar 失败：{error}"))?;
-    parse_feed(&body)
-}
-
-pub fn parse_feed(body: &str) -> Result<(Vec<TiboPostRecord>, bool), String> {
-    let feed: FeedFile =
-        serde_json::from_str(body).map_err(|_| "Codex Radar 返回格式无法解析".to_string())?;
-    let stale = feed.stale.unwrap_or(false);
+        .map_err(|error| format!("读取 CodexRadar 失败：{error}"))?;
     let synced_at = epoch_ms();
-    let mut posts = Vec::new();
-    for tweet in feed.tweets.unwrap_or_default() {
-        let text = tweet.text.unwrap_or_default().trim().to_string();
-        if text.is_empty() {
-            continue;
-        }
-        let posted_at = parse_time(tweet.at.as_deref()).unwrap_or(synced_at);
-        posts.push(TiboPostRecord {
-            id: tweet.id,
-            url: tweet.url.unwrap_or_default(),
-            text,
-            posted_at,
-            kind: tweet.kind.unwrap_or_else(|| "other".into()),
-            tibo_lane: tweet.tibo_lane,
-            explicit_reset: tweet.explicit_reset_claim.unwrap_or(false),
-            verification_status: tweet.reset_verification_status,
-            is_reply: tweet.is_reply.unwrap_or(false),
-            replies: tweet.replies.unwrap_or(0),
-            reposts: tweet.reposts.unwrap_or(0),
-            likes: tweet.likes.unwrap_or(0),
-            extra_json: "{}".into(),
-            synced_at,
-            translated_text: None,
-            translated_at: None,
-            translation_source: None,
-        });
-    }
-    if posts.is_empty() {
-        return Err("Codex Radar 未返回可展示动态".into());
-    }
-    Ok((posts, stale))
+    codexradar::parse_page(&body, synced_at)
 }
 
-fn parse_time(value: Option<&str>) -> Option<i64> {
-    let value = value?;
-    DateTimeParser::parse(value)
+fn save_notice(database: &Database, notice: Option<&RadarNotice>) -> Result<(), String> {
+    let payload = match notice {
+        Some(notice) => serde_json::to_string(notice).unwrap_or_else(|_| "{}".into()),
+        None => String::new(),
+    };
+    database.set_setting_string("radar_notice_json", &payload)
 }
 
-struct DateTimeParser;
-impl DateTimeParser {
-    fn parse(value: &str) -> Option<i64> {
-        chrono::DateTime::parse_from_rfc3339(value)
-            .ok()
-            .map(|time| time.timestamp_millis())
+fn load_notice(database: &Database) -> Result<Option<RadarNotice>, String> {
+    let Some(raw) = database.setting_string("radar_notice_json")? else {
+        return Ok(None);
+    };
+    if raw.trim().is_empty() {
+        return Ok(None);
     }
+    Ok(serde_json::from_str(&raw).ok())
 }
 
 fn to_view(post: TiboPostRecord) -> TiboPostView {
-    let badge = badge_for(&post);
-    let filter = filter_for(&post);
+    let extra = extra_object(&post.extra_json);
+    let badge = extra_string(&extra, "signalLabel")
+        .or_else(|| post.tibo_lane.clone())
+        .unwrap_or_else(|| badge_for(&post));
+    let filter = extra_string(&extra, "relevance")
+        .map(|value| match value.as_str() {
+            "none" => "none".into(),
+            "indirect" => "related".into(),
+            _ => "signal".into(),
+        })
+        .unwrap_or_else(|| filter_for(&post));
     TiboPostView {
         id: post.id,
         url: post.url,
@@ -392,36 +360,55 @@ fn to_view(post: TiboPostRecord) -> TiboPostView {
         translated_text: post.translated_text,
         translated_at: post.translated_at,
         translation_source: post.translation_source,
+        summary: extra_string(&extra, "summary"),
+        analysis: extra_string(&extra, "analysis"),
     }
+}
+
+fn extra_object(raw: &str) -> Value {
+    serde_json::from_str(raw).unwrap_or(Value::Null)
+}
+
+fn extra_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
 }
 
 fn badge_for(post: &TiboPostRecord) -> String {
     if post.explicit_reset {
-        return "RESET".into();
+        return "重置相关".into();
     }
     match post.kind.as_str() {
-        "banked" => "BANKED".into(),
-        "limits" => "LIMITS".into(),
-        "candidate" | "signal" => "VERIFYING".into(),
-        _ => "NOTE".into(),
+        "none" => "无重置信号".into(),
+        "indirect" => "间接相关".into(),
+        "banked" => "已落地".into(),
+        "limits" => "限制".into(),
+        "candidate" | "signal" | "direct" | "reset" => "重置相关".into(),
+        _ => "动态".into(),
     }
 }
 
 fn filter_for(post: &TiboPostRecord) -> String {
-    if post.kind == "limits" {
-        "limits".into()
-    } else if post.explicit_reset
-        || matches!(post.kind.as_str(), "candidate" | "signal" | "banked")
-        || post.tibo_lane.as_deref() == Some("reset_announcement")
-    {
-        "signal".into()
-    } else {
-        "other".into()
+    match post.kind.as_str() {
+        "none" => "none".into(),
+        "indirect" => "related".into(),
+        "limits" => "related".into(),
+        _ if post.explicit_reset
+            || matches!(post.kind.as_str(), "candidate" | "signal" | "banked" | "direct" | "reset")
+            || post.tibo_lane.as_deref() == Some("reset_announcement") =>
+        {
+            "signal".into()
+        }
+        _ => "none".into(),
     }
 }
 
 fn is_settled_reset_view(post: &TiboPostView) -> bool {
-    if !(post.explicit_reset || post.badge == "RESET") {
+    if !(post.explicit_reset || post.badge == "RESET" || post.badge.contains("重置相关")) {
         return false;
     }
     let age = epoch_ms().saturating_sub(post.posted_at);
@@ -707,15 +694,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_feed_tweets() {
-        let body = r#"{"tweets":[{"id":"1","url":"https://x.com/t/1","text":"Hello reset","at":"2026-08-27T16:35:05.000Z","kind":"candidate","explicit_reset_claim":true,"likes":1}]}"#;
-        let (posts, stale) = parse_feed(body).expect("feed");
-        assert_eq!(posts[0].id, "1");
-        assert!(posts[0].explicit_reset);
-        assert!(!stale);
-    }
-
-    #[test]
     fn old_explicit_reset_is_settled() {
         let post = TiboPostView {
             id: "reset-1".into(),
@@ -723,7 +701,7 @@ mod tests {
             text: "reset landed".into(),
             posted_at: epoch_ms() - 19 * 60 * 60 * 1000,
             kind: "candidate".into(),
-            badge: "RESET".into(),
+            badge: "重置相关".into(),
             filter: "signal".into(),
             explicit_reset: true,
             is_reply: false,
@@ -734,6 +712,8 @@ mod tests {
             translated_text: None,
             translated_at: None,
             translation_source: None,
+            summary: None,
+            analysis: None,
         };
         assert!(is_settled_reset_view(&post));
         let recent = TiboPostView {

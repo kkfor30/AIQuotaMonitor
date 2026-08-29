@@ -169,7 +169,13 @@ function MetricRows({ metrics }: { metrics: HoverbarMetric[] }) {
 function RadarStrip({ radar, onOpenRadar }: { radar: RadarSnapshot; onOpenRadar: () => void }) {
   const analysis = radar.analysis;
   const latest = radar.latest;
-  const summary = analysis?.conclusion ?? latest?.translatedText ?? latest?.text ?? "暂未同步重置信号来源";
+  const summary =
+    analysis?.conclusion ??
+    radar.notice?.headline ??
+    latest?.summary ??
+    latest?.translatedText ??
+    latest?.text ??
+    "暂未同步重置信号来源";
   const confidence = analysis?.confidence ?? null;
   return (
     <footer className="hb-radar-strip">

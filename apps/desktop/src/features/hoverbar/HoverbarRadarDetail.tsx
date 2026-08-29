@@ -9,11 +9,14 @@ import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import { formatHoverbarClock, radarConfidenceLabel } from "./hoverbar-state";
 
 const POST_BADGE_LABEL: Record<string, string> = {
-  RESET: "重置",
+  RESET: "重置相关",
   BANKED: "已落地",
   LIMITS: "限制",
-  VERIFYING: "待验证",
-  NOTE: "备注",
+  VERIFYING: "重置相关",
+  NOTE: "动态",
+  无重置信号: "无重置信号",
+  间接相关: "间接相关",
+  重置相关: "重置相关",
 };
 
 export function HoverbarRadarDetail({
@@ -70,9 +73,15 @@ export function HoverbarRadarDetail({
         ) : (
           <>
             <h3 className="hb-radar-card-title">来源摘要</h3>
-            {latest ? (
+            {radar?.notice ? (
               <>
-                <p className="hb-radar-text">{latest.translatedText ?? latest.text}</p>
+                <p className="hb-radar-text">{radar.notice.headline}</p>
+                {radar.notice.lead ? <p className="hb-radar-meta">{radar.notice.lead}</p> : null}
+                <p className="hb-radar-meta">CodexRadar 公告 · 未运行 AI 辅助分析</p>
+              </>
+            ) : latest ? (
+              <>
+                <p className="hb-radar-text">{latest.summary ?? latest.translatedText ?? latest.text}</p>
                 <p className="hb-radar-meta">{formatHoverbarClock(latest.postedAt)} · 未运行 AI 辅助分析</p>
               </>
             ) : (
@@ -121,11 +130,11 @@ function RadarPostItem({
         <span className="hb-radar-post-badge">{POST_BADGE_LABEL[post.badge] ?? post.badge}</span>
         <span className="hb-radar-post-time">{formatHoverbarClock(post.postedAt)}</span>
       </div>
-      <p className="hb-radar-post-text">{post.translatedText ?? post.text}</p>
+      <p className="hb-radar-post-text">{post.summary ?? post.translatedText ?? post.text}</p>
       <div className="hb-radar-post-actions">
         {post.translatedText ? (
           <span className="hb-radar-post-source" title={post.translatedAt ? formatHoverbarClock(post.translatedAt) : undefined}>
-            译自 {post.translationSource ?? "未知来源"}
+            {post.translationSource === "codexradar" ? "CodexRadar 中文" : `译自 ${post.translationSource ?? "未知来源"}`}
           </span>
         ) : (
           <button type="button" className="hb-radar-post-button" onClick={onTranslate} disabled={translating}>

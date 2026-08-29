@@ -141,6 +141,13 @@ export type RadarSnapshot = {
   analysis: RadarAnalysis | null;
   models: RadarModelOption[];
   cut: RadarPost | null;
+  notice: RadarNotice | null;
+};
+
+export type RadarNotice = {
+  headline: string;
+  lead: string | null;
+  items: string[];
 };
 
 export type RadarPost = {
@@ -160,6 +167,8 @@ export type RadarPost = {
   translatedText: string | null;
   translatedAt: number | null;
   translationSource: string | null;
+  summary: string | null;
+  analysis: string | null;
 };
 
 export type RadarCheck = {
