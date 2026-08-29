@@ -17,6 +17,6 @@
 | `stepfun.png` | StepFun | https://platform.stepfun.com/images/title-logo.png | 2026-08-29 |
 | `openrouter.png` | OpenRouter | https://openrouter.ai/favicon/glyph.png（openrouter.ai 官方 Brand 素材） | 2026-08-29 |
 | `novita.svg` | Novita | https://novita.ai/logo/logo_small.svg | 2026-08-29 |
-| `grok.png` | Grok（xAI） | https://github.com/xai-org 官方组织头像 https://avatars.githubusercontent.com/u/130314967（xAI/Grok 官方斜杠标，黑底白图形） | 2026-08-30 |
+| `grok.svg` | Grok（xAI） | https://grok.com/images/favicon.svg（Grok 官网 favicon，黑底白色弯月斜杠标，字节级原样保存） | 2026-08-30 |
 
 商标权利归各平台所有；素材仅用于平台识别，不用于暗示背书或推广。
