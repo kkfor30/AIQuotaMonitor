@@ -420,12 +420,14 @@ function refreshDetail(platform: PlatformSummaryViewModel, source: SourceSummary
   const caps = platform.capabilities.filter(
     (capability) => capability.sourceId === source.sourceId && capability.value.primary !== null,
   );
-  const order = ["quota_window_7d", "quota_window_5h", "balance", "month_spend", "cache_hit_rate"];
+  const order = ["quota_window_30d", "quota_window_7d", "quota_window_5h", "balance", "month_spend", "cache_hit_rate"];
   for (const id of order) {
     const capability = caps.find((item) => item.capabilityId === id);
     if (capability?.value.primary) {
       const label =
-        id === "quota_window_7d"
+        id === "quota_window_30d"
+          ? "30天窗口"
+          : id === "quota_window_7d"
           ? "7天窗口"
           : id === "quota_window_5h"
             ? "5小时窗口"

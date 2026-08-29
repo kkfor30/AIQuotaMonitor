@@ -78,15 +78,14 @@ const gptPlatform: PlatformSummaryViewModel = {
   accessSummary: "本机 Codex + 额外账号",
   sources: [
     source("openai-codex-local", "本机 Codex（当前 CLI）", ["quota_window_5h", "quota_window_7d", "credits", "plan_level"], "local_cli"),
-    source("openai-codex-extra-2", "额外 ChatGPT 账号 2", ["quota_window_5h", "quota_window_7d", "credits", "plan_level"], "local_cli"),
+    source("openai-codex-extra-2", "额外 ChatGPT 账号 2", ["quota_window_30d", "credits", "plan_level"], "local_cli"),
   ],
   capabilities: [
     cap("quota_window_5h", "openai-codex-local", "本机 · 5 小时窗口", "62%", "已使用 38.0% · 重置 14:30"),
     cap("quota_window_7d", "openai-codex-local", "本机 · 7 天窗口", "81%", "已使用 19.0% · 重置 09/02 08:00"),
     cap("credits", "openai-codex-local", "本机 · Credits", "12.34", "仅展示额度接口实际返回值"),
     cap("plan_level", "openai-codex-local", "本机 · 订阅计划", "Plus", "ChatGPT / Codex 订阅"),
-    cap("quota_window_5h", "openai-codex-extra-2", "账号 2 · 5 小时窗口", "40%", "已使用 60.0% · 重置 16:10"),
-    cap("quota_window_7d", "openai-codex-extra-2", "账号 2 · 7 天窗口", null, null, "missing"),
+    cap("quota_window_30d", "openai-codex-extra-2", "账号 2 · 30 天窗口", "68%", "已使用 32% · 重置 09/28 00:00"),
     cap("credits", "openai-codex-extra-2", "账号 2 · Credits", "3.21", null),
     cap("plan_level", "openai-codex-extra-2", "账号 2 · 订阅计划", "Free", null),
   ],

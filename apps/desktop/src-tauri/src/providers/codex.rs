@@ -613,6 +613,8 @@ fn window_capability(window: &Value) -> Option<CapabilityData> {
     let (id, label) = match duration {
         18_000 => ("quota_window_5h".to_string(), "5 小时窗口".to_string()),
         604_800 => ("quota_window_7d".to_string(), "7 天窗口".to_string()),
+        // ChatGPT Free 的 Codex 窗口是 30 天（30 * 24 * 3600），WHAM/app-server 都返回这个秒数。
+        2_592_000 => ("quota_window_30d".to_string(), "30 天窗口".to_string()),
         value => (format!("quota_window_{value}s"), duration_label(value)),
     };
     let remaining = (100.0 - used).clamp(0.0, 100.0);
@@ -801,6 +803,20 @@ mod tests {
         assert!(values.iter().any(|value| value.capability_id == "plan_level"));
         assert!(codex_capabilities_usable(&values));
         assert!(!codex_capabilities_usable(&[]));
+    }
+
+    #[test]
+    fn maps_free_thirty_day_window() {
+        let values = parse_rate_limit_container(&json!({
+            "primary_window": {
+                "used_percent": 40.0,
+                "limit_window_seconds": 2_592_000
+            }
+        }));
+        assert_eq!(values[0].capability_id, "quota_window_30d");
+        assert_eq!(values[0].display_name, "30 天窗口");
+        assert_eq!(values[0].primary_value.as_deref(), Some("60%"));
+        assert!(codex_capabilities_usable(&values));
     }
 
     #[cfg(windows)]

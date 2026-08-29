@@ -393,8 +393,10 @@ function PlatformStripCard({
 }) {
   const windows = platform.capabilities.filter(
     (capability) =>
-      (capability.capabilityId === "quota_window_5h" || capability.capabilityId === "quota_window_7d") &&
-      capability.value.progress !== null,
+      (capability.capabilityId === "quota_window_5h" ||
+        capability.capabilityId === "quota_window_7d" ||
+        capability.capabilityId === "quota_window_30d") &&
+      capability.value.primary !== null,
   );
   const balance = platform.capabilities.find(
     (capability) => capability.capabilityId === "balance" && capability.value.primary !== null,
@@ -442,7 +444,11 @@ function PlatformStripCard({
               {windows.slice(0, 2).map((capability) => (
                 <div key={capability.capabilityId} className="flex min-w-0 flex-col gap-0.5">
                   <span className="text-[11px] text-q-text-muted">
-                    {capability.capabilityId === "quota_window_5h" ? "5小时" : "7天"}
+                    {capability.capabilityId === "quota_window_5h"
+                      ? "5小时"
+                      : capability.capabilityId === "quota_window_7d"
+                        ? "7天"
+                        : "30天"}
                     {capability.freshness === "stale" ? " · 缓存" : ""}
                   </span>
                   <span

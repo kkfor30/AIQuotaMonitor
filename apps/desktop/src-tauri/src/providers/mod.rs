@@ -102,6 +102,7 @@ fn openai_templates(sources: &[SourceRecord]) -> Vec<CapabilityTemplate> {
         };
         templates.push(template("quota_window_5h", &source.id, &format!("{account} · 5 小时窗口"), "percent"));
         templates.push(template("quota_window_7d", &source.id, &format!("{account} · 7 天窗口"), "percent"));
+        templates.push(template("quota_window_30d", &source.id, &format!("{account} · 30 天窗口"), "percent"));
         templates.push(template("credits", &source.id, &format!("{account} · Credits"), "credits"));
         templates.push(template("plan_level", &source.id, &format!("{account} · 订阅计划"), "text"));
     }
@@ -590,7 +591,7 @@ fn missing_capability_ok(
         return false;
     }
     match capability.capability_id.as_str() {
-        "credits" | "plan_level" | "quota_window_7d" => true,
+        "credits" | "plan_level" | "quota_window_7d" | "quota_window_30d" => true,
         "quota_window_5h" => source_plan_is_free(&capability.source_id, capabilities),
         _ => false,
     }
@@ -812,6 +813,26 @@ mod tests {
             capability("quota_window_5h", "openai-codex-extra-1", DataFreshness::Missing),
             capability("quota_window_7d", "openai-codex-extra-1", DataFreshness::Missing),
             capability("credits", "openai-codex-extra-1", DataFreshness::Missing),
+            extra_plan,
+        ];
+        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Healthy);
+    }
+
+    #[test]
+    fn free_extra_account_with_monthly_window_is_healthy() {
+        let sources = vec![
+            source("openai-codex-local", true, SourceState::Ready),
+            source("openai-codex-extra-1", true, SourceState::Ready),
+        ];
+        let mut extra_plan = capability("plan_level", "openai-codex-extra-1", DataFreshness::Fresh);
+        extra_plan.value.primary = Some("Free".into());
+        let capabilities = vec![
+            capability("quota_window_5h", "openai-codex-local", DataFreshness::Fresh),
+            capability("quota_window_7d", "openai-codex-local", DataFreshness::Fresh),
+            capability("plan_level", "openai-codex-local", DataFreshness::Fresh),
+            capability("quota_window_5h", "openai-codex-extra-1", DataFreshness::Missing),
+            capability("quota_window_7d", "openai-codex-extra-1", DataFreshness::Missing),
+            capability("quota_window_30d", "openai-codex-extra-1", DataFreshness::Fresh),
             extra_plan,
         ];
         assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Healthy);

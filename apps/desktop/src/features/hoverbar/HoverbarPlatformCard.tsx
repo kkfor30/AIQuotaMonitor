@@ -18,7 +18,7 @@ import { RadarConfidenceBadge } from "@/features/radar/RadarConfidenceBadge";
 import { radarSourceLine } from "./hoverbar-state";
 import { hoverbarProviderVisual } from "./provider-visuals";
 
-const CORE_IDS = ["quota_window_5h", "quota_window_7d", "balance"] as const;
+const CORE_IDS = ["quota_window_5h", "quota_window_7d", "quota_window_30d", "balance"] as const;
 const DEEPSEEK_EXTRA_IDS = ["today_spend", "month_spend", "cache_hit_rate"] as const;
 const ALLOWED_IDS = new Set<string>([...CORE_IDS, "plan_level", ...DEEPSEEK_EXTRA_IDS]);
 const ACCOUNT_PROVIDERS = new Set(["openai", "claude_code"]);
@@ -52,6 +52,7 @@ const STATUS_LABEL: Record<AccountStatus | PlatformAggregateStatus, string> = {
 const METRIC_LABEL: Record<string, string> = {
   quota_window_5h: "5小时窗口",
   quota_window_7d: "7天窗口",
+  quota_window_30d: "30天窗口",
   balance: "个人余额",
   today_spend: "今日消费",
   month_spend: "本月消费",
@@ -279,10 +280,13 @@ function groupFromSource(
   capabilities: CapabilitySnapshotViewModel[],
   ids: string[],
 ): HoverbarGroup | null {
-  const metrics = ids
-    .map((id) => toMetric(capabilities, id))
-    .filter((metric): metric is HoverbarMetric => metric !== null);
   const plan = planOf(capabilities);
+  const metrics = visibleWindowMetrics(
+    ids
+      .map((id) => toMetric(capabilities, id))
+      .filter((metric): metric is HoverbarMetric => metric !== null),
+    plan,
+  );
   if (metrics.length === 0 && !plan) return null;
   return {
     id: source.sourceId,
@@ -327,6 +331,17 @@ function toMetric(capabilities: CapabilitySnapshotViewModel[], id: string): Hove
     time: value ? extractWindowTime(capability.value.secondary) : null,
     freshness: capability.freshness,
   };
+}
+
+function visibleWindowMetrics(metrics: HoverbarMetric[], plan: string | null): HoverbarMetric[] {
+  const free = plan?.trim().toLowerCase() === "free";
+  return metrics.filter((metric) => {
+    if (metric.id === "quota_window_30d") return free || metric.value !== null;
+    if (free && (metric.id === "quota_window_5h" || metric.id === "quota_window_7d") && metric.value === null) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function planOf(capabilities: CapabilitySnapshotViewModel[]): string | null {
