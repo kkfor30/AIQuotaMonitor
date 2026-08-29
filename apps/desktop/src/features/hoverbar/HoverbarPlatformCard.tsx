@@ -165,10 +165,10 @@ function MetricRows({ metrics }: { metrics: HoverbarMetric[] }) {
             data-missing={missing || undefined}
           >
             <span className="hb-row-label">{metric.label}</span>
-            <span className="hb-row-metrics">
-              <b className="hb-row-value" data-selectable="true">
-                {missing ? "暂不可用" : metric.value}
-              </b>
+            <b className="hb-row-value" data-selectable="true">
+              {missing ? "暂不可用" : metric.value}
+            </b>
+            <span className="hb-row-end">
               {metric.time && !missing ? (
                 <span className="hb-row-time" data-selectable="true">
                   {metric.time}

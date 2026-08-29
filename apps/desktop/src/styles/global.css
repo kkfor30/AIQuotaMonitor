@@ -567,7 +567,7 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-/* 窗口 / 余额行：标签在左，数值与时间靠右，拉开中间留白。 */
+/* 窗口 / 余额行：标签左、额度居中、时间右。 */
 .hb-rows {
   display: flex;
   min-width: 0;
@@ -576,16 +576,15 @@ html.hoverbar-window #root {
 }
 
 .hb-row {
-  display: flex;
+  display: grid;
   min-width: 0;
-  flex-wrap: wrap;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: baseline;
-  justify-content: space-between;
-  gap: 6px 16px;
+  column-gap: 10px;
 }
 
 .hb-row-label {
-  flex: 0 1 auto;
+  justify-self: start;
   color: var(--q-hoverbar-ink);
   font-size: 12px;
   font-weight: 720;
@@ -593,17 +592,17 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-.hb-row-metrics {
+.hb-row-end {
   display: inline-flex;
   min-width: 0;
-  flex: 1 1 auto;
   align-items: baseline;
+  justify-self: end;
   justify-content: flex-end;
-  gap: 10px;
-  margin-left: auto;
+  gap: 8px;
 }
 
 .hb-row-value {
+  justify-self: center;
   min-width: 0;
   overflow: hidden;
   color: var(--q-hoverbar-primary);
@@ -611,6 +610,7 @@ html.hoverbar-window #root {
   font-weight: 780;
   line-height: 21px;
   font-variant-numeric: tabular-nums;
+  text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1130,12 +1130,12 @@ html.hoverbar-window #root {
 
 .hb-detail-root[data-edge="left"] .hb-row,
 .hb-detail-root[data-edge="right"] .hb-row {
-  gap: 4px 12px;
+  column-gap: 8px;
 }
 
-.hb-detail-root[data-edge="left"] .hb-row-metrics,
-.hb-detail-root[data-edge="right"] .hb-row-metrics {
-  gap: 8px;
+.hb-detail-root[data-edge="left"] .hb-row-end,
+.hb-detail-root[data-edge="right"] .hb-row-end {
+  gap: 6px;
 }
 
 .hb-detail-root[data-edge="left"] .hb-row-value,
