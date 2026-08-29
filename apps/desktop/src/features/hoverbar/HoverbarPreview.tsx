@@ -5,11 +5,18 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
-import type { PlatformSummaryViewModel } from "@/lib/types";
+import type {
+  CapabilitySnapshotViewModel,
+  PlatformSummaryViewModel,
+  SourceAccessMode,
+  SourceState,
+  SourceSummaryViewModel,
+} from "@/lib/types";
 import "@/styles/global.css";
 import { HoverbarOrb } from "./HoverbarAnchorApp";
 import { HoverbarPlatformCard } from "./HoverbarPlatformCard";
 import { useHoverbarTheme } from "./hoverbar-theme";
+import type { HoverbarEdge } from "./hoverbar-state";
 
 const noop = () => undefined;
 
@@ -19,309 +26,117 @@ declare global {
   }
 }
 
-const healthyPlatform: PlatformSummaryViewModel = {
-  providerId: "deepseek",
-  displayName: "DeepSeek",
-  aggregateStatus: "healthy",
-  accessSummary: "API Key + 网页会话",
-  sources: [
-    {
-      sourceId: "preview-balance",
-      sourceType: "api_key",
-      displayName: "余额来源",
-      state: "ready",
-      credentialConfigured: true,
-      lastValidatedAt: null,
-      lastSuccessAt: null,
-      errorCode: null,
-      errorMessage: null,
-      capabilityIds: ["balance"],
-    },
-  ],
-  capabilities: [
-    {
-      capabilityId: "balance",
-      sourceId: "preview-balance",
-      displayName: "账户余额",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "money", primary: "¥ 25.00", secondary: null, progress: null },
-      trend: [],
-    },
-    {
-      capabilityId: "today_spend",
-      sourceId: "preview-balance",
-      displayName: "今日消耗",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "money", primary: "¥ 1.20", secondary: null, progress: null },
-      trend: [],
-    },
-  ],
-};
+function source(
+  sourceId: string,
+  displayName: string,
+  capabilityIds: string[],
+  accessMode: SourceAccessMode,
+  state: SourceState = "ready",
+): SourceSummaryViewModel {
+  return {
+    sourceId,
+    sourceType: accessMode === "local_cli" ? "local_cli" : accessMode === "personal_balance" ? "web_session" : "api_key",
+    displayName,
+    state,
+    credentialConfigured: true,
+    lastValidatedAt: null,
+    lastSuccessAt: null,
+    errorCode: state === "error" ? "PREVIEW_ERROR" : null,
+    errorMessage: state === "error" ? "示例：暂时无法刷新" : null,
+    capabilityIds,
+    accessMode,
+  };
+}
+
+function cap(
+  capabilityId: string,
+  sourceId: string,
+  displayName: string,
+  primary: string | null,
+  secondary: string | null,
+  freshness: CapabilitySnapshotViewModel["freshness"] = "fresh",
+): CapabilitySnapshotViewModel {
+  return {
+    capabilityId,
+    sourceId,
+    displayName,
+    freshness,
+    capturedAt: null,
+    lastGoodAt: null,
+    value: { kind: capabilityId === "balance" ? "money" : "percent", primary, secondary, progress: null },
+    trend: [],
+  };
+}
 
 const gptPlatform: PlatformSummaryViewModel = {
   providerId: "openai",
   displayName: "GPT / Codex",
-  aggregateStatus: "healthy",
-  accessSummary: "本机 Codex",
+  aggregateStatus: "partial",
+  accessSummary: "本机 Codex + 额外账号",
   sources: [
-    {
-      sourceId: "openai-codex-local",
-      sourceType: "local_cli",
-      displayName: "本机 Codex（当前 CLI）",
-      state: "ready",
-      credentialConfigured: true,
-      lastValidatedAt: null,
-      lastSuccessAt: null,
-      errorCode: null,
-      errorMessage: null,
-      capabilityIds: ["quota_window_5h", "quota_window_7d", "credits", "plan_level"],
-      accessMode: "local_cli",
-    },
-    {
-      sourceId: "openai-codex-extra-2",
-      sourceType: "local_cli",
-      displayName: "额外 ChatGPT 账号 2",
-      state: "ready",
-      credentialConfigured: true,
-      lastValidatedAt: null,
-      lastSuccessAt: null,
-      errorCode: null,
-      errorMessage: null,
-      capabilityIds: ["quota_window_5h", "quota_window_7d", "credits", "plan_level"],
-      accessMode: "local_cli",
-    },
-    {
-      sourceId: "openai-codex-extra-3",
-      sourceType: "local_cli",
-      displayName: "额外 ChatGPT 账号 3",
-      state: "ready",
-      credentialConfigured: true,
-      lastValidatedAt: null,
-      lastSuccessAt: null,
-      errorCode: null,
-      errorMessage: null,
-      capabilityIds: ["quota_window_5h", "quota_window_7d", "plan_level"],
-      accessMode: "local_cli",
-    },
+    source("openai-codex-local", "本机 Codex（当前 CLI）", ["quota_window_5h", "quota_window_7d", "credits", "plan_level"], "local_cli"),
+    source("openai-codex-extra-2", "额外 ChatGPT 账号 2", ["quota_window_5h", "quota_window_7d", "credits", "plan_level"], "local_cli"),
   ],
   capabilities: [
-    {
-      capabilityId: "quota_window_5h",
-      sourceId: "openai-codex-local",
-      displayName: "本机 Codex · 5 小时窗口",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "percent", primary: "62.5%", secondary: "已使用 37.5%", progress: 0.625 },
-      trend: [],
-    },
-    {
-      capabilityId: "quota_window_7d",
-      sourceId: "openai-codex-local",
-      displayName: "本机 Codex · 7 天窗口",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "percent", primary: "81.0%", secondary: "已使用 19.0%", progress: 0.81 },
-      trend: [],
-    },
-    {
-      capabilityId: "credits",
-      sourceId: "openai-codex-local",
-      displayName: "本机 Codex · Credits",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "credits", primary: "12.34", secondary: "仅展示额度接口实际返回值", progress: null },
-      trend: [],
-    },
-    {
-      capabilityId: "plan_level",
-      sourceId: "openai-codex-local",
-      displayName: "本机 Codex · 订阅计划",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "text", primary: "Plus", secondary: "ChatGPT / Codex 订阅", progress: null },
-      trend: [],
-    },
-    {
-      capabilityId: "quota_window_5h",
-      sourceId: "openai-codex-extra-2",
-      displayName: "额外账号 · 5 小时窗口",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "percent", primary: "40.0%", secondary: "已使用 60.0%", progress: 0.4 },
-      trend: [],
-    },
-    {
-      capabilityId: "quota_window_7d",
-      sourceId: "openai-codex-extra-2",
-      displayName: "额外账号 · 7 天窗口",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "percent", primary: "66.0%", secondary: "已使用 34.0%", progress: 0.66 },
-      trend: [],
-    },
-    {
-      capabilityId: "plan_level",
-      sourceId: "openai-codex-extra-2",
-      displayName: "额外账号 · 订阅计划",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "text", primary: "Pro", secondary: null, progress: null },
-      trend: [],
-    },
-    {
-      capabilityId: "credits",
-      sourceId: "openai-codex-extra-2",
-      displayName: "额外账号 · Credits",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "credits", primary: "3.21", secondary: null, progress: null },
-      trend: [],
-    },
-    {
-      capabilityId: "quota_window_5h",
-      sourceId: "openai-codex-extra-3",
-      displayName: "额外账号 · 5 小时窗口",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "percent", primary: "18.0%", secondary: "已使用 82.0%", progress: 0.18 },
-      trend: [],
-    },
-    {
-      capabilityId: "quota_window_7d",
-      sourceId: "openai-codex-extra-3",
-      displayName: "额外账号 · 7 天窗口",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "percent", primary: "44.0%", secondary: "已使用 56.0%", progress: 0.44 },
-      trend: [],
-    },
-    {
-      capabilityId: "plan_level",
-      sourceId: "openai-codex-extra-3",
-      displayName: "额外账号 · 订阅计划",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "text", primary: "Free", secondary: null, progress: null },
-      trend: [],
-    },
+    cap("quota_window_5h", "openai-codex-local", "本机 · 5 小时窗口", "62%", "已使用 38.0% · 重置 14:30"),
+    cap("quota_window_7d", "openai-codex-local", "本机 · 7 天窗口", "81%", "已使用 19.0% · 重置 09/02 08:00"),
+    cap("credits", "openai-codex-local", "本机 · Credits", "12.34", "仅展示额度接口实际返回值"),
+    cap("plan_level", "openai-codex-local", "本机 · 订阅计划", "Plus", "ChatGPT / Codex 订阅"),
+    cap("quota_window_5h", "openai-codex-extra-2", "账号 2 · 5 小时窗口", "40%", "已使用 60.0% · 重置 16:10"),
+    cap("quota_window_7d", "openai-codex-extra-2", "账号 2 · 7 天窗口", null, null, "missing"),
+    cap("credits", "openai-codex-extra-2", "账号 2 · Credits", "3.21", null),
+    cap("plan_level", "openai-codex-extra-2", "账号 2 · 订阅计划", "Free", null),
   ],
 };
 
-const errorPlatform: PlatformSummaryViewModel = {
-  ...healthyPlatform,
-  aggregateStatus: "error",
-  sources: [
-    {
-      ...healthyPlatform.sources[0],
-      state: "error",
-      errorCode: "PREVIEW_ERROR",
-      errorMessage: "示例：暂时无法刷新，保留上次成功数据",
-    },
-  ],
-  capabilities: healthyPlatform.capabilities.map((capability) => ({
-    ...capability,
-    freshness: "stale",
-  })),
-};
-
-const glmDualPlatform: PlatformSummaryViewModel = {
+const glmPlatform: PlatformSummaryViewModel = {
   providerId: "glm",
   displayName: "GLM 国内",
   aggregateStatus: "healthy",
   accessSummary: "Token Plan + 个人余额",
   sources: [
-    {
-      sourceId: "glm-coding-plan",
-      sourceType: "api_key",
-      displayName: "Coding Plan",
-      state: "ready",
-      credentialConfigured: true,
-      lastValidatedAt: null,
-      lastSuccessAt: null,
-      errorCode: null,
-      errorMessage: null,
-      capabilityIds: ["quota_window_5h", "quota_window_7d", "plan_level"],
-      accessMode: "coding_plan",
-    },
-    {
-      sourceId: "glm-web-balance",
-      sourceType: "web_session",
-      displayName: "网页个人余额",
-      state: "ready",
-      credentialConfigured: true,
-      lastValidatedAt: null,
-      lastSuccessAt: null,
-      errorCode: null,
-      errorMessage: null,
-      capabilityIds: ["balance"],
-      accessMode: "personal_balance",
-    },
+    source("glm-coding-plan", "Coding Plan", ["quota_window_5h", "quota_window_7d", "plan_level"], "coding_plan"),
+    source("glm-web-balance", "网页个人余额", ["balance"], "personal_balance"),
   ],
   capabilities: [
-    {
-      capabilityId: "quota_window_5h",
-      sourceId: "glm-coding-plan",
-      displayName: "5 小时窗口",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "percent", primary: "72%", secondary: null, progress: 0.72 },
-      trend: [],
-    },
-    {
-      capabilityId: "quota_window_7d",
-      sourceId: "glm-coding-plan",
-      displayName: "周窗口",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "percent", primary: "80%", secondary: null, progress: 0.8 },
-      trend: [],
-    },
-    {
-      capabilityId: "plan_level",
-      sourceId: "glm-coding-plan",
-      displayName: "订阅计划",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "text", primary: "Pro", secondary: "官方 Coding Plan", progress: null },
-      trend: [],
-    },
-    {
-      capabilityId: "balance",
-      sourceId: "glm-web-balance",
-      displayName: "账户余额",
-      freshness: "fresh",
-      capturedAt: null,
-      lastGoodAt: null,
-      value: { kind: "money", primary: "¥88.10", secondary: "网页个人余额", progress: null },
-      trend: [],
-    },
+    cap("quota_window_5h", "glm-coding-plan", "5 小时窗口", "72%", "已使用 28.0% · 重置 15:20"),
+    cap("quota_window_7d", "glm-coding-plan", "周窗口", "80%", "已使用 20.0% · 重置 09/03 09:00"),
+    cap("plan_level", "glm-coding-plan", "订阅计划", "Pro", "官方 Coding Plan"),
+    cap("balance", "glm-web-balance", "账户余额", "¥88.10", "网页个人余额"),
   ],
 };
 
-const previewPlatforms: PlatformSummaryViewModel[] = [
-  gptPlatform,
-  glmDualPlatform,
-  healthyPlatform,
-  errorPlatform,
-];
+const deepseekHealthy: PlatformSummaryViewModel = {
+  providerId: "deepseek",
+  displayName: "DeepSeek",
+  aggregateStatus: "healthy",
+  accessSummary: "API Key",
+  sources: [source("preview-balance", "余额来源", ["balance", "today_spend", "month_spend"], "personal_balance")],
+  capabilities: [
+    cap("balance", "preview-balance", "账户余额", "¥25.00", "赠送 ¥1.00 · 充值 ¥24.00"),
+    cap("today_spend", "preview-balance", "今日消耗", "¥1.20", null),
+    cap("month_spend", "preview-balance", "本月消耗", "¥8.00", null),
+  ],
+};
+
+const kimiError: PlatformSummaryViewModel = {
+  providerId: "kimi",
+  displayName: "Kimi",
+  aggregateStatus: "error",
+  accessSummary: "个人余额",
+  sources: [source("kimi-balance-api", "个人余额", ["balance"], "personal_balance", "error")],
+  capabilities: [cap("balance", "kimi-balance-api", "账户余额", null, null, "missing")],
+};
+
+const staleGlm: PlatformSummaryViewModel = {
+  ...glmPlatform,
+  aggregateStatus: "partial",
+  capabilities: glmPlatform.capabilities.map((item) =>
+    item.capabilityId === "balance" ? { ...item, freshness: "stale" as const } : item,
+  ),
+};
+
+const previewPlatforms: PlatformSummaryViewModel[] = [gptPlatform, glmPlatform, deepseekHealthy, kimiError];
 
 function OrbState({
   label,
@@ -350,14 +165,59 @@ function OrbState({
   );
 }
 
-function HoverbarPreview() {
+function PreviewPanel({
+  edge,
+  platforms,
+  status,
+}: {
+  edge: HoverbarEdge;
+  platforms: PlatformSummaryViewModel[];
+  status: string;
+}) {
   const { theme, toggleTheme } = useHoverbarTheme();
+  return (
+    <div className="hb-preview-detail-frame" data-edge={edge}>
+      <div className="hb-detail-root" data-edge={edge} data-motion="visible">
+        <section className="hb-panel">
+          <header className="hb-head">
+            <p className="hb-refresh-status">{status}</p>
+            <div className="hb-actions">
+              <button type="button" className="hb-action-button" aria-label="刷新" onClick={noop}>
+                <RefreshCw size={16} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="hb-action-button"
+                aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+                onClick={toggleTheme}
+              >
+                {theme === "dark" ? <SunMedium size={16} aria-hidden /> : <Moon size={16} aria-hidden />}
+              </button>
+              <button type="button" className="hb-action-button" aria-label="打开主窗口" onClick={noop}>
+                <ExternalLink size={16} aria-hidden />
+              </button>
+              <button type="button" className="hb-action-button" aria-label="收起" onClick={noop}>
+                <X size={17} aria-hidden />
+              </button>
+            </div>
+          </header>
+          <div className="hb-service-list">
+            {platforms.map((platform) => (
+              <HoverbarPlatformCard key={`${edge}-${platform.providerId}`} platform={platform} />
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
 
+function HoverbarPreview() {
   return (
     <main className="hb-preview-page">
       <header>
         <h1>悬浮球状态预览</h1>
-        <p>开发验收页，卡片金额为示例数据，不来自真实平台。</p>
+        <p>开发验收页。Credits、消费和赠送/充值在预览数据中存在，但不应出现在卡片文案里。</p>
       </header>
 
       <div className="hb-preview-orb-grid">
@@ -369,70 +229,43 @@ function HoverbarPreview() {
       </div>
 
       <section className="hb-preview-detail-section">
-        <h2>方案 A：一张卡多行，5 小时窗口 / 套餐 / Credits</h2>
-        <div className="hb-preview-detail-frame">
-          <div className="hb-detail-root" data-edge="right" data-motion="visible">
-            <section className="hb-panel">
-              <header className="hb-head">
-                <p className="hb-refresh-status">刚刚更新</p>
-                <div className="hb-actions">
-                  <button type="button" className="hb-action-button" aria-label="刷新" onClick={noop}>
-                    <RefreshCw size={16} aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    className="hb-action-button"
-                    aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
-                    onClick={toggleTheme}
-                  >
-                    {theme === "dark" ? (
-                      <SunMedium size={16} aria-hidden />
-                    ) : (
-                      <Moon size={16} aria-hidden />
-                    )}
-                  </button>
-                  <button type="button" className="hb-action-button" aria-label="打开主窗口" onClick={noop}>
-                    <ExternalLink size={16} aria-hidden />
-                  </button>
-                  <button type="button" className="hb-action-button" aria-label="收起" onClick={noop}>
-                    <X size={17} aria-hidden />
-                  </button>
-                </div>
-              </header>
-              <div className="hb-service-list">
-                {previewPlatforms.map((platform) => (
-                  <HoverbarPlatformCard key={platform.providerId} platform={platform} />
-                ))}
-              </div>
-            </section>
+        <h2>四边停靠 · 一行一个平台</h2>
+        <div className="hb-preview-edges">
+          <div>
+            <h2>顶部 420px</h2>
+            <PreviewPanel edge="top" platforms={previewPlatforms} status="更新于 11:51" />
+          </div>
+          <div>
+            <h2>底部 420px</h2>
+            <PreviewPanel edge="bottom" platforms={previewPlatforms} status="更新于 11:51" />
+          </div>
+          <div>
+            <h2>右侧 300px</h2>
+            <PreviewPanel edge="right" platforms={previewPlatforms} status="更新于 11:51" />
+          </div>
+          <div>
+            <h2>左侧 300px</h2>
+            <PreviewPanel edge="left" platforms={previewPlatforms} status="更新于 11:51" />
           </div>
         </div>
       </section>
 
       <div className="hb-preview-panel-grid">
         <section>
-          <h2>成功</h2>
-          <HoverbarPlatformCard platform={healthyPlatform} />
+          <h2>正常</h2>
+          <HoverbarPlatformCard platform={deepseekHealthy} />
         </section>
         <section>
-          <h2>GPT 窗口额度</h2>
+          <h2>部分可用 · 缓存可能过期</h2>
+          <HoverbarPlatformCard platform={staleGlm} />
+        </section>
+        <section>
+          <h2>异常</h2>
+          <HoverbarPlatformCard platform={kimiError} />
+        </section>
+        <section>
+          <h2>GPT Plus + Free</h2>
           <HoverbarPlatformCard platform={gptPlatform} />
-        </section>
-        <section>
-          <h2>错误与缓存</h2>
-          <HoverbarPlatformCard platform={errorPlatform} />
-        </section>
-        <section>
-          <h2>加载</h2>
-          <button
-            type="button"
-            className="hb-action-button hb-preview-loading"
-            data-loading="true"
-            aria-label="刷新中"
-            disabled
-          >
-            <RefreshCw size={16} aria-hidden />
-          </button>
         </section>
       </div>
     </main>

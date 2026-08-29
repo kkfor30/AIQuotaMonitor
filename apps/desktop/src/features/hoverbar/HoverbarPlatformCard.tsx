@@ -1,255 +1,255 @@
 /**
- * 悬浮详情平台卡片。方案 A：一张卡多行对齐，状态贴最右侧竖排。
+ * 悬浮详情平台卡片。一个平台一张卡；GPT 多账户在卡内分组；
+ * 只展示 5 小时/7 天窗口、重置时间、个人余额、plan_level 和状态。
  */
-import { AlertTriangle, CheckCircle2, CircleX, Settings2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleX, Monitor, User } from "lucide-react";
 import type {
   CapabilitySnapshotViewModel,
+  DataFreshness,
+  PlatformAggregateStatus,
   PlatformSummaryViewModel,
-  SourceAccessMode,
+  SourceState,
   SourceSummaryViewModel,
 } from "@/lib/types";
 import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
 
-const LANE_TYPE_LABEL: Record<SourceAccessMode, string> = {
-  coding_plan: "套餐额度",
-  token_plan: "套餐额度",
-  personal_balance: "个人余额",
-  web_usage: "网页用量",
-  local_cli: "窗口",
-};
-
-const PLAN_MODES = new Set<SourceAccessMode>(["coding_plan", "token_plan"]);
+const ALLOWED_IDS = new Set(["quota_window_5h", "quota_window_7d", "balance", "plan_level"]);
+const DATA_IDS = ["quota_window_5h", "quota_window_7d", "balance"] as const;
 const ACCOUNT_PROVIDERS = new Set(["openai", "claude_code"]);
 
-type HoverbarLane = {
+type AccountStatus = "healthy" | "partial" | "error";
+
+type HoverbarMetric = {
   id: string;
-  typeLabel: string;
-  capabilities: CapabilitySnapshotViewModel[];
+  label: string;
+  value: string | null;
+  reset: string | null;
+  freshness: DataFreshness;
+};
+
+type HoverbarGroup = {
+  id: string;
+  title: string;
+  plan: string | null;
+  status: AccountStatus;
+  metrics: HoverbarMetric[];
+  localAccount: boolean;
+};
+
+const STATUS_LABEL: Record<AccountStatus | PlatformAggregateStatus, string> = {
+  healthy: "正常",
+  partial: "部分可用",
+  setup_required: "待配置",
+  error: "异常",
+};
+
+const METRIC_LABEL: Record<(typeof DATA_IDS)[number], string> = {
+  quota_window_5h: "5小时窗口",
+  quota_window_7d: "7天窗口",
+  balance: "个人余额",
 };
 
 export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryViewModel }) {
-  const visibleCapabilities = platform.capabilities.filter(
-    (capability) => capability.value.primary !== null && capability.value.kind !== "trend",
-  );
-  const lanes = buildHoverbarLanes(platform, visibleCapabilities);
-  const problemSource =
-    platform.aggregateStatus === "setup_required"
-      ? undefined
-      : platform.sources.find(
-          (source) => source.credentialConfigured && (source.state === "error" || source.state === "auth_required"),
-        );
-  const hasStale = visibleCapabilities.some((capability) => capability.freshness === "stale");
+  const groups = buildGroups(platform);
+  const multi = ACCOUNT_PROVIDERS.has(platform.providerId) && groups.length > 1;
+  const single = groups[0];
+  const hasStale = groups.some((group) => group.metrics.some((metric) => metric.freshness === "stale"));
   const visual = HOVERBAR_PROVIDER_VISUALS[platform.providerId];
-  const status = STATUS_META[platform.aggregateStatus];
-  const StatusIcon = status.icon;
+  const platformStatus = platform.aggregateStatus;
 
   return (
     <article
       className="hb-service-card"
-      data-status={platform.aggregateStatus}
+      data-status={platformStatus}
       data-freshness={hasStale ? "stale" : "fresh"}
-      data-lanes="rows"
+      data-layout={multi ? "accounts" : "single"}
     >
-      <span className="hb-provider-logo" aria-hidden="true">
-        {visual ? (
-          <img
-            src={visual.src}
-            alt=""
-            draggable={false}
-            style={{ transform: `scale(${visual.scale})` }}
-          />
-        ) : (
-          <span>{platform.displayName.slice(0, 1).toUpperCase()}</span>
-        )}
-      </span>
-
-      <div className="hb-card-body">
-        <div className="hb-service-title">
-          <b>{platform.displayName}</b>
-        </div>
-        {lanes.length > 0 ? (
-          <div className="hb-lanes">
-            {lanes.map((lane) => {
-              const { primary, extra } = formatLane(lane);
-              return (
-                <div key={lane.id} className="hb-lane">
-                  <i className="hb-lane-type">{lane.typeLabel}</i>
-                  <b className="hb-lane-primary">{primary}</b>
-                  <span className="hb-lane-extra">
-                    {extra.map((line) => (
-                      <span key={line}>{line}</span>
-                    ))}
-                  </span>
-                </div>
-              );
-            })}
+      <header className="hb-card-head">
+        <span className="hb-provider-logo" aria-hidden="true">
+          {visual ? (
+            <img
+              src={visual.src}
+              alt=""
+              draggable={false}
+              style={{ transform: `scale(${visual.scale})` }}
+            />
+          ) : (
+            <span>{platform.displayName.slice(0, 1).toUpperCase()}</span>
+          )}
+        </span>
+        <div className="hb-card-head-main">
+          <b className="hb-card-name">{platform.displayName}</b>
+          <div className="hb-card-meta">
+            {multi ? <span className="hb-chip">{groups.length} 个账户</span> : null}
+            {!multi && single?.plan ? <span className="hb-chip hb-chip-plan">{single.plan}</span> : null}
+            <StatusChip status={platformStatus} />
           </div>
-        ) : (
-          <p className="hb-primary-missing">
-            {platform.aggregateStatus === "setup_required" ? "尚未接入" : "暂无真实数据"}
-          </p>
-        )}
-      </div>
-
-      <span className="hb-status" data-status={platform.aggregateStatus} title={status.label}>
-        <StatusIcon size={11} aria-hidden />
-        {status.label}
-      </span>
-
-      {(problemSource || hasStale) && (
-        <div className="hb-card-message">
-          <AlertTriangle size={12} aria-hidden />
-          <span>
-            {problemSource?.errorMessage ??
-              (hasStale ? "部分能力正在使用上次成功快照" : "需要处理接入状态")}
-          </span>
         </div>
+      </header>
+
+      {groups.length === 0 ? (
+        <p className="hb-primary-missing">暂无真实数据</p>
+      ) : multi ? (
+        <div className="hb-groups">
+          {groups.map((group) => (
+            <section key={group.id} className="hb-group">
+              <div className="hb-group-head">
+                <span className="hb-group-icon" aria-hidden="true">
+                  {group.localAccount ? <Monitor size={14} /> : <User size={14} />}
+                </span>
+                <span className="hb-group-name">{group.title}</span>
+                {group.plan ? <span className="hb-chip hb-chip-plan">{group.plan}</span> : null}
+                <StatusChip status={group.status} />
+              </div>
+              <MetricRow metrics={group.metrics} />
+            </section>
+          ))}
+        </div>
+      ) : (
+        <MetricRow metrics={single?.metrics ?? []} />
       )}
     </article>
   );
 }
 
-const STATUS_META = {
-  healthy: { label: "正常", icon: CheckCircle2 },
-  partial: { label: "部分可用", icon: AlertTriangle },
-  setup_required: { label: "待配置", icon: Settings2 },
-  error: { label: "异常", icon: CircleX },
-} as const;
-
-function buildHoverbarLanes(
-  platform: PlatformSummaryViewModel,
-  visible: CapabilitySnapshotViewModel[],
-): HoverbarLane[] {
-  const configured = platform.sources.filter((source) => source.credentialConfigured);
-  const plan = configured.filter((source) => PLAN_MODES.has(accessModeOf(source)));
-  const balance = configured.filter((source) => accessModeOf(source) === "personal_balance");
-  if (plan.length > 0 && balance.length > 0) {
-    return [
-      laneFromSources(visible, plan, LANE_TYPE_LABEL[accessModeOf(plan[0])]),
-      laneFromSources(visible, balance, LANE_TYPE_LABEL.personal_balance),
-    ].filter((lane) => lane.capabilities.length > 0);
-  }
-
-  if (ACCOUNT_PROVIDERS.has(platform.providerId) && configured.length > 0) {
-    const lanes = configured
-      .map((source) =>
-        laneFromSources(visible, [source], accountLabel(source, configured.length > 1)),
-      )
-      .filter((lane) => lane.capabilities.length > 0);
-    if (lanes.length > 0) return lanes;
-  }
-
-  const usage = configured.filter((source) => accessModeOf(source) === "web_usage");
-  const money = configured.filter((source) => accessModeOf(source) === "personal_balance");
-  if (usage.length > 0 && money.length > 0) {
-    return [
-      laneFromSources(visible, money, "余额"),
-      laneFromSources(visible, usage, "用量"),
-    ].filter((lane) => lane.capabilities.length > 0);
-  }
-
-  if (configured.length === 1) {
-    const source = configured[0];
-    const mode = accessModeOf(source);
-    return [laneFromSources(visible, [source], LANE_TYPE_LABEL[mode] || "额度")].filter(
-      (lane) => lane.capabilities.length > 0,
-    );
-  }
-
-  if (visible.length === 0) return [];
-  return [
-    {
-      id: "all",
-      typeLabel: "额度",
-      capabilities: visible,
-    },
-  ];
+function StatusChip({ status }: { status: AccountStatus | PlatformAggregateStatus }) {
+  const Icon = status === "healthy" ? CheckCircle2 : status === "error" ? CircleX : AlertTriangle;
+  return (
+    <span className="hb-chip hb-chip-status" data-status={status}>
+      <Icon size={11} aria-hidden />
+      {STATUS_LABEL[status]}
+    </span>
+  );
 }
 
-function laneFromSources(
-  visible: CapabilitySnapshotViewModel[],
-  sources: SourceSummaryViewModel[],
-  typeLabel: string,
-): HoverbarLane {
-  const ids = new Set(sources.map((source) => source.sourceId));
+function MetricRow({ metrics }: { metrics: HoverbarMetric[] }) {
+  if (metrics.length === 0) {
+    return <p className="hb-primary-missing">暂不可用</p>;
+  }
+  return (
+    <div className="hb-metrics" data-count={metrics.length}>
+      {metrics.map((metric) => {
+        const missing = metric.value === null;
+        return (
+          <div
+            key={metric.id}
+            className="hb-metric"
+            data-id={metric.id}
+            data-freshness={metric.freshness}
+            data-missing={missing || undefined}
+          >
+            <span className="hb-metric-label">{metric.label}</span>
+            <b className="hb-metric-value">{missing ? "暂不可用" : metric.value}</b>
+            {metric.reset ? <span className="hb-metric-reset">{metric.reset}</span> : null}
+            {metric.freshness === "stale" && !missing ? (
+              <span className="hb-metric-reset">可能过期</span>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function buildGroups(platform: PlatformSummaryViewModel): HoverbarGroup[] {
+  const configured = platform.sources.filter((source) => source.credentialConfigured);
+  const groups = configured
+    .map((source) => groupFromSource(source, capsFor(platform.capabilities, source.sourceId)))
+    .filter((group): group is HoverbarGroup => group !== null);
+
+  if (ACCOUNT_PROVIDERS.has(platform.providerId) && groups.length > 1) {
+    return groups;
+  }
+  if (groups.length <= 1) return groups;
+  return [mergeGroups(groups)];
+}
+
+function groupFromSource(
+  source: SourceSummaryViewModel,
+  capabilities: CapabilitySnapshotViewModel[],
+): HoverbarGroup | null {
+  const metrics = DATA_IDS.map((id) => toMetric(capabilities, id)).filter(
+    (metric): metric is HoverbarMetric => metric !== null,
+  );
+  const plan = planOf(capabilities);
+  if (metrics.length === 0 && !plan) return null;
   return {
-    id: sources.map((source) => source.sourceId).join("+") || typeLabel,
-    typeLabel,
-    capabilities: visible.filter((capability) => ids.has(capability.sourceId)),
+    id: source.sourceId,
+    title: accountTitle(source),
+    plan,
+    status: sourceStatus(source.state, metrics),
+    metrics,
+    localAccount: source.sourceId === "openai-codex-local",
   };
 }
 
-function formatLane(lane: HoverbarLane): { primary: string; extra: string[] } {
-  const byId = (id: string) => lane.capabilities.find((item) => item.capabilityId === id);
-  const fiveHour = byId("quota_window_5h");
-  const sevenDay = byId("quota_window_7d");
-  const plan = formatPlan(byId("plan_level")?.value.primary);
-  const credits = byId("credits")?.value.primary
-    ? `Credits ${byId("credits")?.value.primary}`
-    : null;
-  const meta = [plan, credits].filter((item): item is string => Boolean(item));
-  const balance = byId("balance");
-  const today = byId("today_spend");
-  const month = byId("month_spend");
-
-  if (fiveHour?.value.primary) {
-    return {
-      primary: `5小时 ${fiveHour.value.primary}`,
-      extra: [
-        sevenDay?.value.primary ? `7天 ${sevenDay.value.primary}` : null,
-        meta.join(" · ") || null,
-      ].filter((item): item is string => Boolean(item)),
-    };
-  }
-
-  if (sevenDay?.value.primary) {
-    return { primary: `7天 ${sevenDay.value.primary}`, extra: meta };
-  }
-
-  if (balance?.value.primary) {
-    return {
-      primary: balance.value.primary,
-      extra: [
-        today?.value.primary ? `今日 ${today.value.primary}` : null,
-        month?.value.primary ? `本月 ${month.value.primary}` : null,
-        secondaryGift(balance.value.secondary),
-      ].filter((item): item is string => Boolean(item)),
-    };
-  }
-
-  const first = lane.capabilities[0];
-  const extra = lane.capabilities
-    .slice(1)
-    .map((item) => item.value.primary)
-    .filter((item): item is string => Boolean(item));
-  return { primary: first?.value.primary ?? "—", extra };
+function mergeGroups(groups: HoverbarGroup[]): HoverbarGroup {
+  const metrics = DATA_IDS.map((id) => groups.flatMap((group) => group.metrics).find((metric) => metric.id === id)).filter(
+    (metric): metric is HoverbarMetric => Boolean(metric),
+  );
+  const plan = groups.map((group) => group.plan).find((value) => Boolean(value)) ?? null;
+  const status = mergeStatus(groups.map((group) => group.status));
+  return {
+    id: groups.map((group) => group.id).join("+"),
+    title: groups[0]?.title ?? "",
+    plan,
+    status,
+    metrics,
+    localAccount: false,
+  };
 }
 
-function formatPlan(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const normalized = trimmed.toLowerCase();
-  if (/(^|[^a-z\u4e00-\u9fff])free([^a-z\u4e00-\u9fff]|$)|免费/.test(normalized)) return "Free";
-  if (/(^|[^a-z\u4e00-\u9fff])plus([^a-z\u4e00-\u9fff]|$)/.test(normalized)) return "Plus";
-  if (/(^|[^a-z\u4e00-\u9fff])pro([^a-z\u4e00-\u9fff]|$)/.test(normalized)) return "Pro";
-  return trimmed.replace(/订阅|计划/g, "").trim() || trimmed;
+function capsFor(capabilities: CapabilitySnapshotViewModel[], sourceId: string) {
+  return capabilities.filter((item) => item.sourceId === sourceId && ALLOWED_IDS.has(item.capabilityId));
 }
 
-function secondaryGift(value: string | null | undefined): string | null {
-  if (!value || !/赠送|充值/.test(value)) return null;
-  return value;
+function toMetric(capabilities: CapabilitySnapshotViewModel[], id: (typeof DATA_IDS)[number]): HoverbarMetric | null {
+  const capability = capabilities.find((item) => item.capabilityId === id);
+  if (!capability) return null;
+  const value =
+    capability.freshness === "missing" || !capability.value.primary ? null : capability.value.primary;
+  return {
+    id,
+    label: METRIC_LABEL[id],
+    value,
+    reset: value ? extractReset(capability.value.secondary) : null,
+    freshness: capability.freshness,
+  };
 }
 
-function accountLabel(source: SourceSummaryViewModel, multiple: boolean): string {
-  if (source.sourceId === "openai-codex-local") return multiple ? "本机" : "窗口";
+function planOf(capabilities: CapabilitySnapshotViewModel[]): string | null {
+  const plan = capabilities.find((item) => item.capabilityId === "plan_level");
+  const value = plan?.value.primary?.trim();
+  return value || null;
+}
+
+function extractReset(secondary: string | null | undefined): string | null {
+  if (!secondary) return null;
+  const hit = secondary
+    .split("·")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("重置") && part.length > 2);
+  return hit ?? null;
+}
+
+function sourceStatus(state: SourceState, metrics: HoverbarMetric[]): AccountStatus {
+  const usable = metrics.filter((metric) => metric.value !== null);
+  if (state === "auth_required" || state === "error" || usable.length === 0) return "error";
+  const complete = metrics.length > 0 && metrics.every((metric) => metric.freshness === "fresh" && metric.value);
+  if (complete && (state === "ready" || state === "refreshing")) return "healthy";
+  return "partial";
+}
+
+function mergeStatus(statuses: AccountStatus[]): AccountStatus {
+  if (statuses.every((status) => status === "healthy")) return "healthy";
+  if (statuses.every((status) => status === "error")) return "error";
+  return "partial";
+}
+
+function accountTitle(source: SourceSummaryViewModel): string {
+  if (source.sourceId === "openai-codex-local") return "本机账户";
   if (source.sourceId.startsWith("openai-codex-extra-")) {
     return source.displayName.replace(/^额外 ChatGPT 账号\s*/, "账号 ") || "额外账号";
   }
-  if (!multiple) return LANE_TYPE_LABEL[accessModeOf(source)] || "窗口";
-  return source.displayName.replace(/（当前 CLI）$/, "") || "账号";
-}
-
-function accessModeOf(source: SourceSummaryViewModel): SourceAccessMode {
-  return source.accessMode ?? "personal_balance";
+  return source.displayName.replace(/（当前 CLI）$/, "") || source.displayName;
 }

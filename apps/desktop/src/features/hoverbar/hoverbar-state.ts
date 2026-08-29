@@ -145,9 +145,9 @@ export function summarizeHoverbarStatus(
   }
   if (partial.length > 0) {
     const first = partial[0];
-    return partial.length === 1
-      ? `${first.displayName} 部分可用 · 缓存数据`
-      : `${partial.length} 个平台部分可用`;
+    if (partial.length > 1) return `${partial.length} 个平台部分可用`;
+    const stale = first.capabilities.some((capability) => capability.freshness === "stale");
+    return stale ? `${first.displayName} 部分可用 · 缓存可能过期` : `${first.displayName} 部分可用`;
   }
   if (updatedAt === null) return "数据就绪";
   const time = new Date(updatedAt).toLocaleTimeString("zh-CN", {
