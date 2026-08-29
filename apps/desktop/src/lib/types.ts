@@ -164,7 +164,7 @@ export const FRESHNESS_META: Record<
   { label: string; tone: "primary" | "warning" | "neutral" }
 > = {
   fresh: { label: "实时", tone: "primary" },
-  stale: { label: "缓存 · 可能过期", tone: "warning" },
+  stale: { label: "缓存数据", tone: "warning" },
   missing: { label: "暂无数据", tone: "neutral" },
 };
 

@@ -67,15 +67,15 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
         <SourceHealthSummary platform={platform} />
         {groupedCapabilitySections(cardCapabilities).map((section) => (
           <section key={section.title} className="flex min-w-0 flex-col gap-3">
-            <div className="flex items-baseline gap-2.5 px-1">
+            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 px-1">
               <h3 className="text-[14px] font-semibold tracking-tight text-q-text-primary">
                 {section.title}
               </h3>
-              <span className="truncate text-xs text-q-text-muted">
+              <span className="break-words text-xs text-q-text-muted">
                 {section.capabilityNames.join(" / ")}
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3">
               {section.capabilities.map((capability) => (
                 <CapabilityCard
                   key={`${capability.sourceId}-${capability.capabilityId}`}

@@ -40,10 +40,10 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
 
   return (
     <div className="glass-panel flex flex-col gap-2.5 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <Icon size={16} aria-hidden className="shrink-0 text-q-text-muted" />
-          <span className="truncate text-[13px] font-medium text-q-text-secondary">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <Icon size={16} aria-hidden className="mt-[3px] shrink-0 text-q-text-muted" />
+          <span className="min-w-0 flex-1 break-words text-[13px] font-medium leading-[18px] text-q-text-secondary">
             {capability.displayName}
           </span>
         </div>
@@ -71,12 +71,12 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
       {capability.value.primary !== null && (capability.value.secondary || capability.capturedAt !== null) && (
         <div className="flex flex-col gap-0.5">
           {capability.value.secondary && (
-            <p className="truncate text-[11px] text-q-text-muted" title={capability.value.secondary}>
+            <p className="break-words text-[11px] leading-4 text-q-text-muted" title={capability.value.secondary}>
               {compactPercentText(capability.value.secondary)}
             </p>
           )}
           {capability.capturedAt !== null && (
-            <p className="text-[11px] text-q-text-muted">{formatTime(capability.capturedAt)}</p>
+            <p className="text-[11px] leading-4 text-q-text-muted">{formatTime(capability.capturedAt)}</p>
           )}
         </div>
       )}
