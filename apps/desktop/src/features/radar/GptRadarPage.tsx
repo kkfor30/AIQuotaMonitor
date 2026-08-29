@@ -583,6 +583,8 @@ function AiAnalysisView({
     const start = rangeStartMs(rangeKey);
     return (data?.posts ?? []).filter((post) => post.postedAt >= start);
   }, [data?.posts, rangeKey]);
+  const customDays = parseRangeDays(rangeKey);
+  const customActive = !QUICK_RANGES.some((range) => range.id === rangeKey) && customDays !== null;
   const selectClass =
     "h-10 w-full cursor-pointer rounded-q-control border border-q-border bg-q-surface-strong px-3 text-sm text-q-text-primary outline-none focus:border-q-primary";
 
@@ -599,14 +601,64 @@ function AiAnalysisView({
             </div>
             <Switch checked={analyze} onCheckedChange={onAnalyzeChange} label="立即检查时同时运行 AI 分析" />
           </div>
-          <label className="flex flex-col gap-1.5 text-sm">
+          <div className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium text-q-text-primary">时间范围</span>
-            <select value={rangeKey} onChange={(event) => onRangeChange(event.target.value)} className={selectClass}>
-              <option value="today">当天</option>
-              <option value="3d">过去 3 天</option>
-              <option value="7d">过去 7 天</option>
-            </select>
-          </label>
+            <div className="flex flex-wrap items-center gap-2">
+              {QUICK_RANGES.map((range) => (
+                <button
+                  key={range.id}
+                  type="button"
+                  aria-pressed={rangeKey === range.id}
+                  onClick={() => onRangeChange(range.id)}
+                  className={rangeChipClass(rangeKey === range.id)}
+                >
+                  {range.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-pressed={customActive}
+                onClick={() => {
+                  if (!customActive) onRangeChange("30d");
+                }}
+                className={rangeChipClass(customActive)}
+              >
+                自定义
+              </button>
+            </div>
+            {customActive && customDays !== null && (
+              <div className="flex flex-wrap items-center gap-3 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2.5">
+                <input
+                  type="range"
+                  min={1}
+                  max={365}
+                  step={1}
+                  value={customDays}
+                  onChange={(event) => onRangeChange(`${event.target.value}d`)}
+                  aria-label="自定义分析天数"
+                  className="h-1.5 min-w-32 flex-1 cursor-pointer accent-q-primary"
+                />
+                <span className="flex items-center gap-1.5 text-xs text-q-text-secondary">
+                  过去
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={customDays}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      if (Number.isFinite(next) && next >= 1 && next <= 365) {
+                        onRangeChange(`${Math.round(next)}d`);
+                      }
+                    }}
+                    aria-label="自定义分析天数"
+                    className="h-7 w-14 rounded-md border border-q-border bg-q-surface px-2 text-xs tabular-nums text-q-text-primary outline-none focus:border-q-primary"
+                  />
+                  天
+                </span>
+              </div>
+            )}
+          </div>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium text-q-text-primary">分析模型</span>
             <select value={sourceId} onChange={(event) => onSourceChange(event.target.value)} className={selectClass}>
@@ -634,7 +686,9 @@ function AiAnalysisView({
             </p>
           </div>
           {analysisInput.length === 0 ? (
-            <p className="text-xs text-q-text-muted">当前时间窗内没有可分析的帖子。</p>
+            <p className="text-xs leading-relaxed text-q-text-muted">
+              当前时间窗内没有可分析的帖子。Tibo 近期没有新动态时，可切换「自定义」扩大时间范围后重试。
+            </p>
           ) : (
             <div className="flex min-h-0 flex-col gap-2">
               <p className="text-xs text-q-text-secondary">将发送 {analysisInput.length} 条</p>
@@ -776,6 +830,29 @@ function rangeStartMs(rangeKey: string) {
     start.setHours(0, 0, 0, 0);
     return start.getTime();
   }
-  const days = rangeKey === "3d" ? 3 : 7;
+  const days = parseRangeDays(rangeKey) ?? 7;
   return Date.now() - days * 24 * 60 * 60 * 1000;
+}
+
+/** 自定义时间范围：`Nd` 表示过去 N 天（与后端 parse_range_days 对齐）。 */
+function parseRangeDays(rangeKey: string): number | null {
+  if (!rangeKey.endsWith("d")) return null;
+  const days = Number(rangeKey.slice(0, -1));
+  return Number.isInteger(days) && days >= 1 && days <= 365 ? days : null;
+}
+
+/** 时间范围快捷档（与 Tibo 筛选 chips 同款视觉）。 */
+const QUICK_RANGES: Array<{ id: string; label: string }> = [
+  { id: "today", label: "当天" },
+  { id: "3d", label: "过去 3 天" },
+  { id: "7d", label: "过去 7 天" },
+];
+
+function rangeChipClass(active: boolean): string {
+  return cn(
+    "inline-flex cursor-pointer items-center rounded-q-pill px-3 py-1.5 text-[12px] font-medium transition-colors duration-150",
+    active
+      ? "bg-q-primary text-white shadow-[0_4px_12px_rgba(10,102,255,0.28)]"
+      : "border border-q-border bg-white/70 text-q-text-secondary shadow-q-sm hover:border-q-border-selected hover:text-q-primary",
+  );
 }

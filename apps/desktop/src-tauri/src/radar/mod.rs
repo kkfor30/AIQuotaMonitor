@@ -840,7 +840,8 @@ pub fn save_analysis_prefs(
     user_prompt: Option<&str>,
 ) -> Result<(), String> {
     let range_key = match range_key {
-        "today" | "7d" => range_key,
+        "today" => range_key,
+        key if parse_range_days(key).is_some() => key,
         _ => "3d",
     };
     database.set_setting_bool("radar_analyze", analyze)?;
@@ -862,7 +863,7 @@ fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String
         analyze: database.setting_bool("radar_analyze")?,
         range_key: database
             .setting_string("radar_range_key")?
-            .filter(|value| matches!(value.as_str(), "today" | "3d" | "7d"))
+            .filter(|value| value == "today" || parse_range_days(value).is_some())
             .unwrap_or_else(|| "3d".into()),
         source_id: database
             .setting_string("radar_source_id")?
@@ -936,20 +937,24 @@ fn string_list(value: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// 时间范围解析：`Nd` 表示过去 N 天（1..=365），覆盖 3d/7d 快捷档与自定义天数。
+fn parse_range_days(range_key: &str) -> Option<u32> {
+    let days = range_key.strip_suffix('d')?.parse::<u32>().ok()?;
+    (1..=365).contains(&days).then_some(days)
+}
+
 fn range_start(range_key: &str) -> i64 {
     let now = Local::now();
-    match range_key {
-        "today" => {
-            let naive = now.date_naive().and_hms_opt(0, 0, 0).unwrap_or_else(|| now.naive_local());
-            Local
-                .from_local_datetime(&naive)
-                .single()
-                .unwrap_or(now)
-                .timestamp_millis()
-        }
-        "3d" => (now - ChronoDuration::days(3)).timestamp_millis(),
-        _ => (now - ChronoDuration::days(7)).timestamp_millis(),
+    if range_key == "today" {
+        let naive = now.date_naive().and_hms_opt(0, 0, 0).unwrap_or_else(|| now.naive_local());
+        return Local
+            .from_local_datetime(&naive)
+            .single()
+            .unwrap_or(now)
+            .timestamp_millis();
     }
+    let days = parse_range_days(range_key).unwrap_or(7);
+    (now - ChronoDuration::days(days as i64)).timestamp_millis()
 }
 
 fn format_iso(ms: i64) -> String {
