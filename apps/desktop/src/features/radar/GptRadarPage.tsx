@@ -2,22 +2,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BrainCircuit,
-  Check,
   ExternalLink,
   Heart,
   HelpCircle,
   Link2,
-  LoaderCircle,
   Megaphone,
   MessageCircle,
-  Minus,
   Radar,
   RefreshCw,
   Repeat2,
   ShieldCheck,
   ThumbsDown,
   ThumbsUp,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
@@ -216,7 +212,6 @@ function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "pri
 function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined }) {
   const latest = data?.latest;
   const notice = data?.notice;
-  const latestCheck = data?.checks[0];
 
   return (
     <div className="flex flex-col gap-4">
@@ -321,21 +316,6 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
         </section>
       </div>
 
-      {/* 检查流程：同步 → 解析 → 分析 步骤链 */}
-      <section className="glass-panel flex flex-col gap-3 p-4">
-        <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">检查流程</h2>
-        <div className="flex flex-wrap items-center gap-y-3">
-          <FlowStep label="同步" status={latestCheck?.syncStatus ?? null} />
-          <span aria-hidden className="mx-4 h-px min-w-10 flex-1 bg-q-border" />
-          <FlowStep label="解析" status={latestCheck?.parseStatus ?? null} />
-          <span aria-hidden className="mx-4 h-px min-w-10 flex-1 bg-q-border" />
-          <FlowStep label="分析" status={latestCheck?.analyzeStatus ?? null} />
-        </div>
-        {latestCheck?.errorMessage && (
-          <p className="text-xs leading-relaxed text-q-danger">{latestCheck.errorMessage}</p>
-        )}
-      </section>
-
       {/* 检查历史 */}
       <section className="glass-panel flex flex-col gap-2.5 p-4">
         <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">检查历史</h2>
@@ -387,48 +367,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
   );
 }
 
-function FlowStep({ label, status }: { label: string; status: string | null }) {
-  const state =
-    status === "ok" ? "ok" : status === "failed" ? "failed" : status === "skipped" ? "skipped" : "pending";
-  const stateText =
-    state === "ok" ? "完成" : state === "failed" ? "失败" : state === "skipped" ? "跳过" : "未运行";
-  const icon =
-    state === "ok" ? (
-      <Check size={13} aria-hidden />
-    ) : state === "failed" ? (
-      <X size={13} aria-hidden />
-    ) : state === "skipped" ? (
-      <Minus size={13} aria-hidden />
-    ) : (
-      <LoaderCircle size={13} aria-hidden />
-    );
-  const toneClass =
-    state === "ok"
-      ? "border-q-border bg-q-success-soft text-q-success"
-      : state === "failed"
-        ? "border-q-border bg-q-danger-soft text-q-danger"
-        : "border-q-border bg-q-surface-muted text-q-text-muted";
-  return (
-    <div className="flex items-center gap-2.5">
-      <span
-        aria-hidden
-        className={cn(
-          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border shadow-q-sm",
-          toneClass,
-          state === "pending" && "opacity-70",
-        )}
-      >
-        {icon}
-      </span>
-      <div className="flex flex-col">
-        <span className="text-[13px] font-medium text-q-text-primary">{label}</span>
-        <span className="text-[11px] text-q-text-muted">{stateText}</span>
-      </div>
-    </div>
-  );
-}
-
-/* ————————————————— Tibo 动态（设计稿 05） ————————————————— */
+/* ————————————————— Tibo 动态/* ————————————————— Tibo 动态（设计稿 05） ————————————————— */
 
 function TiboFeedView({
   posts,
