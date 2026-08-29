@@ -36,8 +36,21 @@ function source(
   accessMode: SourceAccessMode,
   state: SourceState = "ready",
 ): SourceSummaryViewModel {
+  const accountId = sourceId === "openai-codex-local"
+    ? "openai-local"
+    : sourceId.startsWith("openai-codex-extra-")
+      ? "openai-extra-2"
+      : sourceId.startsWith("glm-")
+        ? "glm-default"
+        : sourceId.startsWith("kimi-")
+          ? "kimi-default"
+          : "deepseek-default";
   return {
     sourceId,
+    adapterId: sourceId.startsWith("openai-codex-extra-") ? "openai-codex-local" : sourceId,
+    accountId,
+    accountName: accountId === "openai-local" ? "本机 Codex" : accountId === "openai-extra-2" ? "额外账号 2" : "默认账号",
+    accountKind: accountId === "openai-local" ? "local" : accountId === "openai-extra-2" ? "additional" : "default",
     sourceType: accessMode === "local_cli" ? "local_cli" : accessMode === "personal_balance" ? "web_session" : "api_key",
     displayName,
     state,
@@ -62,6 +75,15 @@ function cap(
   return {
     capabilityId,
     sourceId,
+    accountId: sourceId === "openai-codex-local"
+      ? "openai-local"
+      : sourceId.startsWith("openai-codex-extra-")
+        ? "openai-extra-2"
+        : sourceId.startsWith("glm-")
+          ? "glm-default"
+          : sourceId.startsWith("kimi-")
+            ? "kimi-default"
+            : "deepseek-default",
     displayName,
     freshness,
     capturedAt: null,
@@ -76,6 +98,11 @@ const gptPlatform: PlatformSummaryViewModel = {
   displayName: "GPT / Codex",
   aggregateStatus: "healthy",
   accessSummary: "本机 Codex + 额外账号",
+  supportsMultipleAccounts: true,
+  accounts: [
+    { accountId: "openai-local", displayName: "本机 Codex", kind: "local", status: "healthy", sourceIds: ["openai-codex-local"], canRename: false, canRemove: false },
+    { accountId: "openai-extra-2", displayName: "额外账号 2", kind: "additional", status: "healthy", sourceIds: ["openai-codex-extra-2"], canRename: true, canRemove: true },
+  ],
   sources: [
     source("openai-codex-local", "本机 Codex（当前 CLI）", ["quota_window_5h", "quota_window_7d", "credits", "plan_level"], "local_cli"),
     source("openai-codex-extra-2", "额外 ChatGPT 账号 2", ["quota_window_30d", "credits", "plan_level"], "local_cli"),
@@ -96,6 +123,8 @@ const glmPlatform: PlatformSummaryViewModel = {
   displayName: "GLM 国内",
   aggregateStatus: "healthy",
   accessSummary: "Token Plan + 个人余额",
+  supportsMultipleAccounts: true,
+  accounts: [{ accountId: "glm-default", displayName: "默认账号", kind: "default", status: "healthy", sourceIds: ["glm-coding-plan", "glm-web-balance"], canRename: false, canRemove: false }],
   sources: [
     source("glm-coding-plan", "Coding Plan", ["quota_window_5h", "quota_window_7d", "plan_level"], "coding_plan"),
     source("glm-web-balance", "网页个人余额", ["balance"], "personal_balance"),
@@ -113,6 +142,8 @@ const deepseekHealthy: PlatformSummaryViewModel = {
   displayName: "DeepSeek",
   aggregateStatus: "healthy",
   accessSummary: "API Key",
+  supportsMultipleAccounts: true,
+  accounts: [{ accountId: "deepseek-default", displayName: "默认账号", kind: "default", status: "healthy", sourceIds: ["preview-balance"], canRename: false, canRemove: false }],
   sources: [
     source("preview-balance", "余额来源", ["balance", "today_spend", "month_spend", "cache_hit_rate"], "personal_balance"),
   ],
@@ -129,6 +160,8 @@ const kimiError: PlatformSummaryViewModel = {
   displayName: "Kimi",
   aggregateStatus: "error",
   accessSummary: "个人余额",
+  supportsMultipleAccounts: true,
+  accounts: [{ accountId: "kimi-default", displayName: "默认账号", kind: "default", status: "error", sourceIds: ["kimi-balance-api"], canRename: false, canRemove: false }],
   sources: [source("kimi-balance-api", "个人余额", ["balance"], "personal_balance", "error")],
   capabilities: [cap("balance", "kimi-balance-api", "账户余额", null, null, "missing")],
 };
@@ -220,6 +253,7 @@ const previewRadar: RadarSnapshot = {
     sourceId: "deepseek-balance-api",
     model: "deepseek-chat",
     conclusion: "示例结论：近期出现新的重置迹象，仍在等待更多区域确认。",
+    analysisBasis: "部分地区出现窗口翻滚信号，但尚无官方公告，区域覆盖范围也未确认。",
     confidence: "medium",
     citations: [],
     support: ["部分地区窗口翻滚的动态", "限额观察未再恶化"],

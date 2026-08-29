@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
-import { addUserPlatforms, fetchPlatformCatalog, ipcErrorMessage } from "@/lib/ipc";
+import {
+  addPlatformAccount,
+  addUserPlatforms,
+  fetchPlatformCatalog,
+  ipcErrorMessage,
+  refreshPlatform,
+  startSourceLogin,
+} from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import { PlatformMark } from "./ProviderRail";
 
@@ -22,7 +29,23 @@ export function AddPlatformDialog({
     enabled: open,
   });
   const addMutation = useMutation({
-    mutationFn: () => addUserPlatforms(selected),
+    mutationFn: async () => {
+      const selectedItems = items.filter((item) => selected.includes(item.id));
+      const newPlatformIds = selectedItems.filter((item) => !item.added).map((item) => item.id);
+      let platforms = newPlatformIds.length > 0 ? await addUserPlatforms(newPlatformIds) : undefined;
+      for (const item of selectedItems.filter((entry) => entry.added)) {
+        const result = await addPlatformAccount(item.id);
+        platforms = result.platforms;
+        const source = result.platforms
+          .find((platform) => platform.providerId === item.id)
+          ?.sources.find((candidate) => result.sourceIds.includes(candidate.sourceId));
+        if (item.id === "openai" || (result.sourceIds.length === 1 && source?.supportsInteractiveLogin)) {
+          await startSourceLogin(result.sourceIds[0]);
+          platforms = await refreshPlatform(item.id);
+        }
+      }
+      return platforms ?? [];
+    },
     onSuccess: (platforms) => {
       queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
       void queryClient.invalidateQueries({ queryKey: ["platform-catalog"] });
@@ -49,23 +72,30 @@ export function AddPlatformDialog({
         </p>
         <div className="mt-4 min-h-0 flex-1 space-y-1 overflow-y-auto">
           {items.map((item) => {
-            const checked = selected.includes(item.id) || item.added;
+            const checked = selected.includes(item.id);
+            const disabled = item.added && !item.supportsMultipleAccounts;
             return (
               <label
                 key={item.id}
                 className={`flex cursor-pointer items-center gap-3 rounded-q-control px-3 py-2.5 ${
-                  item.added ? "opacity-50" : "hover:bg-q-surface-hover"
+                  disabled ? "cursor-not-allowed opacity-50" : "hover:bg-q-surface-hover"
                 }`}
               >
                 <PlatformMark providerId={item.id} size={32} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-q-text-primary">{item.displayName}</p>
-                  <p className="text-xs text-q-text-muted">{item.accessHint}</p>
+                  <p className="text-xs text-q-text-muted">
+                    {item.added
+                      ? item.supportsMultipleAccounts
+                        ? `已接入 · 再添加一个账号 · ${item.accessHint}`
+                        : "已接入 · 当前仅支持本地单账号"
+                      : item.accessHint}
+                  </p>
                 </div>
                 <input
                   type="checkbox"
                   checked={checked}
-                  disabled={item.added}
+                  disabled={disabled}
                   onChange={(event) => {
                     setSelected((current) =>
                       event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id),

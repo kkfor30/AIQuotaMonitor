@@ -405,18 +405,33 @@ fn end_capture(source_id: &str) {
         .remove(source_id);
 }
 
-pub async fn open(app: &tauri::AppHandle, source_id: &str) -> Result<(), String> {
-    let template = template_for(source_id).ok_or_else(|| "此来源不支持网页登录".to_string())?;
-    let _ = take_captured_secret(template.source_id);
-    let generation = bump_watcher(template.source_id);
-    if let Some(window) = app.get_webview_window(template.window_label) {
+fn login_window_label(template: &LoginTemplate, source_id: &str) -> String {
+    if source_id == template.source_id {
+        template.window_label.to_string()
+    } else {
+        format!("{}-{source_id}", template.window_label)
+    }
+}
+
+pub async fn open(app: &tauri::AppHandle, source_id: &str, adapter_id: &str) -> Result<(), String> {
+    let template = template_for(adapter_id).ok_or_else(|| "此来源不支持网页登录".to_string())?;
+    let window_label = login_window_label(template, source_id);
+    let _ = take_captured_secret(source_id);
+    let generation = bump_watcher(source_id);
+    if let Some(window) = app.get_webview_window(&window_label) {
         let _ = window.show();
         let _ = window.set_focus();
         let _ = window.eval(template.init_script);
         let _ = window.eval(&format!("location.href = '{}';", template.login_url));
-        attach_deepseek_native_hooks(app, &window, template.source_id);
+        attach_deepseek_native_hooks(app, &window, source_id, adapter_id);
         let _ = app.emit("source-login-status", format!("正在打开 {}…", template.window_title));
-        start_watcher(app.clone(), template.source_id, generation);
+        start_watcher(
+            app.clone(),
+            source_id.to_string(),
+            adapter_id.to_string(),
+            window_label,
+            generation,
+        );
         return Ok(());
     }
 
@@ -426,7 +441,7 @@ pub async fn open(app: &tauri::AppHandle, source_id: &str) -> Result<(), String>
             .parse()
             .map_err(|_| format!("{}地址无效", template.window_title))?,
     );
-    let mut builder = WebviewWindowBuilder::new(app, template.window_label, url)
+    let mut builder = WebviewWindowBuilder::new(app, &window_label, url)
         .title(template.window_title)
         .inner_size(1200.0, 800.0)
         .min_inner_size(960.0, 640.0)
@@ -434,8 +449,8 @@ pub async fn open(app: &tauri::AppHandle, source_id: &str) -> Result<(), String>
         .center()
         .visible(true)
         .initialization_script(template.init_script);
-    if template.isolated_profile {
-        builder = builder.data_directory(session_data_dir(app, template.source_id)?);
+    if template.isolated_profile || source_id != adapter_id {
+        builder = builder.data_directory(session_data_dir(app, source_id)?);
     }
     let allowed: Vec<String> = template
         .allowed_host_suffixes
@@ -465,34 +480,41 @@ pub async fn open(app: &tauri::AppHandle, source_id: &str) -> Result<(), String>
         .build()
         .map_err(|error| format!("打开登录窗口失败：{error}"))?;
     let app_handle = app.clone();
-    let closed_source = template.source_id;
-    let closed_label = template.window_label;
+    let closed_source = source_id.to_string();
+    let closed_label = window_label.clone();
     window.on_window_event(move |event| {
         if matches!(
             event,
             tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
         ) {
-            unhook_native_capture(closed_label);
-            let _ = app_handle.emit("source-login-closed", closed_source);
+            unhook_native_capture(&closed_label);
+            let _ = app_handle.emit("source-login-closed", closed_source.clone());
         }
     });
-    attach_deepseek_native_hooks(app, &window, template.source_id);
+    attach_deepseek_native_hooks(app, &window, source_id, adapter_id);
     let _ = app.emit("source-login-status", template.status_open);
-    start_watcher(app.clone(), template.source_id, generation);
+    start_watcher(
+        app.clone(),
+        source_id.to_string(),
+        adapter_id.to_string(),
+        window_label,
+        generation,
+    );
     Ok(())
 }
 
-pub fn clear_session(app: &tauri::AppHandle, source_id: &str) -> Result<(), String> {
-    let Some(template) = template_for(source_id) else {
+pub fn clear_session(app: &tauri::AppHandle, source_id: &str, adapter_id: &str) -> Result<(), String> {
+    let Some(template) = template_for(adapter_id) else {
         return Ok(());
     };
-    if let Some(window) = app.get_webview_window(template.window_label) {
+    let window_label = login_window_label(template, source_id);
+    if let Some(window) = app.get_webview_window(&window_label) {
         let _ = window.clear_all_browsing_data();
         let _ = window.destroy().or_else(|_| window.close());
         return Ok(());
     }
-    if template.isolated_profile {
-        if let Ok(dir) = session_data_dir(app, template.source_id) {
+    if template.isolated_profile || source_id != adapter_id {
+        if let Ok(dir) = session_data_dir(app, source_id) {
             let _ = fs::remove_dir_all(dir);
         }
         return Ok(());
@@ -511,10 +533,11 @@ pub fn clear_session(app: &tauri::AppHandle, source_id: &str) -> Result<(), Stri
     Ok(())
 }
 
-pub fn close(app: &tauri::AppHandle, source_id: &str) -> Result<(), String> {
-    let template = template_for(source_id).ok_or_else(|| "此来源没有网页登录页".to_string())?;
-    let _ = app.emit("source-login-closed", template.source_id);
-    if let Some(window) = app.get_webview_window(template.window_label) {
+pub fn close(app: &tauri::AppHandle, source_id: &str, adapter_id: &str) -> Result<(), String> {
+    let template = template_for(adapter_id).ok_or_else(|| "此来源没有网页登录页".to_string())?;
+    let window_label = login_window_label(template, source_id);
+    let _ = app.emit("source-login-closed", source_id);
+    if let Some(window) = app.get_webview_window(&window_label) {
         if window.destroy().is_err() {
             window
                 .close()
@@ -650,39 +673,46 @@ fn unhook_native_capture(window_label: &str) {
         .remove(window_label);
 }
 
-fn spawn_deepseek_capture(app: tauri::AppHandle, source_id: &'static str, secret: String) {
+fn spawn_deepseek_capture(
+    app: tauri::AppHandle,
+    source_id: String,
+    window_label: String,
+    secret: String,
+) {
     if !looks_like_usage_token(&secret) {
         return;
     }
     tauri::async_runtime::spawn(async move {
-        let Some(template) = template_for(source_id) else {
+        let Some(window) = app.get_webview_window(&window_label) else {
             return;
         };
-        let Some(window) = app.get_webview_window(template.window_label) else {
-            return;
-        };
-        let _ = capture_and_finish(&app, &window, source_id, &secret, true).await;
+        let _ = capture_and_finish(&app, &window, &source_id, &secret, true).await;
     });
 }
 
-fn attach_deepseek_native_hooks(app: &tauri::AppHandle, window: &tauri::WebviewWindow, source_id: &'static str) {
-    if source_id != deepseek::WEB_SOURCE_ID {
+fn attach_deepseek_native_hooks(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    source_id: &str,
+    adapter_id: &str,
+) {
+    if adapter_id != deepseek::WEB_SOURCE_ID {
         return;
     }
     #[cfg(windows)]
     {
-        attach_deepseek_native_hooks_windows(app, window, source_id);
+        attach_deepseek_native_hooks_windows(app, window, source_id.to_string());
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, window, source_id);
+        let _ = (app, window, source_id, adapter_id);
     }
 }
 
-fn poll_deepseek_page_token(app: &tauri::AppHandle, window: &tauri::WebviewWindow, source_id: &'static str) {
+fn poll_deepseek_page_token(app: &tauri::AppHandle, window: &tauri::WebviewWindow, source_id: &str) {
     #[cfg(windows)]
     {
-        poll_deepseek_page_token_windows(app, window, source_id);
+        poll_deepseek_page_token_windows(app, window, source_id.to_string());
     }
     #[cfg(not(windows))]
     {
@@ -695,7 +725,7 @@ fn poll_deepseek_page_token(app: &tauri::AppHandle, window: &tauri::WebviewWindo
 fn attach_deepseek_native_hooks_windows(
     app: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
-    source_id: &'static str,
+    source_id: String,
 ) {
     let label = window.label().to_string();
     {
@@ -705,6 +735,9 @@ fn attach_deepseek_native_hooks_windows(
         }
     }
     let app_for_webview = app.clone();
+    let message_source = source_id.clone();
+    let message_label = label.clone();
+    let title_label = label.clone();
     let result = window.with_webview(move |webview| unsafe {
         use webview2_com::{DocumentTitleChangedEventHandler, WebMessageReceivedEventHandler};
 
@@ -728,7 +761,12 @@ fn attach_deepseek_native_hooks_windows(
                 webview2_com::take_pwstr(json).trim_matches('"').to_string()
             };
             if let Some(token) = token_from_prefix(&message) {
-                spawn_deepseek_capture(app_for_message.clone(), source_id, token);
+                spawn_deepseek_capture(
+                    app_for_message.clone(),
+                    message_source.clone(),
+                    message_label.clone(),
+                    token,
+                );
             }
             Ok(())
         }));
@@ -745,7 +783,12 @@ fn attach_deepseek_native_hooks_windows(
             }
             let title = webview2_com::take_pwstr(title);
             if let Some(token) = token_from_prefix(&title) {
-                spawn_deepseek_capture(app_for_webview.clone(), source_id, token);
+                spawn_deepseek_capture(
+                    app_for_webview.clone(),
+                    source_id.clone(),
+                    title_label.clone(),
+                    token,
+                );
             }
             Ok(())
         }));
@@ -762,9 +805,10 @@ fn attach_deepseek_native_hooks_windows(
 fn poll_deepseek_page_token_windows(
     app: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
-    source_id: &'static str,
+    source_id: String,
 ) {
     let app_for_webview = app.clone();
+    let window_label = window.label().to_string();
     let _ = window.with_webview(move |webview| unsafe {
         use webview2_com::ExecuteScriptCompletedHandler;
         use windows_core::HSTRING;
@@ -777,13 +821,23 @@ fn poll_deepseek_page_token_windows(
         if core.DocumentTitle(&mut title).is_ok() {
             let title = webview2_com::take_pwstr(title);
             if let Some(token) = token_from_prefix(&title) {
-                spawn_deepseek_capture(app_for_webview.clone(), source_id, token);
+                spawn_deepseek_capture(
+                    app_for_webview.clone(),
+                    source_id.clone(),
+                    window_label.clone(),
+                    token,
+                );
             }
         }
         let handler = ExecuteScriptCompletedHandler::create(Box::new(move |error_code, result: String| {
             if error_code.is_ok() {
                 if let Some(token) = parse_script_string(&result) {
-                    spawn_deepseek_capture(app_for_webview.clone(), source_id, token);
+                    spawn_deepseek_capture(
+                        app_for_webview.clone(),
+                        source_id.clone(),
+                        window_label.clone(),
+                        token,
+                    );
                 }
             }
             Ok(())
@@ -793,19 +847,25 @@ fn poll_deepseek_page_token_windows(
     });
 }
 
-fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64) {
+fn start_watcher(
+    app: tauri::AppHandle,
+    source_id: String,
+    adapter_id: String,
+    window_label: String,
+    generation: u64,
+) {
     tauri::async_runtime::spawn(async move {
-        let Some(template) = template_for(source_id) else {
+        let Some(template) = template_for(&adapter_id) else {
             return;
         };
         tokio::time::sleep(Duration::from_millis(400)).await;
         let mut cache_scan_failed = false;
         let mut usage_status_sent = false;
         for tick in 0..1200 {
-            if current_watcher(template.source_id) != generation {
+            if current_watcher(&source_id) != generation {
                 return;
             }
-            let Some(window) = app.get_webview_window(template.window_label) else {
+            let Some(window) = app.get_webview_window(&window_label) else {
                 return;
             };
             if tick % 2 == 0 {
@@ -818,16 +878,16 @@ fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64
                 }
                 if let Some(token) = token_from_location(&window) {
                     if matches!(
-                        capture_and_finish(&app, &window, template.source_id, &token, true).await,
+                        capture_and_finish(&app, &window, &source_id, &token, true).await,
                         CaptureOutcome::Success
                     ) {
                         return;
                     }
                 }
-                poll_deepseek_page_token(&app, &window, template.source_id);
+                poll_deepseek_page_token(&app, &window, &source_id);
                 if !cache_scan_failed && tick >= 2 {
                     if let Some(token) = find_webview_cached_usage_token() {
-                        match capture_and_finish(&app, &window, template.source_id, &token, true).await {
+                        match capture_and_finish(&app, &window, &source_id, &token, true).await {
                             CaptureOutcome::Success => return,
                             CaptureOutcome::Retry => {}
                             CaptureOutcome::Failed => cache_scan_failed = true,
@@ -836,7 +896,7 @@ fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64
                 }
             }
             if template.cookie_host_suffix.is_some() {
-                request_native_cookies(&app, &window, template);
+                request_native_cookies(&app, &window, template, &source_id, &window_label);
             }
             maybe_open_glm_finance(&window, template);
             if let Ok(title) = window.title() {
@@ -845,7 +905,7 @@ fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64
                     || title.starts_with("AIQM_GLM_BALANCE:")
                 {
                     let _ = window.set_title(template.window_title);
-                    request_native_cookies(&app, &window, template);
+                    request_native_cookies(&app, &window, template, &source_id, &window_label);
                     let _ = app.emit(
                         "source-login-status",
                         "已在财务页读到余额，正在读取登录 Cookie…",
@@ -854,7 +914,7 @@ fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64
                     let _ = window.set_title(template.window_title);
                     let allow_blank = template.source_id != deepseek::WEB_SOURCE_ID || is_usage_page(&window);
                     if matches!(
-                        capture_and_finish(&app, &window, template.source_id, &secret, allow_blank).await,
+                        capture_and_finish(&app, &window, &source_id, &secret, allow_blank).await,
                         CaptureOutcome::Success
                     ) {
                         return;
@@ -863,7 +923,7 @@ fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64
             }
             tokio::time::sleep(Duration::from_millis(1500)).await;
         }
-        if current_watcher(template.source_id) == generation {
+        if current_watcher(&source_id) == generation {
             let _ = app.emit("source-login-error", template.timeout_message);
         }
     });
@@ -977,22 +1037,40 @@ fn cookie_query_url(login_url: &str) -> String {
     format!("{}://{host}/", &without_hash[..scheme_end])
 }
 
-fn request_native_cookies(app: &tauri::AppHandle, window: &tauri::WebviewWindow, template: &LoginTemplate) {
+fn request_native_cookies(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    template: &'static LoginTemplate,
+    source_id: &str,
+    window_label: &str,
+) {
     #[cfg(windows)]
     {
-        request_native_cookies_windows(app, window, template);
+        request_native_cookies_windows(
+            app,
+            window,
+            template,
+            source_id.to_string(),
+            window_label.to_string(),
+        );
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, window, template);
+        let _ = (app, window, template, source_id, window_label);
     }
 }
 
 #[cfg(windows)]
-fn request_native_cookies_windows(app: &tauri::AppHandle, window: &tauri::WebviewWindow, template: &LoginTemplate) {
+fn request_native_cookies_windows(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    template: &'static LoginTemplate,
+    source_id: String,
+    window_label: String,
+) {
     let urls = cookie_query_urls(window, template);
     let app_for_webview = app.clone();
-    let source_id = template.source_id;
+    let adapter_id = template.source_id;
     let result = window.with_webview(move |webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
         use windows_core::Interface;
@@ -1010,6 +1088,8 @@ fn request_native_cookies_windows(app: &tauri::AppHandle, window: &tauri::Webvie
         for query_url in &urls {
             let uri = windows_core::HSTRING::from(query_url.as_str());
             let app_for_handler = app_for_webview.clone();
+            let actual_source_id = source_id.clone();
+            let actual_window_label = window_label.clone();
             let handler = webview2_com::GetCookiesCompletedHandler::create(Box::new(
                 move |error_code: windows_core::Result<()>,
                       list: Option<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CookieList>| {
@@ -1035,20 +1115,19 @@ fn request_native_cookies_windows(app: &tauri::AppHandle, window: &tauri::Webvie
                         (!parts.is_empty()).then_some(parts.join("; "))
                     };
                     if let Some(cookie) = parse() {
-                        let Some(item) = template_for(source_id) else {
-                            return Ok(());
-                        };
-                        if cookie_ready(&cookie, item) {
+                        if cookie_ready(&cookie, template) {
                             let app = app_for_handler.clone();
+                            let source_id = actual_source_id.clone();
+                            let window_label = actual_window_label.clone();
                             tauri::async_runtime::spawn(async move {
-                                let Some(window) = app.get_webview_window(
-                                    template_for(source_id).map(|item| item.window_label).unwrap_or_default(),
-                                ) else {
+                                let Some(window) = app.get_webview_window(&window_label) else {
                                     return;
                                 };
-                                let _ = capture_and_finish(&app, &window, source_id, &cookie, true).await;
+                                let _ = capture_and_finish(&app, &window, &source_id, &cookie, true).await;
                             });
-                        } else if source_id == glm::WEB_BALANCE_SOURCE_ID && cookie.split(';').count() >= 3 {
+                        } else if adapter_id == glm::WEB_BALANCE_SOURCE_ID
+                            && cookie.split(';').count() >= 3
+                        {
                             let _ = app_for_handler.emit(
                                 "source-login-status",
                                 format!(
@@ -1151,7 +1230,12 @@ async fn capture_and_finish(
     if !begin_capture(source_id) {
         return CaptureOutcome::Retry;
     }
-    let outcome = if source_id == deepseek::WEB_SOURCE_ID {
+    let is_deepseek = app
+        .state::<Database>()
+        .source(source_id)
+        .ok()
+        .is_some_and(|source| source.adapter_id == deepseek::WEB_SOURCE_ID);
+    let outcome = if is_deepseek {
         store_captured_secret(source_id, secret);
         let _ = bump_watcher(source_id);
         let _ = window.close();
@@ -1194,7 +1278,7 @@ async fn capture(app: &tauri::AppHandle, source_id: &str, secret: &str, allow_bl
     let coordinator = app.state::<RefreshCoordinator>();
     let source = database.source(source_id)?;
     let output = coordinator.validate_secret(&source, secret).await?;
-    if source_id == deepseek::WEB_SOURCE_ID && !allow_blank && usage_is_blank(&output) {
+    if source.adapter_id == deepseek::WEB_SOURCE_ID && !allow_blank && usage_is_blank(&output) {
         return Err("用量会话尚未就绪".into());
     }
     let reference = vault::secret_ref(&source.account_id, &source.id);

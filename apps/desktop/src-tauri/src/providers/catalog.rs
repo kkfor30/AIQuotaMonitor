@@ -206,6 +206,7 @@ pub struct PlatformCatalogItem {
     pub needs_web_login: bool,
     pub needs_local_cli: bool,
     pub added: bool,
+    pub supports_multiple_accounts: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -240,6 +241,7 @@ impl From<&CatalogEntry> for PlatformCatalogItem {
             needs_web_login: entry.needs_web_login,
             needs_local_cli: entry.needs_local_cli,
             added: false,
+            supports_multiple_accounts: false,
         }
     }
 }

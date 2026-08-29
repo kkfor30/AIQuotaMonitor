@@ -69,9 +69,25 @@ pub struct PlatformSummaryViewModel {
     pub api_base_url: Option<String>,
     /// 平台接入方式摘要，例如「API Key + 网页会话」
     pub access_summary: String,
+    pub supports_multiple_accounts: bool,
+    pub accounts: Vec<AccountSummaryViewModel>,
     pub sources: Vec<SourceSummaryViewModel>,
     pub capabilities: Vec<CapabilitySnapshotViewModel>,
     pub refresh_history: Vec<RefreshHistoryEntryViewModel>,
+}
+
+/// 脱敏账号摘要。凭据仍只属于 Source，不进入此结构。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSummaryViewModel {
+    pub account_id: String,
+    pub display_name: String,
+    /// local | default | additional
+    pub kind: String,
+    pub status: PlatformAggregateStatus,
+    pub source_ids: Vec<String>,
+    pub can_rename: bool,
+    pub can_remove: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,6 +105,11 @@ pub struct CredentialInputViewModel {
 #[serde(rename_all = "camelCase")]
 pub struct SourceSummaryViewModel {
     pub source_id: String,
+    pub adapter_id: String,
+    pub account_id: String,
+    pub account_name: String,
+    /// local | default | additional
+    pub account_kind: String,
     pub source_type: SourceType,
     pub display_name: String,
     pub state: SourceState,
@@ -114,6 +135,8 @@ pub struct RefreshHistoryEntryViewModel {
     pub id: String,
     pub source_id: String,
     pub source_name: String,
+    pub account_id: String,
+    pub account_name: String,
     /// running | success | partial | failed
     pub status: String,
     pub finished_at: Option<u64>,
@@ -148,6 +171,7 @@ pub struct TrendPoint {
 pub struct CapabilitySnapshotViewModel {
     pub capability_id: String,
     pub source_id: String,
+    pub account_id: String,
     pub display_name: String,
     pub freshness: DataFreshness,
     /// epoch 毫秒

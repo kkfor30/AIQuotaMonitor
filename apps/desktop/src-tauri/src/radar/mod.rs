@@ -15,7 +15,7 @@ use std::error::Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const FEED_URL: &str = "https://codexradar.com/";
-pub const PROMPT_VERSION: &str = "radar-v3";
+pub const PROMPT_VERSION: &str = "radar-v4";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” 等措辞，视为即将重置的强信号，把握度应偏高，即使没有给出确切时间。\n已落地的历史重置只作背景，不能当成否定新一轮重置的证据。\n没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
 
@@ -67,6 +67,7 @@ pub struct RadarAnalysisView {
     pub source_id: Option<String>,
     pub model: Option<String>,
     pub conclusion: Option<String>,
+    pub analysis_basis: Option<String>,
     pub confidence: Option<String>,
     pub citations: Vec<String>,
     pub support: Vec<String>,
@@ -231,7 +232,7 @@ pub async fn translate_post(
     if translated.is_empty() {
         return Err("模型未返回可用的翻译".into());
     }
-    let source_label = chat_target(&target.source_id)
+    let source_label = chat_target(&target.adapter_id)
         .map(|(display, _)| format!("{display} · {}", target.model))
         .unwrap_or_else(|| target.model.clone());
     database.update_tibo_translation(post_id, &translated, epoch_ms(), &source_label)?;
@@ -241,6 +242,7 @@ pub async fn translate_post(
 /// 可用对话模型解析：优先用户指定来源，否则取第一个已就绪的 API Key 来源。
 struct ChatTarget {
     source_id: String,
+    adapter_id: String,
     model: String,
     secret: String,
     api_base: Option<String>,
@@ -267,14 +269,15 @@ fn resolve_chat_target(
         .ok_or_else(|| "所选模型没有可用凭据".to_string())?;
     let model = model
         .map(str::to_string)
-        .or_else(|| chat_target(&source_id).map(|(_, model)| model.to_string()))
+        .or_else(|| chat_target(&source.adapter_id).map(|(_, model)| model.to_string()))
         .ok_or_else(|| "该来源不支持对话分析".to_string())?;
     let api_base = database.user_platform(&source.platform_id)?.and_then(|item| item.api_base_url);
-    if chat_endpoint_candidates(&source_id, api_base.as_deref()).is_empty() {
+    if chat_endpoint_candidates(&source.adapter_id, api_base.as_deref()).is_empty() {
         return Err("该来源没有对话接口".into());
     }
     Ok(ChatTarget {
         source_id,
+        adapter_id: source.adapter_id,
         model,
         secret,
         api_base,
@@ -452,6 +455,7 @@ fn analysis_view(record: RadarAnalysisRecord) -> RadarAnalysisView {
         source_id: record.source_id,
         model: record.model,
         conclusion: record.conclusion,
+        analysis_basis: record.analysis_basis,
         confidence: record.confidence,
         citations: json_list(&record.citations_json),
         support: json_list(&record.support_json),
@@ -472,7 +476,7 @@ fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
             if source.source_type != "api_key" {
                 continue;
             }
-            let Some((display, model)) = chat_target(&source.id) else {
+            let Some((display, model)) = chat_target(&source.adapter_id) else {
                 continue;
             };
             let ready = source
@@ -484,7 +488,11 @@ fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
             options.push(RadarModelOption {
                 source_id: source.id,
                 platform_id: platform.platform_id.clone(),
-                display_name: display.into(),
+                display_name: if source.account_kind == "additional" {
+                    format!("{display} · {}", source.account_name)
+                } else {
+                    display.into()
+                },
                 model: model.into(),
                 ready,
             });
@@ -639,6 +647,7 @@ async fn run_analysis_inner(
         prompt_version: PROMPT_VERSION.into(),
         input_hash,
         conclusion: parsed.conclusion,
+        analysis_basis: parsed.analysis_basis,
         confidence: parsed.confidence,
         citations_json: serde_json::to_string(&parsed.citations).unwrap_or_else(|_| "[]".into()),
         support_json: serde_json::to_string(&parsed.support).unwrap_or_else(|_| "[]".into()),
@@ -650,8 +659,10 @@ async fn run_analysis_inner(
 
 const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "You analyze public Tibo/Codex reset-related posts in the selected time window. ",
-    "Reply with JSON only: {\"conclusion\":\"\",\"confidence\":\"low|medium|high\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
-    "Write conclusion in Simplified Chinese. ",
+    "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
+    "Write conclusion and analysis_basis in Simplified Chinese. ",
+    "conclusion must be a direct decision of at most 40 Chinese characters, without markdown, evidence, or repeated reasoning. ",
+    "analysis_basis must contain the reasoning separately in 1 to 3 concise sentences and must not repeat the conclusion verbatim. ",
     "Apply the user's semantic hints when judging upcoming-reset signals and confidence. ",
     "If no user hints are provided, read the posts ordinarily without inventing extra rules. ",
     "This output is speculation, not an official conclusion. ",
@@ -677,6 +688,7 @@ fn persist_failed_analysis(
         prompt_version: PROMPT_VERSION.into(),
         input_hash: String::new(),
         conclusion: None,
+        analysis_basis: None,
         confidence: None,
         citations_json: "[]".into(),
         support_json: "[]".into(),
@@ -692,13 +704,13 @@ struct ChatRequestError {
 }
 
 async fn send_chat(client: &Client, target: &ChatTarget, body: &Value) -> Result<String, String> {
-    let candidates = chat_endpoint_candidates(&target.source_id, target.api_base.as_deref());
+    let candidates = chat_endpoint_candidates(&target.adapter_id, target.api_base.as_deref());
     if candidates.is_empty() {
         return Err("该来源没有对话接口".into());
     }
     let mut last_error = "对话请求失败".to_string();
     for (url, default_bearer) in &candidates {
-        let styles: Vec<bool> = if glm_source(&target.source_id) {
+        let styles: Vec<bool> = if glm_source(&target.adapter_id) {
             vec![true, false]
         } else {
             vec![*default_bearer]
@@ -874,6 +886,7 @@ pub(crate) fn sanitize_user_prompt(raw: &str) -> String {
 
 struct ModelJson {
     conclusion: Option<String>,
+    analysis_basis: Option<String>,
     confidence: Option<String>,
     citations: Vec<String>,
     support: Vec<String>,
@@ -897,6 +910,10 @@ fn parse_model_json(body: &str) -> Result<ModelJson, String> {
         serde_json::from_str(trimmed).map_err(|_| "模型未返回可解析的分析 JSON".to_string())?;
     Ok(ModelJson {
         conclusion: parsed.get("conclusion").and_then(Value::as_str).map(str::to_string),
+        analysis_basis: parsed
+            .get("analysis_basis")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         confidence: parsed.get("confidence").and_then(Value::as_str).map(str::to_string),
         citations: string_list(&parsed, "citations"),
         support: string_list(&parsed, "support"),

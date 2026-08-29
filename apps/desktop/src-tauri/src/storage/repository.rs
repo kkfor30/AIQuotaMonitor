@@ -22,7 +22,10 @@ pub struct UserPlatformRecord {
 pub struct SourceRecord {
     pub id: String,
     pub account_id: String,
+    pub account_name: String,
+    pub account_kind: String,
     pub platform_id: String,
+    pub adapter_id: String,
     pub source_type: String,
     pub display_name: String,
     pub secret_ref: Option<String>,
@@ -31,6 +34,14 @@ pub struct SourceRecord {
     pub last_success_at: Option<i64>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountRecord {
+    pub id: String,
+    pub platform_id: String,
+    pub display_name: String,
+    pub kind: String,
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +103,7 @@ pub struct RadarAnalysisRecord {
     pub prompt_version: String,
     pub input_hash: String,
     pub conclusion: Option<String>,
+    pub analysis_basis: Option<String>,
     pub confidence: Option<String>,
     pub citations_json: String,
     pub support_json: String,
@@ -105,6 +117,8 @@ pub struct RefreshHistoryRecord {
     pub id: String,
     pub source_id: String,
     pub source_name: String,
+    pub account_id: String,
+    pub account_name: String,
     pub status: String,
     pub finished_at: Option<i64>,
     pub error_message: Option<String>,
@@ -169,21 +183,76 @@ impl Database {
         source_name: &str,
         account_name: &str,
     ) -> Result<(), String> {
+        self.ensure_account_source_with_adapter(
+            account_id,
+            platform_id,
+            "default",
+            source_id,
+            source_id,
+            source_type,
+            source_name,
+            account_name,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn ensure_account_source_with_adapter(
+        &self,
+        account_id: &str,
+        platform_id: &str,
+        account_kind: &str,
+        source_id: &str,
+        adapter_id: &str,
+        source_type: &str,
+        source_name: &str,
+        account_name: &str,
+    ) -> Result<(), String> {
         let connection = self.connect()?;
         let now = epoch_ms();
         connection
             .execute(
-                "INSERT OR IGNORE INTO accounts(id, platform_id, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
-                params![account_id, platform_id, account_name, now],
+                "INSERT OR IGNORE INTO accounts(id, platform_id, display_name, kind, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                params![account_id, platform_id, account_name, account_kind, now],
             )
             .map_err(|err| format!("初始化账户失败: {err}"))?;
         connection
             .execute(
-                "INSERT OR IGNORE INTO sources(id, account_id, source_type, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-                params![source_id, account_id, source_type, source_name, now],
+                "INSERT OR IGNORE INTO sources(id, account_id, adapter_id, source_type, display_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                params![source_id, account_id, adapter_id, source_type, source_name, now],
             )
             .map_err(|err| format!("初始化来源失败: {err}"))?;
         Ok(())
+    }
+
+    pub fn account(&self, account_id: &str) -> Result<AccountRecord, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT id, platform_id, display_name, kind FROM accounts WHERE id = ?1",
+                params![account_id],
+                |row| {
+                    Ok(AccountRecord {
+                        id: row.get(0)?,
+                        platform_id: row.get(1)?,
+                        display_name: row.get(2)?,
+                        kind: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|err| format!("读取账户失败: {err}"))?
+            .ok_or_else(|| "未找到账户".to_string())
+    }
+
+    pub fn rename_account(&self, account_id: &str, display_name: &str) -> Result<(), String> {
+        let connection = self.connect()?;
+        let changed = connection
+            .execute(
+                "UPDATE accounts SET display_name = ?2, updated_at = ?3 WHERE id = ?1",
+                params![account_id, display_name, epoch_ms()],
+            )
+            .map_err(|err| format!("重命名账户失败: {err}"))?;
+        if changed == 0 { Err("未找到该账户".into()) } else { Ok(()) }
     }
 
     pub fn rename_source(&self, source_id: &str, display_name: &str) -> Result<(), String> {
@@ -209,8 +278,8 @@ impl Database {
     }
 
     pub fn delete_account(&self, account_id: &str) -> Result<(), String> {
-        if matches!(account_id, "openai-codex-local" | "deepseek-default") {
-            return Err("不能删除默认账户".into());
+        if self.account(account_id)?.kind != "additional" {
+            return Err("不能删除本机或默认账户".into());
         }
         let connection = self.connect()?;
         let changed = connection
@@ -362,9 +431,10 @@ impl Database {
         let connection = self.connect()?;
         let mut statement = connection
             .prepare(
-                "SELECT s.id, s.account_id, a.platform_id, s.source_type, s.display_name, s.secret_ref, s.state, s.last_validated_at, s.last_success_at, s.error_code, s.error_message
+                "SELECT s.id, s.account_id, a.display_name, a.kind, a.platform_id, COALESCE(s.adapter_id, s.id), s.source_type, s.display_name, s.secret_ref, s.state, s.last_validated_at, s.last_success_at, s.error_code, s.error_message
                  FROM sources s JOIN accounts a ON a.id = s.account_id
-                 WHERE a.platform_id = ?1 ORDER BY s.created_at, s.id",
+                 WHERE a.platform_id = ?1
+                 ORDER BY CASE a.kind WHEN 'local' THEN 0 WHEN 'default' THEN 1 ELSE 2 END, a.created_at, s.created_at, s.id",
             )
             .map_err(|err| format!("准备 Source 查询失败: {err}"))?;
         let rows = statement
@@ -378,7 +448,7 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT s.id, s.account_id, a.platform_id, s.source_type, s.display_name, s.secret_ref, s.state, s.last_validated_at, s.last_success_at, s.error_code, s.error_message
+                "SELECT s.id, s.account_id, a.display_name, a.kind, a.platform_id, COALESCE(s.adapter_id, s.id), s.source_type, s.display_name, s.secret_ref, s.state, s.last_validated_at, s.last_success_at, s.error_code, s.error_message
                  FROM sources s JOIN accounts a ON a.id = s.account_id WHERE s.id = ?1",
                 params![source_id],
                 map_source,
@@ -638,16 +708,17 @@ impl Database {
         let connection = self.connect()?;
         let mut statement = connection
             .prepare(
-                "SELECT rr.run_id || ':' || rr.source_id, rr.source_id, s.display_name, rr.status, rr.finished_at, rr.error_message
-                 FROM refresh_results rr JOIN refresh_runs r ON r.id = rr.run_id JOIN sources s ON s.id = rr.source_id
+                "SELECT rr.run_id || ':' || rr.source_id, rr.source_id, s.display_name, a.id, a.display_name, rr.status, rr.finished_at, rr.error_message
+                 FROM refresh_results rr JOIN refresh_runs r ON r.id = rr.run_id JOIN sources s ON s.id = rr.source_id JOIN accounts a ON a.id = s.account_id
                  WHERE r.platform_id = ?1 ORDER BY rr.started_at DESC, rr.id DESC LIMIT ?2",
             )
             .map_err(|err| format!("准备刷新历史查询失败: {err}"))?;
         let rows = statement
             .query_map(params![platform_id, limit as i64], |row| {
                 Ok(RefreshHistoryRecord {
-                    id: row.get(0)?, source_id: row.get(1)?, source_name: row.get(2)?, status: row.get(3)?,
-                    finished_at: row.get(4)?, error_message: row.get(5)?,
+                    id: row.get(0)?, source_id: row.get(1)?, source_name: row.get(2)?,
+                    account_id: row.get(3)?, account_name: row.get(4)?, status: row.get(5)?,
+                    finished_at: row.get(6)?, error_message: row.get(7)?,
                 })
             })
             .map_err(|err| format!("查询刷新历史失败: {err}"))?;
@@ -824,7 +895,7 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, confidence, citations_json, support_json, against_json, uncertainty_json, error_message
+                "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message
                  FROM radar_analyses ORDER BY created_at DESC LIMIT 1",
                 [],
                 map_radar_analysis,
@@ -837,12 +908,12 @@ impl Database {
         let connection = self.connect()?;
         connection
             .execute(
-                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, confidence, citations_json, support_json, against_json, uncertainty_json, error_message)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
                 params![
                     analysis.id, analysis.created_at, analysis.range_key, analysis.cut_post_id,
                     analysis.from_posted_at, analysis.to_posted_at, analysis.source_id, analysis.model,
-                    analysis.prompt_version, analysis.input_hash, analysis.conclusion, analysis.confidence,
+                    analysis.prompt_version, analysis.input_hash, analysis.conclusion, analysis.analysis_basis, analysis.confidence,
                     analysis.citations_json, analysis.support_json, analysis.against_json,
                     analysis.uncertainty_json, analysis.error_message
                 ],
@@ -887,20 +958,22 @@ fn map_radar_analysis(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarAnalysis
         prompt_version: row.get(8)?,
         input_hash: row.get(9)?,
         conclusion: row.get(10)?,
-        confidence: row.get(11)?,
-        citations_json: row.get(12)?,
-        support_json: row.get(13)?,
-        against_json: row.get(14)?,
-        uncertainty_json: row.get(15)?,
-        error_message: row.get(16)?,
+        analysis_basis: row.get(11)?,
+        confidence: row.get(12)?,
+        citations_json: row.get(13)?,
+        support_json: row.get(14)?,
+        against_json: row.get(15)?,
+        uncertainty_json: row.get(16)?,
+        error_message: row.get(17)?,
     })
 }
 
 fn map_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceRecord> {
     Ok(SourceRecord {
-        id: row.get(0)?, account_id: row.get(1)?, platform_id: row.get(2)?, source_type: row.get(3)?,
-        display_name: row.get(4)?, secret_ref: row.get(5)?, state: row.get(6)?,
-        last_validated_at: row.get(7)?, last_success_at: row.get(8)?, error_code: row.get(9)?, error_message: row.get(10)?,
+        id: row.get(0)?, account_id: row.get(1)?, account_name: row.get(2)?, account_kind: row.get(3)?,
+        platform_id: row.get(4)?, adapter_id: row.get(5)?, source_type: row.get(6)?,
+        display_name: row.get(7)?, secret_ref: row.get(8)?, state: row.get(9)?,
+        last_validated_at: row.get(10)?, last_success_at: row.get(11)?, error_code: row.get(12)?, error_message: row.get(13)?,
     })
 }
 

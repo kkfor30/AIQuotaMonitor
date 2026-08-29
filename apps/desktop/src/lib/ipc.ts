@@ -28,6 +28,27 @@ export async function addUserPlatforms(platformIds: string[]): Promise<PlatformS
   return invoke<PlatformSummaryViewModel[]>("add_user_platforms", { platformIds });
 }
 
+export type AddPlatformAccountResult = {
+  platforms: PlatformSummaryViewModel[];
+  accountId: string;
+  sourceIds: string[];
+};
+
+export async function addPlatformAccount(platformId: string): Promise<AddPlatformAccountResult> {
+  return invoke<AddPlatformAccountResult>("add_platform_account", { platformId });
+}
+
+export async function renamePlatformAccount(
+  accountId: string,
+  displayName: string,
+): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("rename_platform_account", { accountId, displayName });
+}
+
+export async function removePlatformAccount(accountId: string): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("remove_platform_account", { accountId });
+}
+
 export async function removeUserPlatform(platformId: string): Promise<PlatformSummaryViewModel[]> {
   return invoke<PlatformSummaryViewModel[]>("remove_user_platform", { platformId });
 }
@@ -215,6 +236,7 @@ export type RadarAnalysis = {
   sourceId: string | null;
   model: string | null;
   conclusion: string | null;
+  analysisBasis: string | null;
   confidence: string | null;
   citations: string[];
   support: string[];

@@ -18,6 +18,8 @@ export type SourceAccessMode =
   | "web_usage"
   | "local_cli";
 
+export type AccountKind = "local" | "default" | "additional";
+
 export type CredentialInput = {
   label: string;
   placeholder: string;
@@ -29,6 +31,8 @@ export type RefreshHistoryEntry = {
   id: string;
   sourceId: string;
   sourceName: string;
+  accountId: string;
+  accountName: string;
   status: "running" | "success" | "partial" | "failed";
   /** epoch 毫秒；进行中的记录尚未结束。 */
   finishedAt: number | null;
@@ -48,6 +52,10 @@ export type LegacyImportResult = {
 
 export interface SourceSummaryViewModel {
   sourceId: string;
+  adapterId: string;
+  accountId: string;
+  accountName: string;
+  accountKind: AccountKind;
   sourceType: SourceType;
   displayName: string;
   state: SourceState;
@@ -82,6 +90,7 @@ export interface TrendPoint {
 export interface CapabilitySnapshotViewModel {
   capabilityId: string;
   sourceId: string;
+  accountId: string;
   displayName: string;
   freshness: DataFreshness;
   /** epoch 毫秒 */
@@ -103,6 +112,17 @@ export interface PlatformCatalogItem {
   needsWebLogin: boolean;
   needsLocalCli: boolean;
   added: boolean;
+  supportsMultipleAccounts: boolean;
+}
+
+export interface AccountSummaryViewModel {
+  accountId: string;
+  displayName: string;
+  kind: AccountKind;
+  status: PlatformAggregateStatus;
+  sourceIds: string[];
+  canRename: boolean;
+  canRemove: boolean;
 }
 
 export interface PlatformSetupViewModel {
@@ -127,6 +147,8 @@ export interface PlatformSummaryViewModel {
   displayName: string;
   aggregateStatus: PlatformAggregateStatus;
   accessSummary: string;
+  supportsMultipleAccounts: boolean;
+  accounts: AccountSummaryViewModel[];
   /** 阶段一预览对象可能缺失；真实后端始终返回。 */
   officialUrl?: string | null;
   apiBaseUrl?: string | null;

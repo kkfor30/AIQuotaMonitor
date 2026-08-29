@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 4;
+const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -110,6 +110,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 4 {
         migrate_v4(&transaction)?;
+    }
+    if previous_version < 5 {
+        migrate_v5(&transaction)?;
     }
     transaction
         .commit()
@@ -323,6 +326,29 @@ fn migrate_v4(transaction: &Transaction<'_>) -> Result<(), String> {
         .map_err(|err| format!("执行 SQLite v4 迁移失败: {err}"))
 }
 
+fn migrate_v5(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            ALTER TABLE accounts ADD COLUMN kind TEXT NOT NULL DEFAULT 'default';
+            ALTER TABLE sources ADD COLUMN adapter_id TEXT;
+            ALTER TABLE radar_analyses ADD COLUMN analysis_basis TEXT;
+
+            UPDATE sources SET adapter_id = id WHERE adapter_id IS NULL;
+            UPDATE accounts SET kind = 'local'
+            WHERE id IN ('openai-codex-local', 'claude-code-default');
+            UPDATE accounts SET kind = 'additional'
+            WHERE id LIKE 'openai-codex-extra-%';
+            UPDATE sources SET adapter_id = 'openai-codex-local'
+            WHERE id LIKE 'openai-codex-extra-%';
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (5, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v5 迁移失败: {err}"))
+}
+
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {
     let now = epoch_ms();
     let transaction = connection
@@ -330,32 +356,32 @@ fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {
         .map_err(|err| format!("开始初始化平台模板失败: {err}"))?;
     transaction
         .execute(
-            "INSERT OR IGNORE INTO accounts(id, platform_id, display_name, created_at, updated_at) VALUES (?1, 'deepseek', '默认账户', ?2, ?2)",
+            "INSERT OR IGNORE INTO accounts(id, platform_id, display_name, kind, created_at, updated_at) VALUES (?1, 'deepseek', '默认账户', 'default', ?2, ?2)",
             params!["deepseek-default", now],
         )
         .map_err(|err| format!("初始化 DeepSeek 账户失败: {err}"))?;
     transaction
         .execute(
-            "INSERT OR IGNORE INTO sources(id, account_id, source_type, display_name, created_at, updated_at) VALUES (?1, 'deepseek-default', 'api_key', 'API 余额', ?2, ?2)",
+            "INSERT OR IGNORE INTO sources(id, account_id, adapter_id, source_type, display_name, created_at, updated_at) VALUES (?1, 'deepseek-default', ?1, 'api_key', 'API 余额', ?2, ?2)",
             params!["deepseek-balance-api", now],
         )
         .map_err(|err| format!("初始化 DeepSeek 余额来源失败: {err}"))?;
     transaction
         .execute(
-            "INSERT OR IGNORE INTO sources(id, account_id, source_type, display_name, created_at, updated_at) VALUES (?1, 'deepseek-default', 'web_session', '网页用量与缓存', ?2, ?2)",
+            "INSERT OR IGNORE INTO sources(id, account_id, adapter_id, source_type, display_name, created_at, updated_at) VALUES (?1, 'deepseek-default', ?1, 'web_session', '网页用量与缓存', ?2, ?2)",
             params!["deepseek-web-session", now],
         )
         .map_err(|err| format!("初始化 DeepSeek 网页来源失败: {err}"))?;
 
     transaction
         .execute(
-            "INSERT OR IGNORE INTO accounts(id, platform_id, display_name, created_at, updated_at) VALUES (?1, 'openai', '本地 Codex 账户', ?2, ?2)",
+            "INSERT OR IGNORE INTO accounts(id, platform_id, display_name, kind, created_at, updated_at) VALUES (?1, 'openai', '本地 Codex 账户', 'local', ?2, ?2)",
             params!["openai-codex-local", now],
         )
         .map_err(|err| format!("初始化 GPT/Codex 账户失败: {err}"))?;
     transaction
         .execute(
-            "INSERT OR IGNORE INTO sources(id, account_id, source_type, display_name, created_at, updated_at) VALUES (?1, 'openai-codex-local', 'local_cli', '本地 Codex 订阅', ?2, ?2)",
+            "INSERT OR IGNORE INTO sources(id, account_id, adapter_id, source_type, display_name, created_at, updated_at) VALUES (?1, 'openai-codex-local', ?1, 'local_cli', '本地 Codex 订阅', ?2, ?2)",
             params!["openai-codex-local", now],
         )
         .map_err(|err| format!("初始化 GPT/Codex 来源失败: {err}"))?;

@@ -63,7 +63,7 @@ impl RefreshCoordinator {
             let api_base_url = database
                 .user_platform(&source.platform_id)?
                 .and_then(|platform| platform.api_base_url);
-            let extra_home = extra_codex_home(database, &source.id);
+            let extra_home = extra_codex_home(database, &source);
             tasks.spawn(async move {
                 let output = fetch_source(
                     &client,
@@ -132,10 +132,10 @@ impl RefreshCoordinator {
     }
 
     fn source_secret(&self, database: &Database, source: &SourceRecord) -> Option<Option<String>> {
-        if source.id == codex::SOURCE_ID {
+        if source.adapter_id == codex::SOURCE_ID && source.account_kind == "local" {
             return codex::local_auth_available().then_some(None);
         }
-        if let Some(home) = extra_codex_home(database, &source.id) {
+        if let Some(home) = extra_codex_home(database, source) {
             return codex::auth_available_at(Some(&home)).then_some(None);
         }
         source
@@ -146,9 +146,10 @@ impl RefreshCoordinator {
     }
 }
 
-fn extra_codex_home(database: &Database, source_id: &str) -> Option<std::path::PathBuf> {
+fn extra_codex_home(database: &Database, source: &SourceRecord) -> Option<std::path::PathBuf> {
     let data_dir = database.path().parent()?;
-    codex::is_extra_source(source_id).then(|| codex::extra_source_home(data_dir, source_id))
+    (source.adapter_id == codex::SOURCE_ID && source.account_kind == "additional")
+        .then(|| codex::extra_source_home(data_dir, &source.id))
 }
 
 async fn fetch_source(
@@ -158,7 +159,7 @@ async fn fetch_source(
     api_base_url: Option<&str>,
     extra_home: Option<&std::path::Path>,
 ) -> SourceRefreshOutput {
-    match source.id.as_str() {
+    match source.adapter_id.as_str() {
         deepseek::BALANCE_SOURCE_ID => match secret {
             Some(secret) => deepseek::balance::fetch(client, secret, api_base_url).await,
             None => missing_secret("DeepSeek API Key 未配置"),
@@ -167,8 +168,8 @@ async fn fetch_source(
             Some(secret) => deepseek::web_usage::fetch_current_month(client, secret).await,
             None => missing_secret("DeepSeek 网页会话未配置"),
         },
-        id if id == codex::SOURCE_ID => codex::fetch(client).await,
-        id if codex::is_extra_source(id) => codex::fetch_at(client, extra_home).await,
+        id if id == codex::SOURCE_ID && source.account_kind == "local" => codex::fetch(client).await,
+        id if id == codex::SOURCE_ID && source.account_kind == "additional" => codex::fetch_at(client, extra_home).await,
         id if coding_plan::is_coding_plan_source(id) => match secret {
             Some(secret) => coding_plan::fetch(client, id, secret, api_base_url).await,
             None => missing_secret("API Key 未配置"),

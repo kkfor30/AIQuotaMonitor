@@ -55,6 +55,31 @@ pub fn add_user_platforms(
     providers::add_platforms(&database, &platform_ids)
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddPlatformAccountResult {
+    pub platforms: Vec<PlatformSummaryViewModel>,
+    pub account_id: String,
+    pub source_ids: Vec<String>,
+}
+
+#[tauri::command]
+pub fn add_platform_account(
+    platform_id: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<AddPlatformAccountResult, String> {
+    require_label(&window, &["main"])?;
+    let (account_id, source_ids) = providers::create_additional_account(&database, &platform_id)?;
+    let _ = app.emit("platform-data-changed", ());
+    Ok(AddPlatformAccountResult {
+        platforms: providers::platform_summaries(&database)?,
+        account_id,
+        source_ids,
+    })
+}
+
 #[tauri::command]
 pub fn remove_user_platform(
     platform_id: String,
@@ -68,8 +93,8 @@ pub fn remove_user_platform(
     }
     let sources = database.list_sources(&platform_id)?;
     for source in &sources {
-        if crate::providers::codex::is_extra_source(&source.id) {
-            if let Some(home) = extra_codex_home(&database, &source.id) {
+        if source.adapter_id == crate::providers::codex::SOURCE_ID && source.account_kind == "additional" {
+            if let Some(home) = extra_codex_home(&database, source) {
                 let _ = crate::providers::codex::logout_cli_at(Some(&home));
                 let _ = std::fs::remove_dir_all(home);
             }
@@ -82,8 +107,8 @@ pub fn remove_user_platform(
             .clone()
             .unwrap_or_else(|| vault::secret_ref(&source.account_id, &source.id));
         let _ = vault::delete(&reference);
-        if crate::windows::source_login::is_web_login_source(&source.id) {
-            crate::windows::source_login::clear_session(&app, &source.id)?;
+        if crate::windows::source_login::is_web_login_source(&source.adapter_id) {
+            crate::windows::source_login::clear_session(&app, &source.id, &source.adapter_id)?;
         }
     }
     providers::platform_summaries(&database)
@@ -97,7 +122,7 @@ pub fn reveal_source_secret(
 ) -> Result<String, String> {
     require_label(&window, &["main"])?;
     let source = database.source(&source_id)?;
-    if source.source_type == "local_cli" || crate::providers::codex::is_codex_source(&source.id) {
+    if source.source_type == "local_cli" || source.adapter_id == crate::providers::codex::SOURCE_ID {
         return Err("此来源没有可查看的密钥".into());
     }
     let reference = source
@@ -286,7 +311,7 @@ pub async fn save_source_credential(
         .await?;
     persist_secret(&database, &coordinator, &source, secret.trim(), &output)?;
     if source.source_type == "api_key"
-        && source.id != crate::providers::kimi::BALANCE_SOURCE_ID
+        && source.adapter_id != crate::providers::kimi::BALANCE_SOURCE_ID
     {
         if let Some(api_base_url) = api_base_url.as_deref() {
             database.save_user_platform_api_base(&source.platform_id, Some(api_base_url))?;
@@ -306,13 +331,13 @@ pub async fn clear_source_credential(
         .secret_ref
         .clone()
         .unwrap_or_else(|| vault::secret_ref(&source.account_id, &source.id));
-    if source.id == crate::providers::codex::SOURCE_ID {
+    if source.adapter_id == crate::providers::codex::SOURCE_ID && source.account_kind == "local" {
         crate::providers::codex::logout_cli()?;
         database.clear_secret_ref(&source.id)?;
         return providers::platform_summaries(&database);
     }
-    if crate::providers::codex::is_extra_source(&source.id) {
-        if let Some(home) = extra_codex_home(&database, &source.id) {
+    if source.adapter_id == crate::providers::codex::SOURCE_ID && source.account_kind == "additional" {
+        if let Some(home) = extra_codex_home(&database, &source) {
             crate::providers::codex::logout_cli_at(Some(&home))?;
         }
         database.clear_secret_ref(&source.id)?;
@@ -326,8 +351,8 @@ pub async fn clear_source_credential(
         }
         return Err(error);
     }
-    if crate::windows::source_login::is_web_login_source(&source.id) {
-        crate::windows::source_login::clear_session(&app, &source.id)?;
+    if crate::windows::source_login::is_web_login_source(&source.adapter_id) {
+        crate::windows::source_login::clear_session(&app, &source.id, &source.adapter_id)?;
     }
     providers::platform_summaries(&database)
 }
@@ -342,13 +367,14 @@ pub async fn start_source_login(
     if window.label() != "main" {
         return Err("仅主窗口可以打开来源登录".into());
     }
-    match source_id.as_str() {
+    let source = database.source(&source_id)?;
+    match source.adapter_id.as_str() {
         id if crate::windows::source_login::is_web_login_source(id) => {
-            crate::windows::source_login::open(&app, id).await
+            crate::windows::source_login::open(&app, &source.id, id).await
         }
-        id if id == crate::providers::codex::SOURCE_ID => crate::providers::codex::login_cli().await,
-        id if crate::providers::codex::is_extra_source(id) => {
-            let home = extra_codex_home(&database, id).ok_or_else(|| "无法定位额外账号目录".to_string())?;
+        id if id == crate::providers::codex::SOURCE_ID && source.account_kind == "local" => crate::providers::codex::login_cli().await,
+        id if id == crate::providers::codex::SOURCE_ID && source.account_kind == "additional" => {
+            let home = extra_codex_home(&database, &source).ok_or_else(|| "无法定位额外账号目录".to_string())?;
             crate::providers::codex::login_cli_at(Some(&home)).await
         }
         _ => Err("此来源不支持登录".into()),
@@ -363,22 +389,7 @@ pub fn add_codex_account(
     if database.user_platform("openai")?.is_none() {
         return Err("请先添加 GPT / Codex 平台".into());
     }
-    let extras = database
-        .list_sources("openai")?
-        .into_iter()
-        .filter(|source| crate::providers::codex::is_extra_source(&source.id))
-        .count();
-    let id = format!(
-        "{}{}-{}",
-        crate::providers::codex::EXTRA_SOURCE_PREFIX,
-        extras + 1,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    );
-    let label = format!("额外 ChatGPT 账号 {}", extras + 1);
-    database.ensure_account_source(&id, "openai", &id, "oauth", &label, &label)?;
+    let _ = providers::create_additional_account(&database, "openai")?;
     let _ = app.emit("platform-data-changed", ());
     providers::platform_summaries(&database)
 }
@@ -392,12 +403,12 @@ pub fn rename_codex_account(
     database: State<'_, Database>,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     require_label(&window, &["main"])?;
-    if !crate::providers::codex::is_extra_source(&source_id) {
+    let source = database.source(&source_id)?;
+    if source.adapter_id != crate::providers::codex::SOURCE_ID || source.account_kind != "additional" {
         return Err("只能重命名额外 ChatGPT 账号".into());
     }
     let name = normalize_extra_account_name(&display_name)?;
-    database.source(&source_id)?;
-    database.rename_source(&source_id, &name)?;
+    database.rename_account(&source.account_id, &name)?;
     let _ = app.emit("platform-data-changed", ());
     providers::platform_summaries(&database)
 }
@@ -408,11 +419,11 @@ pub fn remove_codex_account(
     database: State<'_, Database>,
     app: AppHandle,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
-    if !crate::providers::codex::is_extra_source(&source_id) {
+    let source = database.source(&source_id)?;
+    if source.adapter_id != crate::providers::codex::SOURCE_ID || source.account_kind != "additional" {
         return Err("只能移除额外 ChatGPT 账号".into());
     }
-    let source = database.source(&source_id)?;
-    if let Some(home) = extra_codex_home(&database, &source_id) {
+    if let Some(home) = extra_codex_home(&database, &source) {
         let _ = crate::providers::codex::logout_cli_at(Some(&home));
         let _ = std::fs::remove_dir_all(home);
     }
@@ -435,10 +446,65 @@ fn normalize_extra_account_name(display_name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-fn extra_codex_home(database: &Database, source_id: &str) -> Option<std::path::PathBuf> {
+fn extra_codex_home(database: &Database, source: &SourceRecord) -> Option<std::path::PathBuf> {
     let data_dir = database.path().parent()?;
-    crate::providers::codex::is_extra_source(source_id)
-        .then(|| crate::providers::codex::extra_source_home(data_dir, source_id))
+    (source.adapter_id == crate::providers::codex::SOURCE_ID && source.account_kind == "additional")
+        .then(|| crate::providers::codex::extra_source_home(data_dir, &source.id))
+}
+
+#[tauri::command]
+pub fn rename_platform_account(
+    account_id: String,
+    display_name: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    require_label(&window, &["main"])?;
+    let account = database.account(&account_id)?;
+    if account.kind != "additional" {
+        return Err("只能重命名额外账号".into());
+    }
+    let name = normalize_extra_account_name(&display_name)?;
+    database.rename_account(&account.id, &name)?;
+    let _ = app.emit("platform-data-changed", ());
+    providers::platform_summaries(&database)
+}
+
+#[tauri::command]
+pub fn remove_platform_account(
+    account_id: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    require_label(&window, &["main"])?;
+    let account = database.account(&account_id)?;
+    if account.kind != "additional" {
+        return Err("只能移除额外账号".into());
+    }
+    let sources = database
+        .list_sources(&account.platform_id)?
+        .into_iter()
+        .filter(|source| source.account_id == account.id)
+        .collect::<Vec<_>>();
+    for source in &sources {
+        if let Some(home) = extra_codex_home(&database, source) {
+            let _ = crate::providers::codex::logout_cli_at(Some(&home));
+            let _ = std::fs::remove_dir_all(home);
+        }
+        if crate::windows::source_login::is_web_login_source(&source.adapter_id) {
+            crate::windows::source_login::clear_session(&app, &source.id, &source.adapter_id)?;
+        }
+        let reference = source
+            .secret_ref
+            .clone()
+            .unwrap_or_else(|| vault::secret_ref(&source.account_id, &source.id));
+        let _ = vault::delete(&reference);
+    }
+    database.delete_account(&account.id)?;
+    let _ = app.emit("platform-data-changed", ());
+    providers::platform_summaries(&database)
 }
 
 #[tauri::command]
@@ -446,14 +512,16 @@ pub async fn close_source_login(
     source_id: String,
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
+    database: State<'_, Database>,
 ) -> Result<(), String> {
     if window.label() != "main" {
         return Err("仅主窗口可以关闭来源登录".into());
     }
-    if !crate::windows::source_login::is_web_login_source(&source_id) {
+    let source = database.source(&source_id)?;
+    if !crate::windows::source_login::is_web_login_source(&source.adapter_id) {
         return Err("此来源没有网页登录页".into());
     }
-    crate::windows::source_login::close(&app, &source_id)
+    crate::windows::source_login::close(&app, &source.id, &source.adapter_id)
 }
 
 #[tauri::command]
