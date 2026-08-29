@@ -305,7 +305,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                     分析依据 · {data.analysis.analysisBasis.length} 字
                   </p>
                   <div
-                    className="max-h-44 overflow-y-auto rounded-q-control bg-q-surface-muted px-3 py-2.5 text-xs leading-relaxed text-q-text-secondary"
+                    className="max-h-44 overflow-y-auto rounded-q-card border border-q-border bg-q-primary-softer px-3 py-2.5 text-xs leading-relaxed text-q-text-secondary"
                     data-selectable="true"
                   >
                     {data.analysis.analysisBasis}
@@ -762,7 +762,7 @@ function AiAnalysisView({
                   分析依据 · {analysis.analysisBasis.length} 字
                 </p>
                 <div
-                  className="max-h-72 overflow-y-auto rounded-q-control bg-q-surface-muted px-3.5 py-3 text-[13px] leading-relaxed text-q-text-secondary"
+                  className="max-h-72 overflow-y-auto rounded-q-card border border-q-border bg-q-primary-softer px-3.5 py-3 text-[13px] leading-relaxed text-q-text-secondary"
                   data-selectable="true"
                 >
                   {analysis.analysisBasis}
