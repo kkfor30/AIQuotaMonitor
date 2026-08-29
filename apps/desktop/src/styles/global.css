@@ -578,7 +578,7 @@ html.hoverbar-window #root {
 .hb-row {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
   align-items: baseline;
   column-gap: 10px;
 }
@@ -612,15 +612,14 @@ html.hoverbar-window #root {
 
 .hb-row-value {
   justify-self: center;
-  min-width: 0;
-  overflow: hidden;
+  min-width: max-content;
+  overflow: visible;
   color: var(--q-hoverbar-primary);
   font-size: 17px;
   font-weight: 780;
   line-height: 21px;
   font-variant-numeric: tabular-nums;
   text-align: center;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
