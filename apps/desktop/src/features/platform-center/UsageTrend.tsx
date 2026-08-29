@@ -41,13 +41,13 @@ export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewM
               dataKey="label"
               tickLine={false}
               axisLine={false}
-              tick={{ fill: "#6b7890", fontSize: 11 }}
+              tick={{ fill: "var(--q-text-muted)", fontSize: 11 }}
               dy={6}
             />
             <YAxis
               tickLine={false}
               axisLine={false}
-              tick={{ fill: "#6b7890", fontSize: 11 }}
+              tick={{ fill: "var(--q-text-muted)", fontSize: 11 }}
               width={46}
               tickFormatter={(value: number) => `¥${value}`}
             />

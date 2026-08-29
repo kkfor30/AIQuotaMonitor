@@ -21,8 +21,6 @@ struct BalanceResponse {
 #[derive(Debug, Deserialize)]
 struct BalanceInfo {
     currency: String,
-    total_balance: String,
-    granted_balance: String,
     topped_up_balance: String,
 }
 
@@ -125,19 +123,19 @@ fn parse(body: BalanceResponse) -> Result<Vec<CapabilityData>, RefreshError> {
         .find(|item| item.currency.eq_ignore_ascii_case("CNY"))
         .or_else(|| body.balance_infos.first())
         .ok_or_else(|| RefreshError::new("missing_balance", "DeepSeek 未返回余额明细", false, false))?;
-    let total = parse_decimal(&info.total_balance, "总余额")?;
-    let granted = parse_decimal(&info.granted_balance, "赠送余额")?;
+    // 官网口径：账号余额即充值余额；累计消费由网页用量 Source 的 total_spend 提供。
     let topped_up = parse_decimal(&info.topped_up_balance, "充值余额")?;
     let symbol = currency_symbol(&info.currency);
     Ok(vec![CapabilityData {
         capability_id: "balance".into(),
-        display_name: "账户余额".into(),
+        display_name: "充值余额".into(),
         value_kind: "money".into(),
-        primary_value: Some(format!("{symbol}{total:.2}")),
-        secondary_value: Some(format!(
-            "赠送 {symbol}{granted:.2} · 充值 {symbol}{topped_up:.2}{}",
-            if body.is_available { "" } else { " · 当前不可用" }
-        )),
+        primary_value: Some(format!("{symbol}{topped_up:.2}")),
+        secondary_value: if body.is_available {
+            None
+        } else {
+            Some("当前不可用".to_string())
+        },
         progress: None,
         trend: vec![],
     }])
@@ -172,13 +170,13 @@ mod tests {
             is_available: true,
             balance_infos: vec![BalanceInfo {
                 currency: "CNY".into(),
-                total_balance: "12.345".into(),
-                granted_balance: "2".into(),
                 topped_up_balance: "10.345".into(),
             }],
         })
         .expect("balance should parse");
-        // Decimal 原文解析后按 half-even 显示为两位；f64 会先丢精度。
-        assert_eq!(values[0].primary_value.as_deref(), Some("¥12.34"));
+        // 官网口径：主值 = 充值余额；Decimal 原文解析后按 half-even 显示两位。
+        assert_eq!(values[0].primary_value.as_deref(), Some("¥10.34"));
+        assert_eq!(values[0].display_name, "充值余额");
+        assert!(values[0].secondary_value.is_none());
     }
 }

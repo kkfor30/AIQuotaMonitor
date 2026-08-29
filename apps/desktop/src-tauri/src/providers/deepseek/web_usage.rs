@@ -94,6 +94,10 @@ pub async fn fetch_current_month(client: &Client, token: &str) -> SourceRefreshO
         Ok(cost) => match cost_capabilities(&cost, &now.format("%Y-%m-%d").to_string()) {
             Ok(values) => {
                 capabilities.extend(values);
+                // 累计消费：优先读费用接口聚合值，失败回退逐月累加；拿不到就放弃该能力，不造数。
+                if let Some(total) = fetch_total_spend(client, token).await {
+                    capabilities.push(money_capability("total_spend", "累计消费", total));
+                }
                 SourceRefreshOutput::success(capabilities)
             }
             Err(error) => SourceRefreshOutput {
@@ -324,6 +328,56 @@ fn tokens_capability(id: &str, name: &str, value: u64) -> CapabilityData {
         progress: None,
         trend: vec![],
     }
+}
+
+/// 累计消费（网页会话口径）：
+/// 优先直接读费用接口不带月份参数的聚合值；接口拒绝缺省参数时回退为从当月回溯逐月累加。
+/// 任一请求失败返回 None（放弃该能力，不造数）。
+async fn fetch_total_spend(client: &Client, token: &str) -> Option<Decimal> {
+    let all_time_url = "https://platform.deepseek.com/api/v0/usage/cost";
+    if let Ok(cost) = get_json::<CostResp>(client, &all_time_url, token).await {
+        if let Some(total) = month_cost_of(&cost) {
+            if !total.is_zero() {
+                return Some(total);
+            }
+        }
+    }
+
+    let mut year = Local::now().year();
+    let mut month = Local::now().month();
+    let mut total = Decimal::ZERO;
+    let mut empty_streak = 0;
+    for _ in 0..24 {
+        month -= 1;
+        if month == 0 {
+            month = 12;
+            year -= 1;
+        }
+        let url = format!("https://platform.deepseek.com/api/v0/usage/cost?month={month}&year={year}");
+        let cost = get_json::<CostResp>(client, &url, token).await.ok()?;
+        let month_cost = month_cost_of(&cost)?;
+        if month_cost.is_zero() {
+            empty_streak += 1;
+            if empty_streak >= 2 {
+                break;
+            }
+        } else {
+            empty_streak = 0;
+        }
+        total += month_cost;
+    }
+    Some(total)
+}
+
+fn month_cost_of(cost: &CostResp) -> Option<Decimal> {
+    let period = cost.data.biz_data.first()?;
+    period
+        .total
+        .iter()
+        .try_fold(Decimal::ZERO, |total, model| {
+            cost_sum(&model.usage).map(|value| total + value)
+        })
+        .ok()
 }
 
 fn money_capability(id: &str, name: &str, value: Decimal) -> CapabilityData {

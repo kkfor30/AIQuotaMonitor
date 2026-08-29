@@ -26,8 +26,8 @@
 
   /* 文字：深海军蓝体系，辅助文字保持可读对比 */
   --q-text-primary: #16233b;
-  --q-text-secondary: #46536b;
-  --q-text-muted: #6b7890;
+  --q-text-secondary: #3d4b66;
+  --q-text-muted: #566583;
   --q-text-inverse: #ffffff;
 
   /* 主操作（蓝） */
@@ -111,8 +111,8 @@
     --q-border-strong: rgba(255, 255, 255, 0.14);
     --q-border-selected: rgba(117, 165, 255, 0.55);
     --q-text-primary: #f2f5fa;
-    --q-text-secondary: #a8b2c3;
-    --q-text-muted: #7b8699;
+    --q-text-secondary: #b7c1d4;
+    --q-text-muted: #8e99af;
     --q-primary: #5b8cff;
     --q-primary-hover: #7aa0ff;
     --q-primary-soft: rgba(91, 140, 255, 0.16);
