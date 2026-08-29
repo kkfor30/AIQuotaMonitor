@@ -3,7 +3,7 @@
  * 一个平台一张卡：卡头为图标 + 名称 + 平台聚合状态；GPT/Codex 多账户同卡分组，
  * 套餐徽章跟随账户名；窗口时间只显示时间值；GPT 卡底部为重置信号摘要条。
  */
-import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Radar } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Radar, RefreshCw } from "lucide-react";
 import type {
   CapabilitySnapshotViewModel,
   DataFreshness,
@@ -56,10 +56,16 @@ export function HoverbarPlatformCard({
   platform,
   radar,
   onOpenRadar,
+  onRefreshRadar,
+  radarRefreshing = false,
+  radarRefreshError = null,
 }: {
   platform: PlatformSummaryViewModel;
   radar?: RadarSnapshot;
   onOpenRadar?: () => void;
+  onRefreshRadar?: () => void;
+  radarRefreshing?: boolean;
+  radarRefreshError?: string | null;
 }) {
   const groups = buildGroups(platform);
   const multi = ACCOUNT_PROVIDERS.has(platform.providerId) && groups.length > 1;
@@ -120,7 +126,13 @@ export function HoverbarPlatformCard({
       )}
 
       {showRadarStrip && radar && onOpenRadar ? (
-        <RadarStrip radar={radar} onOpenRadar={onOpenRadar} />
+        <RadarStrip
+          radar={radar}
+          onOpenRadar={onOpenRadar}
+          onRefreshRadar={onRefreshRadar}
+          radarRefreshing={radarRefreshing}
+          radarRefreshError={radarRefreshError}
+        />
       ) : null}
     </article>
   );
@@ -166,7 +178,19 @@ function MetricRows({ metrics }: { metrics: HoverbarMetric[] }) {
 }
 
 /** GPT 卡底部重置信号摘要条：与平台额度状态完全独立的雷达层。 */
-function RadarStrip({ radar, onOpenRadar }: { radar: RadarSnapshot; onOpenRadar: () => void }) {
+function RadarStrip({
+  radar,
+  onOpenRadar,
+  onRefreshRadar,
+  radarRefreshing,
+  radarRefreshError,
+}: {
+  radar: RadarSnapshot;
+  onOpenRadar: () => void;
+  onRefreshRadar?: () => void;
+  radarRefreshing: boolean;
+  radarRefreshError: string | null;
+}) {
   const analysis = radar.analysis;
   const latest = radar.latest;
   const summary =
@@ -176,25 +200,40 @@ function RadarStrip({ radar, onOpenRadar }: { radar: RadarSnapshot; onOpenRadar:
     latest?.translatedText ??
     latest?.text ??
     "暂未同步重置信号来源";
-  const confidence = analysis?.confidence ?? null;
+  const confidence = analysis?.errorMessage ? null : analysis?.confidence ?? null;
+  const analyzeError = analysis?.errorMessage ?? radarRefreshError;
   return (
     <footer className="hb-radar-strip">
       <div className="hb-radar-strip-head">
         <Radar size={14} aria-hidden />
         <span className="hb-radar-strip-title">重置信号</span>
-        <span className="hb-radar-strip-summary" title={summary}>
-          {summary}
-        </span>
         {confidence ? (
           <span className="hb-radar-strip-confidence" data-level={confidence}>
             {radarConfidenceLabel(confidence)}把握
           </span>
         ) : null}
-        <button type="button" className="hb-radar-strip-link" onClick={onOpenRadar}>
-          查看详情
-          <ChevronRight size={13} aria-hidden />
-        </button>
+        <div className="hb-radar-strip-actions">
+          {onRefreshRadar ? (
+            <button
+              type="button"
+              className="hb-radar-strip-refresh"
+              onClick={onRefreshRadar}
+              disabled={radarRefreshing}
+              data-loading={radarRefreshing || undefined}
+              aria-label={radarRefreshing ? "正在同步重置信号" : "刷新重置信号"}
+              title={radarRefreshing ? "正在同步…" : "刷新重置信号"}
+            >
+              <RefreshCw size={13} aria-hidden />
+            </button>
+          ) : null}
+          <button type="button" className="hb-radar-strip-link" onClick={onOpenRadar}>
+            查看详情
+            <ChevronRight size={13} aria-hidden />
+          </button>
+        </div>
       </div>
+      <p className="hb-radar-strip-summary">{radarRefreshing ? "正在同步 CodexRadar…" : summary}</p>
+      {analyzeError ? <p className="hb-radar-strip-error">{analyzeError}</p> : null}
       <p className="hb-radar-strip-note">{radarSourceLine(radar)} · 仅为推测，不代表官方结论</p>
     </footer>
   );

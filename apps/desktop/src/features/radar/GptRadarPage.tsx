@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
-import { fetchRadarSnapshot, ipcErrorMessage, openExternalUrl, runRadarCheck } from "@/lib/ipc";
+import { fetchRadarSnapshot, ipcErrorMessage, openExternalUrl, runRadarCheck, saveRadarAnalysisPrefs } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import type { RadarPost } from "@/lib/ipc";
 
@@ -20,6 +20,27 @@ export function GptRadarPage() {
     queryKey: RADAR_SNAPSHOT_QUERY_KEY,
     queryFn: fetchRadarSnapshot,
   });
+  const prefsReady = useRef(false);
+
+  useEffect(() => {
+    if (!data || prefsReady.current) return;
+    prefsReady.current = true;
+    setAnalyze(data.analysisPrefs.analyze);
+    setRangeKey(data.analysisPrefs.rangeKey || "3d");
+    if (data.analysisPrefs.sourceId) setSourceId(data.analysisPrefs.sourceId);
+  }, [data]);
+
+  useEffect(() => {
+    if (!prefsReady.current) return;
+    const timer = window.setTimeout(() => {
+      void saveRadarAnalysisPrefs({
+        analyze,
+        rangeKey,
+        sourceId: sourceId || null,
+      });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [analyze, rangeKey, sourceId]);
 
   const checkMutation = useMutation({
     mutationFn: () =>
@@ -159,13 +180,20 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
         </Card>
         <Card className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-q-text-primary">AI 辅助结论</h2>
+          {data?.analysis?.errorMessage ? (
+            <p className="text-xs leading-relaxed text-q-danger">{data.analysis.errorMessage}</p>
+          ) : null}
           {data?.analysis?.conclusion ? (
             <>
               <p className="text-[13px] text-q-text-primary">{data.analysis.conclusion}</p>
               <p className="text-xs text-q-text-muted">把握度 {data.analysis.confidence ?? "—"}</p>
             </>
           ) : (
-            <p className="text-xs text-q-text-muted">未分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。</p>
+            <p className="text-xs text-q-text-muted">
+              {data?.analysis?.errorMessage
+                ? "本次分析失败，可更换模型后重试。"
+                : "未分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。"}
+            </p>
           )}
         </Card>
       </div>
@@ -314,13 +342,15 @@ function AiAnalysisView({
   onSourceChange: (value: string) => void;
 }) {
   const analysis = data?.analysis;
-  const cut = data?.cut;
+  const latestCheck = data?.checks[0];
+  const analyzeError =
+    analysis?.errorMessage ||
+    (latestCheck?.analyzeStatus === "failed" ? latestCheck.errorMessage : null) ||
+    null;
   const analysisInput = useMemo(() => {
     const start = rangeStartMs(rangeKey);
-    return (data?.posts ?? []).filter(
-      (post) => post.postedAt >= start && (!cut || post.postedAt > cut.postedAt),
-    );
-  }, [cut, data?.posts, rangeKey]);
+    return (data?.posts ?? []).filter((post) => post.postedAt >= start);
+  }, [data?.posts, rangeKey]);
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -359,18 +389,16 @@ function AiAnalysisView({
             </select>
           </label>
           <p className="text-xs leading-relaxed text-q-text-muted">
-            默认只分析「上次已落地重置」之后的帖，避免把旧重置当成新信号。
-            {cut ? ` 当前切点：${formatTime(cut.postedAt)}` : " 还没有切点。"}
+            每次检查都会按当前时间范围重新分析所选帖子，不跳过、不沿用旧结果。
           </p>
         </Card>
         <Card className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-q-text-primary">本次输入</h2>
           <p className="text-xs leading-relaxed text-q-text-muted">
             只发送英文原文、时间和原帖链接。不发送 CodexRadar 的中文翻译、信号标签或模型语境解读。
-            上次已落地重置之后的帖才会进入分析。
           </p>
           {analysisInput.length === 0 ? (
-            <p className="text-xs text-q-text-muted">当前时间窗内没有可分析的新帖。</p>
+            <p className="text-xs text-q-text-muted">当前时间窗内没有可分析的帖子。</p>
           ) : (
             <div className="max-h-48 space-y-2 overflow-y-auto">
               <p className="text-xs text-q-text-secondary">将发送 {analysisInput.length} 条</p>
@@ -385,7 +413,7 @@ function AiAnalysisView({
       </div>
       <Card className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-q-text-primary">辅助结论</h2>
-        {analysis?.errorMessage && <p className="text-xs text-q-danger">{analysis.errorMessage}</p>}
+        {analyzeError ? <p className="text-xs leading-relaxed text-q-danger">{analyzeError}</p> : null}
         {analysis?.conclusion ? (
           <>
             <p className="text-[13px] leading-relaxed text-q-text-primary">{analysis.conclusion}</p>
@@ -396,7 +424,9 @@ function AiAnalysisView({
             <ListBlock title="不确定性" items={analysis.uncertainty} />
           </>
         ) : (
-          <p className="text-xs text-q-text-muted">尚未生成分析。勾选 AI 后点立即检查。</p>
+          <p className="text-xs text-q-text-muted">
+            {analyzeError ? "分析未完成，请更换模型或稍后重试。" : "尚未生成分析。勾选 AI 后点立即检查。"}
+          </p>
         )}
       </Card>
     </div>

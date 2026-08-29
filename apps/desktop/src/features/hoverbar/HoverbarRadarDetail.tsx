@@ -2,8 +2,9 @@
  * 悬浮详情内的 GPT 重置雷达二级页（设计稿 13）。
  * 在同一悬浮详情窗口内切换，复用窄版面板宽度；雷达结论始终标记为推测。
  */
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Languages } from "lucide-react";
+import { ArrowLeft, ExternalLink, Languages, RefreshCw } from "lucide-react";
 import { ipcErrorMessage, openExternalUrl, translateRadarPost, type RadarPost, type RadarSnapshot } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import { formatHoverbarClock, radarConfidenceLabel } from "./hoverbar-state";
@@ -14,17 +15,26 @@ const POST_BADGE_LABEL: Record<string, string> = {
   LIMITS: "限制",
   VERIFYING: "重置相关",
   NOTE: "动态",
+  reset_related: "重置相关",
+  reset_announcement: "重置公告",
   无重置信号: "无重置信号",
   间接相关: "间接相关",
   重置相关: "重置相关",
+  重置公告: "重置公告",
 };
 
 export function HoverbarRadarDetail({
   radar,
   onBack,
+  onRefresh,
+  refreshing = false,
+  refreshError = null,
 }: {
   radar: RadarSnapshot | undefined;
   onBack: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  refreshError?: string | null;
 }) {
   const queryClient = useQueryClient();
   const translate = useMutation({
@@ -35,6 +45,7 @@ export function HoverbarRadarDetail({
   const analysis = radar?.analysis;
   const latest = radar?.latest;
   const posts = (radar?.posts ?? []).slice(0, 3);
+  const analyzeError = analysis?.errorMessage ?? refreshError;
 
   return (
     <div className="hb-radar-page">
@@ -44,6 +55,20 @@ export function HoverbarRadarDetail({
           返回额度
         </button>
         <b className="hb-radar-title">GPT 重置雷达</b>
+        {onRefresh ? (
+          <button
+            type="button"
+            className="hb-radar-refresh"
+            onClick={onRefresh}
+            disabled={refreshing}
+            data-loading={refreshing || undefined}
+            aria-label={refreshing ? "正在同步重置信号" : "刷新重置信号"}
+            title={refreshing ? "正在同步…" : "刷新重置信号"}
+          >
+            <RefreshCw size={13} aria-hidden />
+            {refreshing ? "同步中" : "刷新"}
+          </button>
+        ) : null}
         <span className="hb-radar-pill">仅为推测</span>
       </div>
 
@@ -59,6 +84,7 @@ export function HoverbarRadarDetail({
       </section>
 
       <section className="hb-radar-card">
+        {analyzeError ? <p className="hb-radar-error">{analyzeError}</p> : null}
         {analysis?.conclusion ? (
           <>
             <h3 className="hb-radar-card-title">AI 辅助结论</h3>
@@ -77,7 +103,9 @@ export function HoverbarRadarDetail({
               <>
                 <p className="hb-radar-text">{radar.notice.headline}</p>
                 {radar.notice.lead ? <p className="hb-radar-meta">{radar.notice.lead}</p> : null}
-                <p className="hb-radar-meta">CodexRadar 公告 · 未运行 AI 辅助分析</p>
+                <p className="hb-radar-meta">
+                  {analyzeError ? "AI 辅助分析失败" : "CodexRadar 公告 · 未运行 AI 辅助分析"}
+                </p>
               </>
             ) : latest ? (
               <>
@@ -85,7 +113,7 @@ export function HoverbarRadarDetail({
                 <p className="hb-radar-meta">{formatHoverbarClock(latest.postedAt)} · 未运行 AI 辅助分析</p>
               </>
             ) : (
-              <p className="hb-radar-meta">尚未同步，请在主窗口运行检查。</p>
+              <p className="hb-radar-meta">尚未同步，可点击刷新拉取 CodexRadar。</p>
             )}
           </>
         )}
@@ -124,6 +152,7 @@ function RadarPostItem({
   translating: boolean;
   onTranslate: () => void;
 }) {
+  const [linkError, setLinkError] = useState<string | null>(null);
   return (
     <article className="hb-radar-post">
       <div className="hb-radar-post-head">
@@ -143,12 +172,22 @@ function RadarPostItem({
           </button>
         )}
         {post.url ? (
-          <button type="button" className="hb-radar-post-button" onClick={() => void openExternalUrl(post.url)}>
+          <button
+            type="button"
+            className="hb-radar-post-button"
+            onClick={() => {
+              setLinkError(null);
+              void openExternalUrl(post.url).catch((error) => {
+                setLinkError(ipcErrorMessage(error, "无法打开原文"));
+              });
+            }}
+          >
             <ExternalLink size={12} aria-hidden />
             查看原文
           </button>
         ) : null}
       </div>
+      {linkError ? <p className="hb-radar-error">{linkError}</p> : null}
     </article>
   );
 }

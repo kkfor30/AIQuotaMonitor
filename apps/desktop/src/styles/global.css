@@ -678,6 +678,7 @@ html.hoverbar-window #root {
 .hb-radar-strip-head {
   display: flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
@@ -696,16 +697,53 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+.hb-radar-strip-actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.hb-radar-strip-refresh {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--q-hoverbar-primary);
+  background: transparent;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .hb-radar-strip-refresh:hover:not(:disabled) {
+    background: var(--q-hoverbar-action-hover);
+  }
+}
+
+.hb-radar-strip-refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.hb-radar-strip-refresh[data-loading="true"] svg {
+  animation: hb-spin 0.85s linear infinite;
+}
+
 .hb-radar-strip-summary {
+  margin: 0;
   min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
   color: var(--q-hoverbar-muted-strong);
   font-size: 12px;
   font-weight: 600;
-  line-height: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 17px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .hb-radar-strip-confidence {
@@ -763,6 +801,15 @@ html.hoverbar-window #root {
   line-height: 15px;
 }
 
+.hb-radar-strip-error {
+  margin: 0;
+  color: var(--q-hoverbar-danger);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
 /* 雷达二级页（设计稿 13）：同一悬浮窗口内切换，复用窄版宽度。 */
 .hb-radar-page {
   display: flex;
@@ -802,6 +849,7 @@ html.hoverbar-window #root {
 
 .hb-radar-title {
   min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   color: var(--q-hoverbar-ink);
   font-size: 14px;
@@ -811,9 +859,39 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+.hb-radar-refresh {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--q-hoverbar-primary);
+  background: var(--q-hoverbar-empty-bg);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .hb-radar-refresh:hover:not(:disabled) {
+    background: var(--q-hoverbar-action-hover);
+  }
+}
+
+.hb-radar-refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.hb-radar-refresh[data-loading="true"] svg {
+  animation: hb-spin 0.85s linear infinite;
+}
+
 .hb-radar-pill {
   flex: none;
-  margin-left: auto;
   padding: 2px 8px;
   border-radius: 999px;
   color: var(--q-hoverbar-warning);

@@ -226,7 +226,11 @@ const previewRadar: RadarSnapshot = {
     errorMessage: null,
   },
   models: [],
-  cut: null,
+  analysisPrefs: {
+    analyze: false,
+    rangeKey: "3d",
+    sourceId: null,
+  },
   notice: {
     headline: "Tibo：明天可能迎来 Codex 新里程碑",
     lead: "请关注 Codex 仪表板",
@@ -312,6 +316,7 @@ function PreviewPanel({
                     platform={platform}
                     radar={platform.providerId === "openai" ? previewRadar : undefined}
                     onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
+                    onRefreshRadar={platform.providerId === "openai" ? noop : undefined}
                   />
                 ))
               )}
@@ -397,6 +402,7 @@ function HoverbarPreview() {
             platform={gptPlatform}
             radar={previewRadar}
             onOpenRadar={() => undefined}
+            onRefreshRadar={noop}
           />
         </section>
       </div>

@@ -20,7 +20,7 @@ pub async fn run_radar_check(
     database: State<'_, Database>,
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<RadarSnapshot, String> {
-    require_label(&window, &["main"])?;
+    require_label(&window, &["main", "hoverbar-detail"])?;
     let snapshot = radar::run_check(
         &database,
         &coordinator,
@@ -46,6 +46,22 @@ pub async fn translate_radar_post(
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
     let snapshot = radar::translate_post(&database, &coordinator, &post_id, source_id.as_deref()).await?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn save_radar_analysis_prefs(
+    analyze: bool,
+    range_key: String,
+    source_id: Option<String>,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main"])?;
+    radar::save_analysis_prefs(&database, analyze, &range_key, source_id.as_deref())?;
+    let snapshot = radar::snapshot(&database)?;
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
 }

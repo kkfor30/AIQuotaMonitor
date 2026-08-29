@@ -11,10 +11,17 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { fetchAppSettings, fetchPlatformSummaries, fetchRadarSnapshot, openMainWindow } from "@/lib/ipc";
+import {
+  fetchAppSettings,
+  fetchPlatformSummaries,
+  fetchRadarSnapshot,
+  ipcErrorMessage,
+  openMainWindow,
+  runRadarCheck,
+} from "@/lib/ipc";
 import {
   APP_SETTINGS_QUERY_KEY,
   PLATFORM_SUMMARIES_QUERY_KEY,
@@ -38,6 +45,7 @@ import {
 type HoverbarView = "quota" | "radar";
 
 export function HoverbarDetailApp() {
+  const queryClient = useQueryClient();
   const { theme, toggleTheme } = useHoverbarTheme();
   const [motionPhase, setMotionPhase] = useState<HoverbarMotionPhase>("anchor");
   const [anchor, setAnchor] = useState<HoverbarAnchor>({ edge: "right", ratio: 0.4 });
@@ -58,12 +66,33 @@ export function HoverbarDetailApp() {
     queryFn: fetchAppSettings,
     retry: false,
   });
-  // GPT 重置雷达：只读快照，检查动作仍由主窗口执行，失败不影响额度状态。
+  // GPT 重置雷达：详情页可主动同步；若已开启 AI 辅助分析，刷新时一并重跑。
   const { data: radar, refetch: refetchRadar } = useQuery({
     queryKey: RADAR_SNAPSHOT_QUERY_KEY,
     queryFn: fetchRadarSnapshot,
     retry: false,
   });
+  const radarCheck = useMutation({
+    mutationFn: () => {
+      const readyModel =
+        radar?.models.find((item) => item.sourceId === radar.analysisPrefs.sourceId && item.ready) ??
+        radar?.models.find((item) => item.ready);
+      const analyze = Boolean(radar?.analysisPrefs.analyze && readyModel);
+      return runRadarCheck({
+        analyze,
+        rangeKey: radar?.analysisPrefs.rangeKey || "3d",
+        sourceId: readyModel?.sourceId ?? radar?.analysisPrefs.sourceId ?? null,
+        model: readyModel?.model ?? null,
+      });
+    },
+    onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
+  });
+  const refreshRadar = useCallback(() => {
+    if (!radarCheck.isPending) radarCheck.mutate();
+  }, [radarCheck]);
+  const radarRefreshError = radarCheck.error
+    ? ipcErrorMessage(radarCheck.error, "重置信号刷新失败")
+    : null;
 
   const setMotion = useCallback((phase: HoverbarMotionPhase) => {
     motionPhaseRef.current = phase;
@@ -204,7 +233,13 @@ export function HoverbarDetailApp() {
         <div className="hb-service-list">
           <div ref={contentRef} className="hb-service-scroll">
             {view === "radar" ? (
-              <HoverbarRadarDetail radar={radar} onBack={() => setView("quota")} />
+              <HoverbarRadarDetail
+                radar={radar}
+                onBack={() => setView("quota")}
+                onRefresh={refreshRadar}
+                refreshing={radarCheck.isPending}
+                refreshError={radarRefreshError}
+              />
             ) : orderedPlatforms.length === 0 ? (
               <div className="hb-empty">
                 <strong>暂无可展示额度</strong>
@@ -217,6 +252,9 @@ export function HoverbarDetailApp() {
                   platform={platform}
                   radar={platform.providerId === "openai" ? radar : undefined}
                   onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
+                  onRefreshRadar={platform.providerId === "openai" ? refreshRadar : undefined}
+                  radarRefreshing={platform.providerId === "openai" ? radarCheck.isPending : false}
+                  radarRefreshError={platform.providerId === "openai" ? radarRefreshError : null}
                 />
               ))
             )}

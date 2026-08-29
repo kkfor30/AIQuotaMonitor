@@ -155,10 +155,10 @@ pub fn get_hoverbar_preferences(app: AppHandle) -> Result<storage::HoverbarPrefe
     Ok(storage::load_preferences(&app))
 }
 
-/// 用系统浏览器打开 http(s) 链接。仅主窗口可调用。
+/// 用系统浏览器打开 http(s) 链接。主窗口与悬浮详情都可以调用。
 #[tauri::command]
 pub fn open_external_url(window: WebviewWindow, url: String) -> Result<(), String> {
-    require_label(&window, &["main"])?;
+    require_label(&window, &["main", "hoverbar-detail"])?;
     open_http_url(&url)
 }
 

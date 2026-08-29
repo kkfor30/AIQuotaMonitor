@@ -140,8 +140,14 @@ export type RadarSnapshot = {
   checks: RadarCheck[];
   analysis: RadarAnalysis | null;
   models: RadarModelOption[];
-  cut: RadarPost | null;
+  analysisPrefs: RadarAnalysisPrefs;
   notice: RadarNotice | null;
+};
+
+export type RadarAnalysisPrefs = {
+  analyze: boolean;
+  rangeKey: string;
+  sourceId: string | null;
 };
 
 export type RadarNotice = {
@@ -223,6 +229,14 @@ export async function runRadarCheck(input: {
 
 export async function translateRadarPost(postId: string): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("translate_radar_post", { postId });
+}
+
+export async function saveRadarAnalysisPrefs(input: {
+  analyze: boolean;
+  rangeKey: string;
+  sourceId?: string | null;
+}): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("save_radar_analysis_prefs", input);
 }
 
 export type AppSettingsView = {

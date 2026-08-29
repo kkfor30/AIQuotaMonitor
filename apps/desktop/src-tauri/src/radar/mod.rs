@@ -11,10 +11,11 @@ use chrono::{Duration as ChronoDuration, Local, TimeZone};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::error::Error;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const FEED_URL: &str = "https://codexradar.com/";
-pub const PROMPT_VERSION: &str = "radar-v1";
+pub const PROMPT_VERSION: &str = "radar-v2";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,8 +93,16 @@ pub struct RadarSnapshot {
     pub checks: Vec<RadarCheckView>,
     pub analysis: Option<RadarAnalysisView>,
     pub models: Vec<RadarModelOption>,
-    pub cut: Option<TiboPostView>,
+    pub analysis_prefs: RadarAnalysisPrefs,
     pub notice: Option<RadarNotice>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarAnalysisPrefs {
+    pub analyze: bool,
+    pub range_key: String,
+    pub source_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +120,6 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         .map(to_view)
         .collect::<Vec<_>>();
     let latest = posts.first().cloned();
-    let cut = posts.iter().find(|post| is_settled_reset_view(post)).cloned();
     let last_synced_at = posts.first().map(|post| post.synced_at);
     let checks: Vec<_> = database
         .list_radar_checks(8)?
@@ -135,7 +143,7 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         checks,
         analysis: database.latest_radar_analysis()?.map(analysis_view),
         models: chat_models(database)?,
-        cut,
+        analysis_prefs: load_analysis_prefs(database)?,
         notice: load_notice(database)?,
     })
 }
@@ -148,6 +156,7 @@ pub async fn run_check(
     source_id: Option<&str>,
     model: Option<&str>,
 ) -> Result<RadarSnapshot, String> {
+    let _ = save_analysis_prefs(database, analyze, range_key, source_id);
     let started = epoch_ms();
     let id = format!("radar-{started}");
     let client = Client::builder()
@@ -212,25 +221,7 @@ pub async fn translate_post(
             {"role": "user", "content": post.text}
         ]
     });
-    let mut request = coordinator.client().post(&target.url).header("Content-Type", "application/json");
-    request = if target.bearer {
-        request.bearer_auth(&target.secret)
-    } else {
-        request.header("Authorization", &target.secret)
-    };
-    let response = request
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| format!("翻译请求失败：{error}"))?;
-    let status = response.status();
-    let text = response.text().await.unwrap_or_default();
-    if status.as_u16() == 402 || text.contains("余额不足") || text.contains("额度不足") || text.contains("insufficient") {
-        return Err("当前模型额度或余额不足，请更换模型后再翻译".into());
-    }
-    if !status.is_success() {
-        return Err(format!("翻译接口失败（HTTP {}）", status.as_u16()));
-    }
+    let text = send_chat(coordinator.client(), &target, &body).await?;
     let translated = extract_chat_text(&text)?;
     if translated.is_empty() {
         return Err("模型未返回可用的翻译".into());
@@ -246,9 +237,8 @@ pub async fn translate_post(
 struct ChatTarget {
     source_id: String,
     model: String,
-    url: String,
-    bearer: bool,
     secret: String,
+    api_base: Option<String>,
 }
 
 fn resolve_chat_target(
@@ -275,14 +265,20 @@ fn resolve_chat_target(
         .or_else(|| chat_target(&source_id).map(|(_, model)| model.to_string()))
         .ok_or_else(|| "该来源不支持对话分析".to_string())?;
     let api_base = database.user_platform(&source.platform_id)?.and_then(|item| item.api_base_url);
-    let (url, bearer) = chat_endpoint(&source_id, api_base.as_deref())
-        .ok_or_else(|| "该来源没有对话接口".to_string())?;
-    Ok(ChatTarget { source_id, model, url, bearer, secret })
+    if chat_endpoint_candidates(&source_id, api_base.as_deref()).is_empty() {
+        return Err("该来源没有对话接口".into());
+    }
+    Ok(ChatTarget {
+        source_id,
+        model,
+        secret,
+        api_base,
+    })
 }
 
 /// 从 OpenAI 兼容响应中取出 assistant 文本。
 fn extract_chat_text(body: &str) -> Result<String, String> {
-    let value: Value = serde_json::from_str(body).map_err(|_| "翻译返回不是 JSON".to_string())?;
+    let value: Value = serde_json::from_str(body).map_err(|_| "对话返回不是 JSON".to_string())?;
     Ok(value
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
@@ -335,6 +331,8 @@ fn to_view(post: TiboPostRecord) -> TiboPostView {
     let extra = extra_object(&post.extra_json);
     let badge = extra_string(&extra, "signalLabel")
         .or_else(|| post.tibo_lane.clone())
+        .map(|value| display_signal_label(&value))
+        .filter(|value| !value.is_empty())
         .unwrap_or_else(|| badge_for(&post));
     let filter = extra_string(&extra, "relevance")
         .map(|value| match value.as_str() {
@@ -378,6 +376,21 @@ fn extra_string(value: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// 把来源里残留的英文 lane / 标签转成中文；已经是中文的原样保留。
+pub(super) fn display_signal_label(raw: &str) -> String {
+    let normalized = raw.trim().replace('-', "_").replace(' ', "_").to_ascii_lowercase();
+    match normalized.as_str() {
+        "reset_related" | "related" | "direct" | "signal" | "reset" | "verifying" => "重置相关".into(),
+        "reset_announcement" | "announcement" => "重置公告".into(),
+        "none" | "no_signal" | "no_reset" => "无重置信号".into(),
+        "indirect" => "间接相关".into(),
+        "limits" | "limit" => "限制".into(),
+        "banked" | "landed" => "已落地".into(),
+        "note" => "动态".into(),
+        _ => raw.trim().to_string(),
+    }
+}
+
 fn badge_for(post: &TiboPostRecord) -> String {
     if post.explicit_reset {
         return "重置相关".into();
@@ -399,20 +412,15 @@ fn filter_for(post: &TiboPostRecord) -> String {
         "limits" => "related".into(),
         _ if post.explicit_reset
             || matches!(post.kind.as_str(), "candidate" | "signal" | "banked" | "direct" | "reset")
-            || post.tibo_lane.as_deref() == Some("reset_announcement") =>
+            || matches!(
+                post.tibo_lane.as_deref(),
+                Some("reset_announcement" | "重置公告" | "重置相关")
+            ) =>
         {
             "signal".into()
         }
         _ => "none".into(),
     }
-}
-
-fn is_settled_reset_view(post: &TiboPostView) -> bool {
-    if !(post.explicit_reset || post.badge == "RESET" || post.badge.contains("重置相关")) {
-        return false;
-    }
-    let age = epoch_ms().saturating_sub(post.posted_at);
-    age > 18 * 60 * 60 * 1000
 }
 
 fn check_view(check: RadarCheckRecord) -> RadarCheckView {
@@ -435,7 +443,7 @@ fn analysis_view(record: RadarAnalysisRecord) -> RadarAnalysisView {
         created_at: record.created_at,
         range_key: record.range_key,
         cut_post_id: record.cut_post_id.clone(),
-        cut_label: record.cut_post_id.map(|id| format!("切点 {id}")),
+        cut_label: None,
         source_id: record.source_id,
         model: record.model,
         conclusion: record.conclusion,
@@ -483,36 +491,75 @@ fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
 fn chat_target(source_id: &str) -> Option<(&'static str, &'static str)> {
     match source_id {
         "deepseek-balance-api" => Some(("DeepSeek", "deepseek-chat")),
-        "glm-coding-plan" => Some(("GLM", "glm-4.5-flash")),
-        "kimi-balance-api" => Some(("Kimi", "kimi-k2-turbo-preview")),
+        "glm-coding-plan" => Some(("GLM 国内", "glm-4.5-flash")),
+        "glm-intl-coding-plan" => Some(("GLM 国际", "glm-4.5-flash")),
+        "kimi-balance-api" => Some(("Kimi 开放平台", "kimi-k2-turbo-preview")),
+        "kimi-coding-plan" => Some(("Kimi Coding", "kimi-k2-turbo-preview")),
         "minimax-coding-plan" => Some(("MiniMax", "MiniMax-M2.5")),
+        "minimax-intl-coding-plan" => Some(("MiniMax 国际", "MiniMax-M2.5")),
         _ => None,
     }
 }
 
-fn chat_endpoint(source_id: &str, api_base: Option<&str>) -> Option<(String, bool)> {
-    match source_id {
-        "deepseek-balance-api" => Some((
-            format!(
-                "{}/v1/chat/completions",
-                api_base.unwrap_or("https://api.deepseek.com").trim_end_matches('/')
-            ),
-            true,
-        )),
-        "glm-coding-plan" => Some((
-            "https://open.bigmodel.cn/api/paas/v4/chat/completions".into(),
-            true,
-        )),
-        "kimi-balance-api" => Some(("https://api.moonshot.cn/v1/chat/completions".into(), true)),
-        "minimax-coding-plan" => Some((
-            format!(
-                "{}/v1/chat/completions",
-                api_base.unwrap_or("https://api.minimaxi.com").trim_end_matches('/')
-            ),
-            true,
-        )),
-        _ => None,
+fn glm_source(source_id: &str) -> bool {
+    matches!(source_id, "glm-coding-plan" | "glm-intl-coding-plan")
+}
+
+fn trim_api_base(api_base: Option<&str>, fallback: &str) -> String {
+    api_base
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn join_chat_url(base: &str, path: &str) -> String {
+    let base = base.trim().trim_end_matches('/');
+    if base.ends_with("/chat/completions") {
+        return base.to_string();
     }
+    if base.ends_with("/api/coding/paas/v4") || base.ends_with("/api/paas/v4") || base.ends_with("/v1") {
+        return format!("{base}/chat/completions");
+    }
+    format!("{base}{path}")
+}
+
+fn chat_endpoint_candidates(source_id: &str, api_base: Option<&str>) -> Vec<(String, bool)> {
+    match source_id {
+        "deepseek-balance-api" => vec![(
+            join_chat_url(&trim_api_base(api_base, "https://api.deepseek.com"), "/v1/chat/completions"),
+            true,
+        )],
+        "glm-coding-plan" => glm_chat_candidates(api_base, false),
+        "glm-intl-coding-plan" => glm_chat_candidates(api_base, true),
+        "kimi-balance-api" => vec![("https://api.moonshot.cn/v1/chat/completions".into(), true)],
+        "kimi-coding-plan" => vec![(
+            join_chat_url(&trim_api_base(api_base, "https://api.kimi.com/coding"), "/v1/chat/completions"),
+            true,
+        )],
+        "minimax-coding-plan" => vec![(
+            join_chat_url(&trim_api_base(api_base, "https://api.minimaxi.com"), "/v1/chat/completions"),
+            true,
+        )],
+        "minimax-intl-coding-plan" => vec![(
+            join_chat_url(&trim_api_base(api_base, "https://api.minimax.io"), "/v1/chat/completions"),
+            true,
+        )],
+        _ => Vec::new(),
+    }
+}
+
+fn glm_chat_candidates(api_base: Option<&str>, intl: bool) -> Vec<(String, bool)> {
+    let default = if intl { "https://api.z.ai" } else { "https://open.bigmodel.cn" };
+    let base = trim_api_base(api_base, default);
+    let coding = join_chat_url(&base, "/api/coding/paas/v4/chat/completions");
+    let paas = join_chat_url(&base, "/api/paas/v4/chat/completions");
+    let mut urls = vec![(coding.clone(), true)];
+    if paas != coding {
+        urls.push((paas, true));
+    }
+    urls
 }
 
 async fn run_analysis(
@@ -522,72 +569,55 @@ async fn run_analysis(
     source_id: Option<&str>,
     model: Option<&str>,
 ) -> Result<(), String> {
+    match run_analysis_inner(database, coordinator.client(), range_key, source_id, model).await {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = persist_failed_analysis(database, range_key, source_id, model, &error);
+            Err(error)
+        }
+    }
+}
+
+async fn run_analysis_inner(
+    database: &Database,
+    client: &Client,
+    range_key: &str,
+    source_id: Option<&str>,
+    model: Option<&str>,
+) -> Result<(), String> {
     let posts = database.list_tibo_posts(80)?;
-    let views = posts.iter().cloned().map(to_view).collect::<Vec<_>>();
-    let cut = views.iter().find(|post| is_settled_reset_view(post)).cloned();
+    let views = posts.into_iter().map(to_view).collect::<Vec<_>>();
     let window_start = range_start(range_key);
     let selected: Vec<_> = views
-        .iter()
+        .into_iter()
         .filter(|post| post.posted_at >= window_start)
-        .filter(|post| cut.as_ref().is_none_or(|cut| post.posted_at > cut.posted_at))
-        .cloned()
         .collect();
     if selected.is_empty() {
-        return Err("当前时间窗内没有新的 Tibo 动态可分析（可能都在上次已落地重置之前）".into());
+        return Err("当前时间窗内没有 Tibo 动态可分析".into());
     }
     let target = resolve_chat_target(database, source_id, model)?;
     let input = selected
         .iter()
-        .map(|post| {
-            format!(
-                "{}\n{}\n{}",
-                format_iso(post.posted_at),
-                post.url,
-                post.text
-            )
-        })
+        .map(|post| format!("{}\n{}\n{}", format_iso(post.posted_at), post.url, post.text))
         .collect::<Vec<_>>()
         .join("\n\n");
     let input_hash = format!("{:x}", simple_hash(&input));
-    if let Some(previous) = database.latest_radar_analysis()? {
-        if previous.input_hash == input_hash && previous.model.as_deref() == Some(target.model.as_str()) && previous.error_message.is_none()
-        {
-            return Ok(());
-        }
-    }
     let body = json!({
         "model": target.model,
-        "temperature": 0.2,
+        "temperature": 0.1,
+        "stream": false,
         "messages": [
-            {"role": "system", "content": "You analyze public Tibo/Codex reset posts. Reply with JSON only: {\"conclusion\":\"\",\"confidence\":\"low|medium|high\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. Do not treat older already-landed resets as current evidence. Chinese conclusion is allowed."},
-            {"role": "user", "content": format!("Last settled reset is excluded. Analyze only these newer posts:\n{input}")}
+            {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+            {"role": "user", "content": format!("Analyze every post in the selected time window. Do not skip any of them:\n{input}")}
         ]
     });
-    let mut request = coordinator.client().post(&target.url).header("Content-Type", "application/json");
-    request = if target.bearer {
-        request.bearer_auth(&target.secret)
-    } else {
-        request.header("Authorization", &target.secret)
-    };
-    let response = request
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| format!("分析请求失败：{error}"))?;
-    let status = response.status();
-    let text = response.text().await.unwrap_or_default();
-    if status.as_u16() == 402 || text.contains("余额不足") || text.contains("额度不足") || text.contains("insufficient") {
-        return Err("当前模型额度或余额不足，请更换模型后再分析".into());
-    }
-    if !status.is_success() {
-        return Err(format!("分析接口失败（HTTP {}）", status.as_u16()));
-    }
+    let text = send_chat(client, &target, &body).await?;
     let parsed = parse_model_json(&text)?;
     database.insert_radar_analysis(&RadarAnalysisRecord {
         id: format!("analysis-{}", epoch_ms()),
         created_at: epoch_ms(),
         range_key: range_key.into(),
-        cut_post_id: cut.map(|post| post.id),
+        cut_post_id: None,
         from_posted_at: selected.last().map(|post| post.posted_at),
         to_posted_at: selected.first().map(|post| post.posted_at),
         source_id: Some(target.source_id),
@@ -601,6 +631,208 @@ async fn run_analysis(
         against_json: serde_json::to_string(&parsed.against).unwrap_or_else(|_| "[]".into()),
         uncertainty_json: serde_json::to_string(&parsed.uncertainty).unwrap_or_else(|_| "[]".into()),
         error_message: None,
+    })
+}
+
+const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
+    "You analyze public Tibo/Codex reset-related posts in the selected time window. ",
+    "Reply with JSON only: {\"conclusion\":\"\",\"confidence\":\"low|medium|high\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
+    "Write conclusion in Simplified Chinese. ",
+    "Confidence: high if Tibo teases an upcoming reset with dashboard, milestone, celebration, countdown, or phrases like \"hold on to your Codex\", or if there is an explicit reset announcement in this window; ",
+    "medium if there are mixed or indirect reset hints without a clear upcoming-reset tease; ",
+    "low only if there is no reset-related content, or only historical already-landed resets without a new upcoming signal. ",
+    "Do not default to low when Tibo uses dashboard, milestone, celebration, or hold-on-to-Codex language; that is a strong upcoming-reset signal even if the exact time is unstated. ",
+    "Treat already-landed historical resets as background, not as evidence against a new upcoming reset. ",
+    "This output is speculation, not an official conclusion."
+);
+
+fn persist_failed_analysis(
+    database: &Database,
+    range_key: &str,
+    source_id: Option<&str>,
+    model: Option<&str>,
+    error: &str,
+) -> Result<(), String> {
+    database.insert_radar_analysis(&RadarAnalysisRecord {
+        id: format!("analysis-{}", epoch_ms()),
+        created_at: epoch_ms(),
+        range_key: range_key.into(),
+        cut_post_id: None,
+        from_posted_at: None,
+        to_posted_at: None,
+        source_id: source_id.map(str::to_string),
+        model: model.map(str::to_string),
+        prompt_version: PROMPT_VERSION.into(),
+        input_hash: String::new(),
+        conclusion: None,
+        confidence: None,
+        citations_json: "[]".into(),
+        support_json: "[]".into(),
+        against_json: "[]".into(),
+        uncertainty_json: "[]".into(),
+        error_message: Some(error.to_string()),
+    })
+}
+
+struct ChatRequestError {
+    fatal: bool,
+    message: String,
+}
+
+async fn send_chat(client: &Client, target: &ChatTarget, body: &Value) -> Result<String, String> {
+    let candidates = chat_endpoint_candidates(&target.source_id, target.api_base.as_deref());
+    if candidates.is_empty() {
+        return Err("该来源没有对话接口".into());
+    }
+    let mut last_error = "对话请求失败".to_string();
+    for (url, default_bearer) in &candidates {
+        let styles: Vec<bool> = if glm_source(&target.source_id) {
+            vec![true, false]
+        } else {
+            vec![*default_bearer]
+        };
+        for bearer in styles {
+            match post_chat_once(client, url, bearer, &target.secret, body).await {
+                Ok(text) => return Ok(text),
+                Err(error) if error.fatal => return Err(error.message),
+                Err(error) => last_error = error.message,
+            }
+        }
+    }
+    Err(last_error)
+}
+
+async fn post_chat_once(
+    client: &Client,
+    url: &str,
+    bearer: bool,
+    secret: &str,
+    body: &Value,
+) -> Result<String, ChatRequestError> {
+    let mut last_transport = None;
+    for attempt in 0..2 {
+        let mut request = client
+            .post(url)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .header("User-Agent", "AIQuotaMonitor/0.1 (desktop; radar analysis)")
+            .timeout(Duration::from_secs(90))
+            .version(reqwest::Version::HTTP_11);
+        request = if bearer {
+            request.bearer_auth(secret.trim())
+        } else {
+            request.header("Authorization", secret.trim())
+        };
+        let response = match request.json(body).send().await {
+            Ok(response) => response,
+            Err(error) => {
+                last_transport = Some(error);
+                if attempt == 0 {
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    continue;
+                }
+                break;
+            }
+        };
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 402 || quota_exhausted(&text) {
+            return Err(ChatRequestError {
+                fatal: true,
+                message: "当前模型额度或余额不足，请更换模型后再试".into(),
+            });
+        }
+        if !status.is_success() {
+            let detail = chat_error_detail(&text);
+            return Err(ChatRequestError {
+                fatal: false,
+                message: format!("对话接口失败（HTTP {}）{}：{url}", status.as_u16(), detail),
+            });
+        }
+        if !text.trim_start().starts_with('{') {
+            return Err(ChatRequestError {
+                fatal: false,
+                message: format!("对话接口未返回 JSON：{url}"),
+            });
+        }
+        return Ok(text);
+    }
+    Err(ChatRequestError {
+        fatal: false,
+        message: format!(
+            "分析请求失败：{}",
+            last_transport
+                .as_ref()
+                .map(describe_reqwest)
+                .unwrap_or_else(|| "无法连接对话接口".into())
+        ),
+    })
+}
+
+fn quota_exhausted(text: &str) -> bool {
+    let lowered = text.to_ascii_lowercase();
+    text.contains("余额不足") || text.contains("额度不足") || lowered.contains("insufficient")
+}
+
+fn chat_error_detail(text: &str) -> String {
+    if let Ok(value) = serde_json::from_str::<Value>(text) {
+        let message = value
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .or_else(|| value.get("msg").and_then(Value::as_str))
+            .or_else(|| value.get("message").and_then(Value::as_str))
+            .unwrap_or("")
+            .trim();
+        if !message.is_empty() {
+            return format!("：{message}");
+        }
+    }
+    String::new()
+}
+
+fn describe_reqwest(error: &reqwest::Error) -> String {
+    let kind = if error.is_timeout() {
+        "超时"
+    } else if error.is_connect() {
+        "无法连接"
+    } else {
+        "网络错误"
+    };
+    let url = error.url().map(|item| format!(" {}", item)).unwrap_or_default();
+    let mut chain = Vec::new();
+    let mut current: Option<&dyn Error> = Some(error);
+    while let Some(item) = current {
+        chain.push(item.to_string());
+        current = item.source();
+    }
+    format!("{kind}{url}：{}", chain.join("；"))
+}
+
+pub fn save_analysis_prefs(
+    database: &Database,
+    analyze: bool,
+    range_key: &str,
+    source_id: Option<&str>,
+) -> Result<(), String> {
+    let range_key = match range_key {
+        "today" | "7d" => range_key,
+        _ => "3d",
+    };
+    database.set_setting_bool("radar_analyze", analyze)?;
+    database.set_setting_string("radar_range_key", range_key)?;
+    database.set_setting_string("radar_source_id", source_id.unwrap_or(""))
+}
+
+fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String> {
+    Ok(RadarAnalysisPrefs {
+        analyze: database.setting_bool("radar_analyze")?,
+        range_key: database
+            .setting_string("radar_range_key")?
+            .filter(|value| matches!(value.as_str(), "today" | "3d" | "7d"))
+            .unwrap_or_else(|| "3d".into()),
+        source_id: database
+            .setting_string("radar_source_id")?
+            .filter(|value| !value.is_empty()),
     })
 }
 
@@ -694,32 +926,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn old_explicit_reset_is_settled() {
-        let post = TiboPostView {
-            id: "reset-1".into(),
-            url: "https://x.com/t/1".into(),
-            text: "reset landed".into(),
-            posted_at: epoch_ms() - 19 * 60 * 60 * 1000,
-            kind: "candidate".into(),
-            badge: "重置相关".into(),
-            filter: "signal".into(),
-            explicit_reset: true,
-            is_reply: false,
-            replies: 0,
-            reposts: 0,
-            likes: 0,
-            synced_at: epoch_ms(),
-            translated_text: None,
-            translated_at: None,
-            translation_source: None,
-            summary: None,
-            analysis: None,
-        };
-        assert!(is_settled_reset_view(&post));
-        let recent = TiboPostView {
-            posted_at: epoch_ms() - 60 * 60 * 1000,
-            ..post
-        };
-        assert!(!is_settled_reset_view(&recent));
+    fn english_signal_labels_become_chinese() {
+        assert_eq!(display_signal_label("reset_related"), "重置相关");
+        assert_eq!(display_signal_label("reset_announcement"), "重置公告");
+        assert_eq!(display_signal_label("RESET"), "重置相关");
+        assert_eq!(display_signal_label("无重置信号"), "无重置信号");
+        assert_eq!(display_signal_label("间接相关"), "间接相关");
+    }
+
+    #[test]
+    fn glm_chat_uses_coding_plan_endpoint() {
+        let urls = glm_chat_candidates(Some("https://open.bigmodel.cn"), false);
+        assert_eq!(urls[0].0, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions");
+        assert!(urls.iter().any(|(url, _)| url == "https://open.bigmodel.cn/api/paas/v4/chat/completions"));
+        let intl = glm_chat_candidates(Some("https://api.z.ai"), true);
+        assert_eq!(intl[0].0, "https://api.z.ai/api/coding/paas/v4/chat/completions");
     }
 }

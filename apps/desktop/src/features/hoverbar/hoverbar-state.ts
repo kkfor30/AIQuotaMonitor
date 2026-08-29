@@ -150,11 +150,13 @@ export function radarConfidenceLabel(confidence: string): string {
   return confidence;
 }
 
-/** 摘要条第二行的来源状态：只用真实同步时间，不编造。 */
+/** 摘要条第二行：只保留更新时间，不附加来源站名。 */
 export function radarSourceLine(radar: RadarSnapshot): string {
-  if (radar.sourceStatus === "stale") return "来源 CodexRadar · 缓存可能过期";
-  if (radar.lastSyncedAt) return `来源 CodexRadar · 更新 ${formatHoverbarClock(radar.lastSyncedAt)}`;
-  return "来源 CodexRadar · 未同步";
+  if (radar.lastSyncedAt && radar.sourceStatus === "stale") {
+    return `更新 ${formatHoverbarClock(radar.lastSyncedAt)} · 缓存可能过期`;
+  }
+  if (radar.lastSyncedAt) return `更新 ${formatHoverbarClock(radar.lastSyncedAt)}`;
+  return "尚未同步";
 }
 
 /** 悬浮球头部状态文案：成功/部分/失败同时用文字表达。 */

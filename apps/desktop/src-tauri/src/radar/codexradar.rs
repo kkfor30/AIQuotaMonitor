@@ -51,7 +51,9 @@ fn parse_one_post(chunk: &str, synced_at: i64) -> Option<TiboPostRecord> {
         format!("https://x.com/thsottiaux/status/{id}")
     });
     let relevance = attr(chunk, "data-reset-relevance").unwrap_or_else(|| "none".into());
-    let label = class_text(chunk, "reset-tibo-post-relevance").unwrap_or_else(|| label_for(&relevance));
+    let label = class_text(chunk, "reset-tibo-post-relevance")
+        .map(|value| super::display_signal_label(&value))
+        .unwrap_or_else(|| super::display_signal_label(&relevance));
     let original = labeled_paragraph(chunk, "reset-tibo-post-original")?;
     if original.is_empty() {
         return None;
@@ -94,15 +96,6 @@ fn parse_one_post(chunk: &str, synced_at: i64) -> Option<TiboPostRecord> {
 fn is_explicit_reset(relevance: &str, label: &str) -> bool {
     matches!(relevance, "direct" | "reset" | "signal")
         || (label.contains("重置") && !label.contains("无重置") && !label.contains("间接"))
-}
-
-fn label_for(relevance: &str) -> String {
-    match relevance {
-        "none" => "无重置信号".into(),
-        "indirect" => "间接相关".into(),
-        "direct" | "reset" | "signal" => "重置相关".into(),
-        other => other.to_string(),
-    }
 }
 
 fn labeled_paragraph(block: &str, class: &str) -> Option<String> {
