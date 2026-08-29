@@ -74,7 +74,7 @@ function cap(
 const gptPlatform: PlatformSummaryViewModel = {
   providerId: "openai",
   displayName: "GPT / Codex",
-  aggregateStatus: "partial",
+  aggregateStatus: "healthy",
   accessSummary: "本机 Codex + 额外账号",
   sources: [
     source("openai-codex-local", "本机 Codex（当前 CLI）", ["quota_window_5h", "quota_window_7d", "credits", "plan_level"], "local_cli"),

@@ -487,8 +487,8 @@ fn parse_app_server(account: Value, rate_limits: Value) -> Result<Vec<Capability
         append_plan_and_credits(&mut capabilities, None, &rate_limits);
     }
     deduplicate_capabilities(&mut capabilities);
-    if capabilities.iter().all(|value| !value.capability_id.starts_with("quota_window_")) {
-        return Err(AppServerError::Protocol("Codex app-server 未返回可识别的订阅窗口".into()));
+    if !codex_capabilities_usable(&capabilities) {
+        return Err(AppServerError::Protocol("Codex app-server 未返回可识别的订阅窗口或套餐".into()));
     }
     Ok(capabilities)
 }
@@ -569,7 +569,7 @@ async fn fetch_wham_at(client: &Client, home: Option<&Path>) -> Result<Vec<Capab
             &body,
         );
         deduplicate_capabilities(&mut capabilities);
-        if capabilities.iter().all(|value| !value.capability_id.starts_with("quota_window_")) {
+        if !codex_capabilities_usable(&capabilities) {
             return Err(RefreshError::new(
                 "missing_quota",
                 "GPT 已登录，但未返回个人套餐额度",
@@ -628,6 +628,12 @@ fn window_capability(window: &Value) -> Option<CapabilityData> {
         }),
         progress: Some(remaining / 100.0),
         trend: vec![],
+    })
+}
+
+fn codex_capabilities_usable(capabilities: &[CapabilityData]) -> bool {
+    capabilities.iter().any(|capability| {
+        capability.capability_id.starts_with("quota_window_") || capability.capability_id == "plan_level"
     })
 }
 
@@ -785,6 +791,16 @@ mod tests {
         append_plan_and_credits(&mut values, Some("plus"), &body);
         assert_eq!(values[0].primary_value.as_deref(), Some("62.5%"));
         assert!(values.iter().any(|value| value.capability_id == "credits"));
+        assert!(codex_capabilities_usable(&values));
+    }
+
+    #[test]
+    fn free_plan_without_windows_is_usable() {
+        let mut values = Vec::new();
+        append_plan_and_credits(&mut values, Some("free"), &json!({}));
+        assert!(values.iter().any(|value| value.capability_id == "plan_level"));
+        assert!(codex_capabilities_usable(&values));
+        assert!(!codex_capabilities_usable(&[]));
     }
 
     #[cfg(windows)]

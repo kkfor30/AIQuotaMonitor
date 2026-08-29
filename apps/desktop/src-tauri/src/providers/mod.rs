@@ -567,9 +567,7 @@ fn aggregate_status(
     let has_value = relevant.iter().any(|value| value.freshness != DataFreshness::Missing);
     let all_ready = configured.iter().all(|source| matches!(source.state, SourceState::Ready));
     let all_fresh = relevant.iter().all(|value| {
-        value.freshness == DataFreshness::Fresh
-            || (matches!(value.capability_id.as_str(), "credits" | "plan_level" | "quota_window_7d")
-                && value.freshness == DataFreshness::Missing)
+        value.freshness == DataFreshness::Fresh || missing_capability_ok(value, capabilities)
     });
     if all_ready && all_fresh {
         PlatformAggregateStatus::Healthy
@@ -582,6 +580,33 @@ fn aggregate_status(
     } else {
         PlatformAggregateStatus::Error
     }
+}
+
+fn missing_capability_ok(
+    capability: &CapabilitySnapshotViewModel,
+    capabilities: &[CapabilitySnapshotViewModel],
+) -> bool {
+    if capability.freshness != DataFreshness::Missing {
+        return false;
+    }
+    match capability.capability_id.as_str() {
+        "credits" | "plan_level" | "quota_window_7d" => true,
+        "quota_window_5h" => source_plan_is_free(&capability.source_id, capabilities),
+        _ => false,
+    }
+}
+
+fn source_plan_is_free(source_id: &str, capabilities: &[CapabilitySnapshotViewModel]) -> bool {
+    capabilities.iter().any(|capability| {
+        capability.source_id == source_id
+            && capability.capability_id == "plan_level"
+            && capability.freshness != DataFreshness::Missing
+            && capability
+                .value
+                .primary
+                .as_deref()
+                .is_some_and(|plan| plan.trim().eq_ignore_ascii_case("free"))
+    })
 }
 
 fn access_mode(source_id: &str, source_type: &str) -> String {
@@ -770,5 +795,38 @@ mod tests {
     fn no_configured_source_is_setup_required() {
         let sources = vec![source("glm-coding-plan", false, SourceState::AuthRequired)];
         assert_eq!(aggregate_status(&sources, &[]), PlatformAggregateStatus::SetupRequired);
+    }
+
+    #[test]
+    fn free_extra_account_missing_windows_keeps_platform_healthy() {
+        let sources = vec![
+            source("openai-codex-local", true, SourceState::Ready),
+            source("openai-codex-extra-1", true, SourceState::Ready),
+        ];
+        let mut extra_plan = capability("plan_level", "openai-codex-extra-1", DataFreshness::Fresh);
+        extra_plan.value.primary = Some("Free".into());
+        let capabilities = vec![
+            capability("quota_window_5h", "openai-codex-local", DataFreshness::Fresh),
+            capability("quota_window_7d", "openai-codex-local", DataFreshness::Fresh),
+            capability("plan_level", "openai-codex-local", DataFreshness::Fresh),
+            capability("quota_window_5h", "openai-codex-extra-1", DataFreshness::Missing),
+            capability("quota_window_7d", "openai-codex-extra-1", DataFreshness::Missing),
+            capability("credits", "openai-codex-extra-1", DataFreshness::Missing),
+            extra_plan,
+        ];
+        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Healthy);
+    }
+
+    #[test]
+    fn plus_account_missing_5h_is_partial() {
+        let sources = vec![source("openai-codex-local", true, SourceState::Ready)];
+        let mut plan = capability("plan_level", "openai-codex-local", DataFreshness::Fresh);
+        plan.value.primary = Some("Plus".into());
+        let capabilities = vec![
+            capability("quota_window_5h", "openai-codex-local", DataFreshness::Missing),
+            capability("quota_window_7d", "openai-codex-local", DataFreshness::Fresh),
+            plan,
+        ];
+        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Partial);
     }
 }

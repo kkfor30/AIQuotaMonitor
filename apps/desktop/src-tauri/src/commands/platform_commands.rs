@@ -355,7 +355,10 @@ pub async fn start_source_login(
 }
 
 #[tauri::command]
-pub fn add_codex_account(database: State<'_, Database>) -> Result<Vec<PlatformSummaryViewModel>, String> {
+pub fn add_codex_account(
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
     if database.user_platform("openai")?.is_none() {
         return Err("请先添加 GPT / Codex 平台".into());
     }
@@ -375,6 +378,26 @@ pub fn add_codex_account(database: State<'_, Database>) -> Result<Vec<PlatformSu
     );
     let label = format!("额外 ChatGPT 账号 {}", extras + 1);
     database.ensure_account_source(&id, "openai", &id, "oauth", &label, &label)?;
+    let _ = app.emit("platform-data-changed", ());
+    providers::platform_summaries(&database)
+}
+
+#[tauri::command]
+pub fn rename_codex_account(
+    source_id: String,
+    display_name: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    require_label(&window, &["main"])?;
+    if !crate::providers::codex::is_extra_source(&source_id) {
+        return Err("只能重命名额外 ChatGPT 账号".into());
+    }
+    let name = normalize_extra_account_name(&display_name)?;
+    database.source(&source_id)?;
+    database.rename_source(&source_id, &name)?;
+    let _ = app.emit("platform-data-changed", ());
     providers::platform_summaries(&database)
 }
 
@@ -382,6 +405,7 @@ pub fn add_codex_account(database: State<'_, Database>) -> Result<Vec<PlatformSu
 pub fn remove_codex_account(
     source_id: String,
     database: State<'_, Database>,
+    app: AppHandle,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     if !crate::providers::codex::is_extra_source(&source_id) {
         return Err("只能移除额外 ChatGPT 账号".into());
@@ -392,7 +416,22 @@ pub fn remove_codex_account(
         let _ = std::fs::remove_dir_all(home);
     }
     database.delete_account(&source.account_id)?;
+    let _ = app.emit("platform-data-changed", ());
     providers::platform_summaries(&database)
+}
+
+fn normalize_extra_account_name(display_name: &str) -> Result<String, String> {
+    let name = display_name.trim();
+    if name.is_empty() {
+        return Err("账号名称不能为空".into());
+    }
+    if name.chars().count() > 40 {
+        return Err("账号名称最多 40 个字".into());
+    }
+    if name.chars().any(char::is_control) {
+        return Err("账号名称包含无效字符".into());
+    }
+    Ok(name.to_string())
 }
 
 fn extra_codex_home(database: &Database, source_id: &str) -> Option<std::path::PathBuf> {

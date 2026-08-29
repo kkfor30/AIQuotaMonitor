@@ -23,19 +23,19 @@
 ## 多账户结构
 
 ```text
-GPT / Codex        2 个账户       部分可用
+GPT / Codex        2 个账户       正常
 ├─ 本机账户   Plus   正常
 │  ├─ 5小时窗口：62%   重置 14:30
 │  └─ 7天窗口：81%     重置 09/02 08:00
-└─ 账号 2     Free   部分可用
+└─ 工作账号   Free   正常
    ├─ 5小时窗口：40%   重置 16:10
    └─ 7天窗口：暂不可用
 ```
 
 - 平台状态继续使用 `platform.aggregateStatus`。
 - 账户按配置的 Source 分组，能力通过 `sourceId` 归属账户。
-- 账户状态由 Source 状态和该 Source 能力 freshness 汇总：完整 fresh 为正常；部分缺失或 stale 为部分可用；认证失效或没有可用能力为异常。
-- 套餐只读取同一 Source 的 `plan_level`，不得根据账号位置或名称推断 Plus/Pro/Free。
+- 账户状态：认证失效或刷新失败为异常；有可用套餐或窗口且无过期缓存为正常；缓存过期为部分可用。Free 缺少 7 天窗口属于套餐能力差异，不视为部分可用或异常。
+- 套餐只读取同一 Source 的 `plan_level`，不得根据账号位置或名称推断 Plus/Pro/Free。Plus/Pro/Free 使用同一主色胶囊。
 - 重置时间从窗口能力 `value.secondary` 中的真实“重置…”片段展示；没有真实重置时间就不显示。
 
 ## 实现位置

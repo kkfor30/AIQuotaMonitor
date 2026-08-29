@@ -13,6 +13,7 @@ import {
   openExternalUrl,
   refreshPlatform,
   removeCodexAccount,
+  renameCodexAccount,
   revealSourceSecret,
   saveSourceCredential,
   startSourceLogin,
@@ -42,6 +43,8 @@ export function SourceEditorDrawer({
   const [error, setError] = useState<string | null>(null);
   const [loginStatus, setLoginStatus] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [displayName, setDisplayName] = useState("");
   const [loginOpened, setLoginOpened] = useState(false);
   const [verifiedSecret, setVerifiedSecret] = useState<string | null>(null);
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null);
@@ -53,11 +56,17 @@ export function SourceEditorDrawer({
     setError(null);
     setLoginStatus(null);
     setConfirmClear(false);
+    setConfirmRemove(false);
+    setDisplayName(source?.displayName ?? "");
     setLoginOpened(false);
     setVerifiedSecret(null);
     setVerifyMessage(null);
     setSpeedOpen(false);
   }, [source?.sourceId, setupQuery.data?.apiBaseUrl]);
+
+  useEffect(() => {
+    setDisplayName(source?.displayName ?? "");
+  }, [source?.displayName]);
 
   useEffect(() => {
     if (!source?.supportsInteractiveLogin) return;
@@ -144,6 +153,14 @@ export function SourceEditorDrawer({
     },
     onError: (cause) => setError(ipcErrorMessage(cause, source?.supportsCliLogin ? "无法启动 Codex 登录。" : "无法启动网页登录。")),
   });
+  const renameMutation = useMutation({
+    mutationFn: () => renameCodexAccount(source!.sourceId, displayName),
+    onSuccess: (platforms) => {
+      updatePlatforms(platforms);
+      setError(null);
+    },
+    onError: (cause) => setError(ipcErrorMessage(cause, "重命名失败，请稍后重试。")),
+  });
   const removeExtraMutation = useMutation({
     mutationFn: () => removeCodexAccount(source!.sourceId),
     onSuccess: (platforms) => { updatePlatforms(platforms); close(); },
@@ -159,7 +176,8 @@ export function SourceEditorDrawer({
   const input = source.credentialInput ?? null;
   const isCli = source.supportsCliLogin === true;
   const isExtraCodex = source.sourceId.startsWith("openai-codex-extra-");
-  const busy = verifyMutation.isPending || saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending || removeExtraMutation.isPending;
+  const busy = verifyMutation.isPending || saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending || renameMutation.isPending || removeExtraMutation.isPending;
+  const nameChanged = displayName.trim() !== source.displayName && displayName.trim().length > 0;
   const setup = setupQuery.data;
   const showApiUrl = source.sourceType === "api_key" && source.sourceId !== "kimi-balance-api";
   const webLoginHint = webLoginCopy(source.sourceId);
@@ -173,6 +191,30 @@ export function SourceEditorDrawer({
           <Button variant="ghost" size="sm" onClick={close} aria-label="关闭编辑来源"><X size={16} /></Button>
         </div>
         <div className="mt-6 flex flex-1 flex-col gap-4">
+          {isExtraCodex && (
+            <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
+              账号名称
+              <div className="flex gap-2">
+                <input
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  maxLength={40}
+                  disabled={busy}
+                  placeholder="给这个额外账号起个名字"
+                  className="h-10 min-w-0 flex-1 rounded-q-control border border-q-border bg-q-surface px-3 text-sm font-normal text-q-text-primary outline-none focus:border-q-primary"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { setError(null); renameMutation.mutate(); }}
+                  disabled={busy || !nameChanged}
+                >
+                  {renameMutation.isPending ? "保存中…" : "保存名称"}
+                </Button>
+              </div>
+            </label>
+          )}
           {setup?.officialUrl && (
             <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
               官网链接
@@ -281,14 +323,12 @@ export function SourceEditorDrawer({
           {verifyMessage && <p className="rounded-q-control border border-q-success/25 bg-q-success-soft px-3 py-2 text-xs text-q-success">{verifyMessage}</p>}
           {loginStatus && <p className="rounded-q-control border border-q-warning/30 bg-q-warning-soft px-3 py-2 text-xs leading-relaxed text-q-text-secondary">{loginStatus}</p>}
           {error && <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">{error}</p>}
-          {(source.credentialConfigured || isCli) && (confirmClear ? (
+          {!isExtraCodex && (source.credentialConfigured || isCli) && (confirmClear ? (
             <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3">
               <p className="text-xs leading-relaxed text-q-danger">
-                {isExtraCodex
-                  ? "只清除这个额外账号的独立登录，不会退出本机 Codex CLI。确定继续？"
-                  : source.sourceType === "local_cli"
-                    ? "将退出本机 Codex CLI 的 ChatGPT 登录。Codex 命令行也需要重新登录，确定继续？"
-                    : "清除后将无法通过此来源获取对应额度，确定继续？"}
+                {source.sourceType === "local_cli"
+                  ? "将退出本机 Codex CLI 的 ChatGPT 登录。Codex 命令行也需要重新登录，确定继续？"
+                  : "清除后将无法通过此来源获取对应额度，确定继续？"}
               </p>
               <div className="mt-3 flex gap-2">
                 <Button size="sm" onClick={() => clearMutation.mutate()} disabled={busy}>
@@ -301,14 +341,28 @@ export function SourceEditorDrawer({
             </div>
           ) : (
             <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)} disabled={busy}>
-              {isExtraCodex ? "清除这个账号登录" : source.sourceType === "local_cli" ? "清除本机登录" : "清除凭据"}
+              {source.sourceType === "local_cli" ? "清除本机登录" : "清除凭据"}
             </Button>
           ))}
-          {isExtraCodex && (
-            <Button variant="ghost" size="sm" onClick={() => removeExtraMutation.mutate()} disabled={busy}>
-              {removeExtraMutation.isPending ? "移除中…" : "移除这个额外账号"}
+          {isExtraCodex && (confirmRemove ? (
+            <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3">
+              <p className="text-xs leading-relaxed text-q-danger">
+                将删除这个额外账号、独立登录目录和已缓存额度。本机 Codex 不受影响。确定继续？
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" onClick={() => removeExtraMutation.mutate()} disabled={busy}>
+                  {removeExtraMutation.isPending ? "移除中…" : "确认移除"}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirmRemove(false)} disabled={busy}>
+                  取消
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="ghost" size="sm" className="text-q-danger hover:text-q-danger" onClick={() => setConfirmRemove(true)} disabled={busy}>
+              移除这个账号
             </Button>
-          )}
+          ))}
         </div>
         <div className="flex justify-end gap-2 border-t border-q-border pt-4">
           <Button variant="ghost" onClick={close}>取消</Button>

@@ -529,7 +529,7 @@ html.hoverbar-window #root {
   background: var(--q-danger-soft);
 }
 
-/* 套餐徽章：Plus/Pro 主色、Free 中性，跟随账户名。 */
+/* 套餐徽章：Plus/Pro/Free 同一主色胶囊；未知套餐才用中性底。 */
 .hb-plan-chip {
   display: inline-flex;
   align-items: center;
@@ -544,7 +544,6 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-.hb-plan-chip[data-plan="free"],
 .hb-plan-chip[data-plan="other"] {
   color: var(--q-hoverbar-muted-strong);
   background: var(--q-hoverbar-empty-bg);

@@ -186,6 +186,28 @@ impl Database {
         Ok(())
     }
 
+    pub fn rename_source(&self, source_id: &str, display_name: &str) -> Result<(), String> {
+        let source = self.source(source_id)?;
+        let connection = self.connect()?;
+        let now = epoch_ms();
+        let renamed = connection
+            .execute(
+                "UPDATE sources SET display_name = ?2, updated_at = ?3 WHERE id = ?1",
+                params![source_id, display_name, now],
+            )
+            .map_err(|err| format!("重命名来源失败: {err}"))?;
+        if renamed == 0 {
+            return Err("未找到该来源".into());
+        }
+        connection
+            .execute(
+                "UPDATE accounts SET display_name = ?2, updated_at = ?3 WHERE id = ?1",
+                params![source.account_id, display_name, now],
+            )
+            .map_err(|err| format!("重命名账户失败: {err}"))?;
+        Ok(())
+    }
+
     pub fn delete_account(&self, account_id: &str) -> Result<(), String> {
         if matches!(account_id, "openai-codex-local" | "deepseek-default") {
             return Err("不能删除默认账户".into());

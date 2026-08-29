@@ -54,6 +54,13 @@ export async function addCodexAccount(): Promise<PlatformSummaryViewModel[]> {
   return invoke<PlatformSummaryViewModel[]>("add_codex_account");
 }
 
+export async function renameCodexAccount(
+  sourceId: string,
+  displayName: string,
+): Promise<PlatformSummaryViewModel[]> {
+  return invoke<PlatformSummaryViewModel[]>("rename_codex_account", { sourceId, displayName });
+}
+
 export async function removeCodexAccount(sourceId: string): Promise<PlatformSummaryViewModel[]> {
   return invoke<PlatformSummaryViewModel[]>("remove_codex_account", { sourceId });
 }

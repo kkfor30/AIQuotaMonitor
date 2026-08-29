@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { KeyRound, Globe, Terminal, ShieldCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -28,17 +29,34 @@ export function SourceCard({
   apiBaseUrl,
   onEdit,
   onRefresh,
+  onRename,
   refreshing = false,
+  renaming = false,
 }: {
   source: SourceSummaryViewModel;
   focused?: boolean;
   apiBaseUrl?: string | null;
   onEdit: () => void;
   onRefresh?: () => void;
+  onRename?: (displayName: string) => void;
   refreshing?: boolean;
+  renaming?: boolean;
 }) {
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const meta = SOURCE_STATE_META[source.state];
+  const [draftName, setDraftName] = useState(source.displayName);
+  useEffect(() => {
+    setDraftName(source.displayName);
+  }, [source.displayName]);
+  const commitRename = () => {
+    const next = draftName.trim();
+    if (!onRename) return;
+    if (!next || next === source.displayName) {
+      setDraftName(source.displayName);
+      return;
+    }
+    onRename(next);
+  };
 
   return (
     <div
@@ -52,10 +70,30 @@ export function SourceCard({
           <div className="flex h-9 w-9 items-center justify-center rounded-[11px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm">
             <Icon size={17} aria-hidden />
           </div>
-          <div>
-            <p className="text-sm font-medium text-q-text-primary">{source.displayName}</p>
+          <div className="min-w-0">
+            {onRename ? (
+              <input
+                value={draftName}
+                onChange={(event) => setDraftName(event.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                  if (event.key === "Escape") {
+                    setDraftName(source.displayName);
+                    event.currentTarget.blur();
+                  }
+                }}
+                disabled={renaming}
+                maxLength={40}
+                aria-label="账号名称"
+                className="h-7 w-full min-w-0 rounded-md border border-transparent bg-transparent px-1 text-sm font-medium text-q-text-primary outline-none hover:border-q-border focus:border-q-primary"
+              />
+            ) : (
+              <p className="text-sm font-medium text-q-text-primary">{source.displayName}</p>
+            )}
             <p className="mt-0.5 text-xs text-q-text-muted">
               {source.accessMode ? ACCESS_MODE_LABEL[source.accessMode as SourceAccessMode] : SOURCE_TYPE_LABEL[source.sourceType]}
+              {onRename ? " · 点击名称可重命名" : ""}
             </p>
           </div>
         </div>

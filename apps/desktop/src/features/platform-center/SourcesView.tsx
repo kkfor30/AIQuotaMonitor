@@ -9,6 +9,7 @@ import {
   inspectLegacyConfig,
   ipcErrorMessage,
   refreshPlatform,
+  renameCodexAccount,
   startSourceLogin,
 } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
@@ -44,6 +45,13 @@ export function SourcesView({
   });
   const refreshMutation = useMutation({
     mutationFn: () => refreshPlatform(platform.providerId),
+    onSuccess: (platforms) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
+    },
+  });
+  const renameMutation = useMutation({
+    mutationFn: ({ sourceId, displayName }: { sourceId: string; displayName: string }) =>
+      renameCodexAccount(sourceId, displayName),
     onSuccess: (platforms) => {
       queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
     },
@@ -108,13 +116,24 @@ export function SourcesView({
             apiBaseUrl={platform.apiBaseUrl}
             onEdit={() => setEditingSourceId(source.sourceId)}
             onRefresh={source.supportsCliLogin ? () => refreshMutation.mutate() : undefined}
+            onRename={
+              source.sourceId.startsWith("openai-codex-extra-")
+                ? (displayName) => renameMutation.mutate({ sourceId: source.sourceId, displayName })
+                : undefined
+            }
             refreshing={refreshMutation.isPending}
+            renaming={renameMutation.isPending && renameMutation.variables?.sourceId === source.sourceId}
           />
         ))}
       </div>
       {refreshMutation.error && (
         <p className="mt-3 rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
           {ipcErrorMessage(refreshMutation.error, "本地来源检测失败，请稍后重试。")}
+        </p>
+      )}
+      {renameMutation.error && (
+        <p className="mt-3 rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
+          {ipcErrorMessage(renameMutation.error, "重命名失败，请稍后重试。")}
         </p>
       )}
       {platform.providerId === "openai" && (

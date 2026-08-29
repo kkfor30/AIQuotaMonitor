@@ -288,7 +288,7 @@ function groupFromSource(
     id: source.sourceId,
     title: accountTitle(source),
     plan,
-    status: sourceStatus(source.state, metrics),
+    status: sourceStatus(source.state, metrics, plan),
     metrics,
     localAccount: source.sourceId === "openai-codex-local",
   };
@@ -347,11 +347,12 @@ function extractWindowTime(secondary: string | null | undefined): string | null 
   return time || null;
 }
 
-function sourceStatus(state: SourceState, metrics: HoverbarMetric[]): AccountStatus {
+function sourceStatus(state: SourceState, metrics: HoverbarMetric[], plan: string | null): AccountStatus {
+  if (state === "auth_required" || state === "error") return "error";
   const usable = metrics.filter((metric) => metric.value !== null);
-  if (state === "auth_required" || state === "error" || usable.length === 0) return "error";
-  const complete = metrics.length > 0 && metrics.every((metric) => metric.freshness === "fresh" && metric.value);
-  if (complete && (state === "ready" || state === "refreshing")) return "healthy";
+  if (usable.length === 0 && !plan) return "error";
+  if (usable.some((metric) => metric.freshness === "stale")) return "partial";
+  if (state === "ready" || state === "refreshing") return "healthy";
   return "partial";
 }
 
@@ -363,8 +364,9 @@ function mergeStatus(statuses: AccountStatus[]): AccountStatus {
 
 function accountTitle(source: SourceSummaryViewModel): string {
   if (source.sourceId === "openai-codex-local") return "本机";
+  const name = source.displayName.trim();
   if (source.sourceId.startsWith("openai-codex-extra-")) {
-    return source.displayName.replace(/^额外 ChatGPT 账号\s*/, "账号 ") || "额外账号";
+    return name.replace(/^额外 ChatGPT 账号\s*/, "账号 ") || "额外账号";
   }
-  return source.displayName.replace(/（当前 CLI）$/, "") || source.displayName;
+  return name.replace(/（当前 CLI）$/, "") || name;
 }
