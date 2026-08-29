@@ -13,6 +13,8 @@
 | `10-hoverbar-detail-top-docked.png` | 悬浮详情顶部/底部停靠；一行一个平台，多账户在同一平台卡内分组展示 |
 | `11-hoverbar-detail-side-docked.png` | 悬浮详情侧边停靠；单列紧凑卡，同平台 Token Plan 与个人余额保持在同一卡片内 |
 
+实现原则、字段白名单、多账户结构和验收标准见 `HOVERBAR-DETAIL-REDESIGN.md`。
+
 ## 页面职责
 
 ### 总览
