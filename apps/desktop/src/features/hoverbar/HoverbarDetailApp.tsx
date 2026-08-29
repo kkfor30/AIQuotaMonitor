@@ -20,6 +20,7 @@ import {
   fetchRadarSnapshot,
   ipcErrorMessage,
   openMainWindow,
+  refreshAllPlatforms,
   runRadarCheck,
 } from "@/lib/ipc";
 import {
@@ -57,10 +58,17 @@ export function HoverbarDetailApp() {
   const headerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const { data: platforms = [], isFetching, refetch } = useQuery({
+  const { data: platforms = [], isFetching } = useQuery({
     queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
     queryFn: fetchPlatformSummaries,
   });
+  const refreshPlatforms = useMutation({
+    mutationFn: refreshAllPlatforms,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
+    },
+  });
+  const platformsRefreshing = refreshPlatforms.isPending || isFetching;
   const { data: settings } = useQuery({
     queryKey: APP_SETTINGS_QUERY_KEY,
     queryFn: fetchAppSettings,
@@ -197,16 +205,25 @@ export function HoverbarDetailApp() {
     >
       <section ref={panelRef} className="hb-panel">
         <header ref={headerRef} className="hb-head">
-          <p className="hb-refresh-status" data-error={statusText.includes("失败") || undefined}>
-            {isFetching ? "正在刷新平台状态…" : statusText}
+          <p
+            className="hb-refresh-status"
+            data-error={Boolean(refreshPlatforms.error) || statusText.includes("失败") || undefined}
+          >
+            {refreshPlatforms.error
+              ? ipcErrorMessage(refreshPlatforms.error, "刷新平台失败")
+              : platformsRefreshing
+                ? "正在刷新平台额度…"
+                : statusText}
           </p>
           <div className="hb-actions">
             <DetailIconButton
-              label={isFetching ? "正在刷新" : "刷新平台状态"}
-              title={isFetching ? "正在刷新" : "刷新平台状态"}
-              onClick={() => void refetch()}
-              disabled={isFetching}
-              loading={isFetching}
+              label={platformsRefreshing ? "正在刷新" : "刷新平台额度"}
+              title={platformsRefreshing ? "正在刷新各平台额度" : "重新拉取各平台额度"}
+              onClick={() => {
+                if (!refreshPlatforms.isPending) refreshPlatforms.mutate();
+              }}
+              disabled={platformsRefreshing}
+              loading={platformsRefreshing}
             >
               <RefreshCw size={16} aria-hidden />
             </DetailIconButton>

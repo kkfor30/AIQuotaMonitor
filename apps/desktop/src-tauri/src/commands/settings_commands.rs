@@ -125,7 +125,7 @@ pub async fn refresh_all_platforms(
     database: State<'_, Database>,
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<(), String> {
-    require_label(&window, &["main"])?;
+    require_label(&window, &["main", "hoverbar-detail"])?;
     coordinator.refresh_all(&database).await?;
     let _ = app.emit("platform-data-changed", ());
     Ok(())

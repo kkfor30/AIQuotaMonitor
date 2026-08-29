@@ -62,6 +62,10 @@ export async function refreshPlatform(providerId: string): Promise<PlatformSumma
   return invoke<PlatformSummaryViewModel[]>("refresh_platform", { providerId });
 }
 
+export async function refreshAllPlatforms(): Promise<void> {
+  return invoke<void>("refresh_all_platforms");
+}
+
 export async function validateSourceCredential(
   sourceId: string,
   secret: string,

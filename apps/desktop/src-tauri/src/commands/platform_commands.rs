@@ -12,7 +12,7 @@ use crate::storage::repository::SourceRecord;
 use crate::storage::vault;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
-use tauri::{State, WebviewWindow};
+use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,10 +171,12 @@ async fn measure_endpoint(client: &reqwest::Client, raw: String) -> EndpointLate
 #[tauri::command]
 pub async fn refresh_platform(
     provider_id: String,
+    app: AppHandle,
     database: State<'_, Database>,
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     coordinator.refresh_platform(&database, &provider_id).await?;
+    let _ = app.emit("platform-data-changed", ());
     providers::platform_summaries(&database)
 }
 
