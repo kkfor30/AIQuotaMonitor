@@ -14,7 +14,8 @@ import type {
 } from "@/lib/types";
 import type { RadarSnapshot } from "@/lib/ipc";
 import { compactPercentText } from "@/lib/format";
-import { radarConfidenceLabel, radarSourceLine } from "./hoverbar-state";
+import { RadarConfidenceBadge } from "@/features/radar/RadarConfidenceBadge";
+import { radarSourceLine } from "./hoverbar-state";
 import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
 
 const CORE_IDS = ["quota_window_5h", "quota_window_7d", "balance"] as const;
@@ -224,11 +225,7 @@ function RadarStrip({
       <div className="hb-radar-strip-head">
         <Radar size={14} aria-hidden />
         <span className="hb-radar-strip-title">重置信号</span>
-        {confidence ? (
-          <span className="hb-radar-strip-confidence" data-level={confidence}>
-            {radarConfidenceLabel(confidence)}把握
-          </span>
-        ) : null}
+        {confidence ? <RadarConfidenceBadge confidence={confidence} /> : null}
         <div className="hb-radar-strip-actions">
           {onRefreshRadar ? (
             <button

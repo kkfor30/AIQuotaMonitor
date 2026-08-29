@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { fetchRadarSnapshot, ipcErrorMessage, openExternalUrl, runRadarCheck, saveRadarAnalysisPrefs } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import type { RadarPost } from "@/lib/ipc";
+import { RadarConfidenceBadge } from "@/features/radar/RadarConfidenceBadge";
 
 export function GptRadarPage() {
   const queryClient = useQueryClient();
@@ -193,7 +194,9 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
           {data?.analysis?.conclusion ? (
             <>
               <p className="text-[13px] text-q-text-primary">{data.analysis.conclusion}</p>
-              <p className="text-xs text-q-text-muted">把握度 {data.analysis.confidence ?? "—"}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <RadarConfidenceBadge confidence={data.analysis.confidence} />
+              </div>
             </>
           ) : (
             <p className="text-xs text-q-text-muted">
@@ -455,7 +458,12 @@ function AiAnalysisView({
         {analysis?.conclusion ? (
           <>
             <p className="text-[13px] leading-relaxed text-q-text-primary">{analysis.conclusion}</p>
-            <p className="text-xs text-q-text-muted">把握度 {analysis.confidence} · {analysis.model}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <RadarConfidenceBadge confidence={analysis.confidence} />
+              {analysis.model ? (
+                <span className="text-xs font-medium text-q-text-primary">模型 {analysis.model}</span>
+              ) : null}
+            </div>
             <ListBlock title="引用" items={analysis.citations} />
             <ListBlock title="支持依据" items={analysis.support} />
             <ListBlock title="反向依据" items={analysis.against} />

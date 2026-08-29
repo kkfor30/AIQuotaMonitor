@@ -7,7 +7,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Languages, RefreshCw } from "lucide-react";
 import { ipcErrorMessage, openExternalUrl, translateRadarPost, type RadarPost, type RadarSnapshot } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
-import { formatHoverbarClock, radarConfidenceLabel } from "./hoverbar-state";
+import { RadarConfidenceBadge } from "@/features/radar/RadarConfidenceBadge";
+import { formatHoverbarClock } from "./hoverbar-state";
 
 const POST_BADGE_LABEL: Record<string, string> = {
   RESET: "重置相关",
@@ -91,9 +92,10 @@ export function HoverbarRadarDetail({
             <p className="hb-radar-text" data-selectable="true">
               {analysis.conclusion}
             </p>
-            <p className="hb-radar-meta">
-              把握度 {radarConfidenceLabel(analysis.confidence ?? "")} · 模型 {analysis.model ?? "—"}
-            </p>
+            <div className="hb-radar-meta-row">
+              <RadarConfidenceBadge confidence={analysis.confidence} />
+              <span className="hb-radar-meta">模型 {analysis.model ?? "—"}</span>
+            </div>
             <p className="hb-radar-meta">
               支持 {analysis.support.length} · 反向 {analysis.against.length} · 不确定 {analysis.uncertainty.length}
             </p>

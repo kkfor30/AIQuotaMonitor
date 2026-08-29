@@ -764,8 +764,11 @@ html.hoverbar-window #root {
   overflow-wrap: anywhere;
 }
 
+.radar-confidence-badge,
 .hb-radar-strip-confidence {
+  display: inline-flex;
   flex: none;
+  align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
@@ -774,18 +777,37 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+.radar-confidence-badge[data-level="high"],
 .hb-radar-strip-confidence[data-level="high"] {
-  color: var(--q-hoverbar-success);
+  color: var(--q-success-strong);
   background: var(--q-success-soft);
 }
 
+.radar-confidence-badge[data-level="medium"],
 .hb-radar-strip-confidence[data-level="medium"] {
-  color: var(--q-hoverbar-warning);
+  color: var(--q-warning);
   background: var(--q-warning-soft);
 }
 
+.radar-confidence-badge[data-level="low"],
 .hb-radar-strip-confidence[data-level="low"] {
-  color: var(--q-hoverbar-muted-strong);
+  color: var(--q-text-primary);
+  background: var(--q-neutral-soft);
+}
+
+.hb-detail-root .radar-confidence-badge[data-level="high"],
+.hb-detail-root .hb-radar-strip-confidence[data-level="high"] {
+  color: var(--q-hoverbar-success);
+}
+
+.hb-detail-root .radar-confidence-badge[data-level="medium"],
+.hb-detail-root .hb-radar-strip-confidence[data-level="medium"] {
+  color: var(--q-hoverbar-warning);
+}
+
+.hb-detail-root .radar-confidence-badge[data-level="low"],
+.hb-detail-root .hb-radar-strip-confidence[data-level="low"] {
+  color: var(--q-hoverbar-ink);
   background: var(--q-hoverbar-empty-bg);
 }
 
@@ -814,9 +836,9 @@ html.hoverbar-window #root {
 .hb-radar-strip-note {
   margin: 0;
   color: var(--q-hoverbar-ink);
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 15px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
 }
 
 .hb-radar-strip-error {
@@ -975,15 +997,28 @@ html.hoverbar-window #root {
   margin: 0;
   color: var(--q-hoverbar-ink);
   font-size: 13px;
+  font-weight: 650;
   line-height: 19px;
+}
+
+.hb-radar-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.hb-radar-meta-row .hb-radar-meta {
+  margin: 0;
 }
 
 .hb-radar-meta {
   margin: 6px 0 0;
   color: var(--q-hoverbar-ink);
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 17px;
 }
 
 .hb-radar-error {
@@ -1029,10 +1064,10 @@ html.hoverbar-window #root {
 .hb-radar-post-time {
   margin-left: auto;
   color: var(--q-hoverbar-ink);
-  font-size: 11px;
-  font-weight: 680;
+  font-size: 12px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  line-height: 15px;
+  line-height: 16px;
   white-space: nowrap;
 }
 
@@ -1040,6 +1075,7 @@ html.hoverbar-window #root {
   margin: 0;
   color: var(--q-hoverbar-ink);
   font-size: 12px;
+  font-weight: 650;
   line-height: 18px;
 }
 
@@ -1081,9 +1117,9 @@ html.hoverbar-window #root {
   min-width: 0;
   overflow: hidden;
   color: var(--q-hoverbar-ink);
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 15px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1092,9 +1128,9 @@ html.hoverbar-window #root {
   margin: 0;
   padding: 2px 0 4px;
   color: var(--q-hoverbar-ink);
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 15px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
   text-align: center;
 }
 
