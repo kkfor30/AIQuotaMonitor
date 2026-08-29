@@ -592,6 +592,10 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+.hb-row-mid {
+  min-width: 0;
+}
+
 .hb-row-end {
   display: inline-flex;
   min-width: 0;
@@ -599,6 +603,11 @@ html.hoverbar-window #root {
   justify-self: end;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.hb-row[data-align="end"] .hb-row-end .hb-row-value {
+  font-size: 15px;
+  line-height: 19px;
 }
 
 .hb-row-value {
@@ -1145,8 +1154,11 @@ html.hoverbar-window #root {
 }
 
 .hb-detail-root[data-edge="left"] .hb-row[data-id="balance"] .hb-row-value,
-.hb-detail-root[data-edge="right"] .hb-row[data-id="balance"] .hb-row-value {
-  font-size: 15px;
+.hb-detail-root[data-edge="right"] .hb-row[data-id="balance"] .hb-row-value,
+.hb-detail-root[data-edge="left"] .hb-row[data-align="end"] .hb-row-end .hb-row-value,
+.hb-detail-root[data-edge="right"] .hb-row[data-align="end"] .hb-row-end .hb-row-value {
+  font-size: 14px;
+  line-height: 18px;
 }
 
 @media (prefers-reduced-motion: reduce) {

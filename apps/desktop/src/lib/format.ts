@@ -1,5 +1,10 @@
 /** 展示层格式化工具（金额已由后端格式化，此处仅处理时间与文本）。 */
 
+/** 去掉百分比里无意义的 `.0`，例如 `40.0%` → `40%`，保留 `62.5%`。 */
+export function compactPercentText(value: string): string {
+  return value.replace(/(\d+)\.0(?=%)/g, "$1");
+}
+
 export function formatTime(epochMs: number | null | undefined): string {
   if (!epochMs) return "—";
   const date = new Date(epochMs);

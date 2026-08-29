@@ -1,7 +1,7 @@
 import { Banknote, Coins, Flame, Gauge, TrendingUp, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { FreshnessTag } from "@/components/ui/StatusBadge";
-import { formatTime } from "@/lib/format";
+import { compactPercentText, formatTime } from "@/lib/format";
 import type { CapabilitySnapshotViewModel } from "@/lib/types";
 
 /** 能力卡片的图标映射（按能力 id；未知能力用仪表盘图标）。 */
@@ -47,10 +47,10 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
             className="text-[26px] font-semibold leading-none tracking-tight text-q-text-primary"
             data-selectable="true"
           >
-            {capability.value.primary}
+            {compactPercentText(capability.value.primary)}
           </p>
           {capability.value.secondary && (
-            <p className="mt-1.5 text-xs text-q-text-muted">{capability.value.secondary}</p>
+            <p className="mt-1.5 text-xs text-q-text-muted">{compactPercentText(capability.value.secondary)}</p>
           )}
         </div>
       ) : isTrend ? (
@@ -58,7 +58,7 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
       ) : capability.value.secondary ? (
         <div>
           <p className="text-[13px] text-q-text-muted">暂无统计值</p>
-          <p className="mt-1.5 text-xs text-q-text-muted">{capability.value.secondary}</p>
+          <p className="mt-1.5 text-xs text-q-text-muted">{compactPercentText(capability.value.secondary)}</p>
         </div>
       ) : (
         <p className="text-[13px] text-q-text-muted">暂无数据，待接入后展示</p>

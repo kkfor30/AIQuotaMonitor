@@ -4,6 +4,7 @@
 //! 回退到 ChatGPT WHAM。认证只读本机 Codex OAuth，不复制到本项目数据库或 Vault。
 
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
+use crate::providers::money::format_percent;
 use reqwest::{Client, StatusCode};
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -620,10 +621,10 @@ fn window_capability(window: &Value) -> Option<CapabilityData> {
         capability_id: id,
         display_name: label,
         value_kind: "percent".into(),
-        primary_value: Some(format!("{remaining:.1}%")),
+        primary_value: Some(format_percent(remaining)),
         secondary_value: Some(match reset {
-            Some(reset) => format!("已使用 {used:.1}% · {reset}"),
-            None => format!("已使用 {used:.1}%"),
+            Some(reset) => format!("已使用 {} · {reset}", format_percent(used)),
+            None => format!("已使用 {}", format_percent(used)),
         }),
         progress: Some(remaining / 100.0),
         trend: vec![],

@@ -5,6 +5,7 @@
 //! 展示，失败保留结构化错误，不把 Token Plan 做成路由或代理。
 
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
+use crate::providers::money::format_percent;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use std::time::Duration;
@@ -339,10 +340,10 @@ fn window_capability(id: &str, label: &str, remaining: f64, reset: Option<&Value
         capability_id: id.into(),
         display_name: label.into(),
         value_kind: "percent".into(),
-        primary_value: Some(format!("{remaining:.1}%")),
+        primary_value: Some(format_percent(remaining)),
         secondary_value: Some(match reset.and_then(reset_label) {
-            Some(reset) => format!("已使用 {used:.1}% · {reset}"),
-            None => format!("已使用 {used:.1}%"),
+            Some(reset) => format!("已使用 {} · {reset}", format_percent(used)),
+            None => format!("已使用 {}", format_percent(used)),
         }),
         progress: Some(remaining / 100.0),
         trend: vec![],
@@ -381,9 +382,9 @@ mod tests {
             "usage": {"limit": "200", "remaining": "50"}
         }));
         assert_eq!(values[0].capability_id, "quota_window_5h");
-        assert_eq!(values[0].primary_value.as_deref(), Some("40.0%"));
+        assert_eq!(values[0].primary_value.as_deref(), Some("40%"));
         assert_eq!(values[1].capability_id, "quota_window_7d");
-        assert_eq!(values[1].primary_value.as_deref(), Some("25.0%"));
+        assert_eq!(values[1].primary_value.as_deref(), Some("25%"));
     }
 
     #[test]
@@ -399,7 +400,7 @@ mod tests {
             }
         }));
         assert_eq!(values[0].capability_id, "quota_window_5h");
-        assert_eq!(values[0].primary_value.as_deref(), Some("90.0%"));
+        assert_eq!(values[0].primary_value.as_deref(), Some("90%"));
         assert_eq!(values[1].capability_id, "quota_window_7d");
         assert_eq!(values[2].primary_value.as_deref(), Some("pro"));
     }
@@ -420,6 +421,6 @@ mod tests {
         }))
         .expect("minimax should parse");
         assert_eq!(values.len(), 1);
-        assert_eq!(values[0].primary_value.as_deref(), Some("70.0%"));
+        assert_eq!(values[0].primary_value.as_deref(), Some("70%"));
     }
 }

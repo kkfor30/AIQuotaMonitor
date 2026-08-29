@@ -114,11 +114,14 @@ const deepseekHealthy: PlatformSummaryViewModel = {
   displayName: "DeepSeek",
   aggregateStatus: "healthy",
   accessSummary: "API Key",
-  sources: [source("preview-balance", "余额来源", ["balance", "today_spend", "month_spend"], "personal_balance")],
+  sources: [
+    source("preview-balance", "余额来源", ["balance", "today_spend", "month_spend", "cache_hit_rate"], "personal_balance"),
+  ],
   capabilities: [
     cap("balance", "preview-balance", "账户余额", "¥25.00", "赠送 ¥1.00 · 充值 ¥24.00"),
-    cap("today_spend", "preview-balance", "今日消耗", "¥1.20", null),
-    cap("month_spend", "preview-balance", "本月消耗", "¥8.00", null),
+    cap("today_spend", "preview-balance", "今日消费", "¥1.20", null),
+    cap("month_spend", "preview-balance", "本月消费", "¥8.00", null),
+    cap("cache_hit_rate", "preview-balance", "缓存命中率", "72%", "命中 720 / 输入 1000"),
   ],
 };
 

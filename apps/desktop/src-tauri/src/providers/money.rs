@@ -37,6 +37,12 @@ pub fn format_cny(amount: Decimal) -> String {
     format!("¥{amount:.2}")
 }
 
+/// 百分比展示：整数值去掉 `.0`，保留一位有效小数。
+pub fn format_percent(value: f64) -> String {
+    let text = format!("{value:.1}");
+    format!("{}%", text.strip_suffix(".0").unwrap_or(&text))
+}
+
 pub fn extract_cookie_value(header: &str, name: &str) -> Option<String> {
     header
         .split(';')
@@ -110,5 +116,12 @@ mod tests {
             extract_token_cookie("foo=1; access_token=eyJhbGciOiJIUzI1NiJ9.payload.sig; x=2").as_deref(),
             Some("eyJhbGciOiJIUzI1NiJ9.payload.sig")
         );
+    }
+
+    #[test]
+    fn drops_trailing_point_zero() {
+        assert_eq!(format_percent(40.0), "40%");
+        assert_eq!(format_percent(62.5), "62.5%");
+        assert_eq!(format_percent(100.0), "100%");
     }
 }

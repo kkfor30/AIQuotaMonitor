@@ -1,6 +1,7 @@
 //! DeepSeek 网页用量 Source。内部 amount/cost 请求独立解析，允许能力级部分成功。
 
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput, StoredTrendPoint};
+use crate::providers::money::format_percent;
 use chrono::{Datelike, Local};
 use reqwest::{Client, StatusCode};
 use rust_decimal::prelude::ToPrimitive;
@@ -227,7 +228,7 @@ fn amount_capabilities(amount: &AmountResp) -> Result<Vec<CapabilityData>, Refre
             capability_id: "cache_hit_rate".into(),
             display_name: "缓存命中率".into(),
             value_kind: "percent".into(),
-            primary_value: cache_ratio.map(|ratio| format!("{:.1}%", ratio * 100.0)),
+            primary_value: cache_ratio.map(|ratio| format_percent(ratio * 100.0)),
             secondary_value: Some(format!("命中 {} / 输入 {}", format_count(all.hit), format_count(cache_total))),
             progress: cache_ratio,
             trend: vec![],

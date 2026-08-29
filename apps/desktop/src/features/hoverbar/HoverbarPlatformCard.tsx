@@ -13,14 +13,18 @@ import type {
   SourceSummaryViewModel,
 } from "@/lib/types";
 import type { RadarSnapshot } from "@/lib/ipc";
+import { compactPercentText } from "@/lib/format";
 import { radarConfidenceLabel, radarSourceLine } from "./hoverbar-state";
 import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
 
-const ALLOWED_IDS = new Set(["quota_window_5h", "quota_window_7d", "balance", "plan_level"]);
-const DATA_IDS = ["quota_window_5h", "quota_window_7d", "balance"] as const;
+const CORE_IDS = ["quota_window_5h", "quota_window_7d", "balance"] as const;
+const DEEPSEEK_EXTRA_IDS = ["today_spend", "month_spend", "cache_hit_rate"] as const;
+const ALLOWED_IDS = new Set<string>([...CORE_IDS, "plan_level", ...DEEPSEEK_EXTRA_IDS]);
 const ACCOUNT_PROVIDERS = new Set(["openai", "claude_code"]);
+const END_ALIGNED_IDS = new Set<string>(DEEPSEEK_EXTRA_IDS);
 
 type AccountStatus = "healthy" | "partial" | "error";
+type MetricAlign = "center" | "end";
 
 type HoverbarMetric = {
   id: string;
@@ -28,6 +32,7 @@ type HoverbarMetric = {
   value: string | null;
   time: string | null;
   freshness: DataFreshness;
+  align: MetricAlign;
 };
 
 type HoverbarGroup = {
@@ -46,11 +51,18 @@ const STATUS_LABEL: Record<AccountStatus | PlatformAggregateStatus, string> = {
   error: "异常",
 };
 
-const METRIC_LABEL: Record<(typeof DATA_IDS)[number], string> = {
+const METRIC_LABEL: Record<string, string> = {
   quota_window_5h: "5小时窗口",
   quota_window_7d: "7天窗口",
   balance: "个人余额",
+  today_spend: "今日消费",
+  month_spend: "本月消费",
+  cache_hit_rate: "缓存命中率",
 };
+
+function metricIdsFor(providerId: string): string[] {
+  return providerId === "deepseek" ? [...CORE_IDS, ...DEEPSEEK_EXTRA_IDS] : [...CORE_IDS];
+}
 
 export function HoverbarPlatformCard({
   platform,
@@ -161,14 +173,24 @@ function MetricRows({ metrics }: { metrics: HoverbarMetric[] }) {
             key={metric.id}
             className="hb-row"
             data-id={metric.id}
+            data-align={metric.align}
             data-freshness={metric.freshness}
             data-missing={missing || undefined}
           >
             <span className="hb-row-label">{metric.label}</span>
-            <b className="hb-row-value" data-selectable="true">
-              {missing ? "暂不可用" : metric.value}
-            </b>
+            {metric.align === "center" ? (
+              <b className="hb-row-value" data-selectable="true">
+                {missing ? "暂不可用" : metric.value}
+              </b>
+            ) : (
+              <span className="hb-row-mid" />
+            )}
             <span className="hb-row-end">
+              {metric.align === "end" ? (
+                <b className="hb-row-value" data-selectable="true">
+                  {missing ? "暂不可用" : metric.value}
+                </b>
+              ) : null}
               {metric.time && !missing ? (
                 <span className="hb-row-time" data-selectable="true">
                   {metric.time}
@@ -255,25 +277,27 @@ function planKey(plan: string): string {
 }
 
 function buildGroups(platform: PlatformSummaryViewModel): HoverbarGroup[] {
+  const ids = metricIdsFor(platform.providerId);
   const configured = platform.sources.filter((source) => source.credentialConfigured);
   const groups = configured
-    .map((source) => groupFromSource(source, capsFor(platform.capabilities, source.sourceId)))
+    .map((source) => groupFromSource(source, capsFor(platform.capabilities, source.sourceId), ids))
     .filter((group): group is HoverbarGroup => group !== null);
 
   if (ACCOUNT_PROVIDERS.has(platform.providerId) && groups.length > 1) {
     return groups;
   }
   if (groups.length <= 1) return groups;
-  return [mergeGroups(groups)];
+  return [mergeGroups(groups, ids)];
 }
 
 function groupFromSource(
   source: SourceSummaryViewModel,
   capabilities: CapabilitySnapshotViewModel[],
+  ids: string[],
 ): HoverbarGroup | null {
-  const metrics = DATA_IDS.map((id) => toMetric(capabilities, id)).filter(
-    (metric): metric is HoverbarMetric => metric !== null,
-  );
+  const metrics = ids
+    .map((id) => toMetric(capabilities, id))
+    .filter((metric): metric is HoverbarMetric => metric !== null);
   const plan = planOf(capabilities);
   if (metrics.length === 0 && !plan) return null;
   return {
@@ -286,10 +310,10 @@ function groupFromSource(
   };
 }
 
-function mergeGroups(groups: HoverbarGroup[]): HoverbarGroup {
-  const metrics = DATA_IDS.map((id) => groups.flatMap((group) => group.metrics).find((metric) => metric.id === id)).filter(
-    (metric): metric is HoverbarMetric => Boolean(metric),
-  );
+function mergeGroups(groups: HoverbarGroup[], ids: string[]): HoverbarGroup {
+  const metrics = ids
+    .map((id) => groups.flatMap((group) => group.metrics).find((metric) => metric.id === id))
+    .filter((metric): metric is HoverbarMetric => Boolean(metric));
   const plan = groups.map((group) => group.plan).find((value) => Boolean(value)) ?? null;
   const status = mergeStatus(groups.map((group) => group.status));
   return {
@@ -306,17 +330,19 @@ function capsFor(capabilities: CapabilitySnapshotViewModel[], sourceId: string) 
   return capabilities.filter((item) => item.sourceId === sourceId && ALLOWED_IDS.has(item.capabilityId));
 }
 
-function toMetric(capabilities: CapabilitySnapshotViewModel[], id: (typeof DATA_IDS)[number]): HoverbarMetric | null {
+function toMetric(capabilities: CapabilitySnapshotViewModel[], id: string): HoverbarMetric | null {
   const capability = capabilities.find((item) => item.capabilityId === id);
   if (!capability) return null;
-  const value =
+  const raw =
     capability.freshness === "missing" || !capability.value.primary ? null : capability.value.primary;
+  const value = raw ? compactPercentText(raw) : null;
   return {
     id,
-    label: METRIC_LABEL[id],
+    label: METRIC_LABEL[id] ?? capability.displayName,
     value,
     time: value ? extractWindowTime(capability.value.secondary) : null,
     freshness: capability.freshness,
+    align: END_ALIGNED_IDS.has(id) ? "end" : "center",
   };
 }
 
