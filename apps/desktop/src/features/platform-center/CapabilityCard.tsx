@@ -18,6 +18,7 @@ const CAPABILITY_ICON: Record<string, LucideIcon> = {
   response_tokens: Gauge,
   quota_window_5h: Gauge,
   quota_window_7d: Gauge,
+  quota_window_30d: Gauge,
   plan_level: Gauge,
   usage_trend: TrendingUp,
 };
@@ -25,7 +26,7 @@ const CAPABILITY_ICON: Record<string, LucideIcon> = {
 /**
  * 单个能力快照卡片（Apple Glass V6 平台中心）：
  * 图标 + 名称 + 新鲜度徽章 → 大号数值 → 次要说明与采集时间 → 用量进度条。
- * stale 显式标橙并给出最后成功时间；missing 显示空态文案，禁止补零。
+ * 进度条按剩余量口径配色：>50% 绿、10%~50% 蓝、<10% 红；stale 恒橙并标注最后成功时间。
  */
 export function CapabilityCard({ capability }: { capability: CapabilitySnapshotViewModel }) {
   const Icon = CAPABILITY_ICON[capability.capabilityId] ?? Gauge;
@@ -34,9 +35,11 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
   const barColor =
     capability.freshness === "stale"
       ? "bg-q-warning"
-      : progress >= 0.85
-        ? "bg-q-danger"
-        : "bg-q-primary";
+      : progress > 0.5
+        ? "bg-q-success"
+        : progress >= 0.1
+          ? "bg-q-primary"
+          : "bg-q-danger";
 
   return (
     <div className="glass-panel flex flex-col gap-2.5 p-4">
