@@ -178,18 +178,18 @@ function MetricRows({ metrics }: { metrics: HoverbarMetric[] }) {
             data-missing={missing || undefined}
           >
             <span className="hb-row-label">{metric.label}</span>
-            {metric.align === "center" ? (
-              <b className="hb-row-value" data-selectable="true">
-                {missing ? "暂不可用" : metric.value}
-              </b>
-            ) : (
+            {metric.align === "end" ? (
               <span className="hb-row-mid" />
+            ) : (
+              <span className="hb-row-value" data-selectable="true">
+                {missing ? "暂不可用" : metric.value}
+              </span>
             )}
             <span className="hb-row-end">
               {metric.align === "end" ? (
-                <b className="hb-row-value" data-selectable="true">
+                <span className="hb-row-value" data-selectable="true">
                   {missing ? "暂不可用" : metric.value}
-                </b>
+                </span>
               ) : null}
               {metric.time && !missing ? (
                 <span className="hb-row-time" data-selectable="true">

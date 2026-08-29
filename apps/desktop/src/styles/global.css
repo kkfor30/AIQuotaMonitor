@@ -567,7 +567,7 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-/* 窗口 / 余额行：标签左、额度居中、时间右。 */
+/* 窗口 / 余额行：左右各 1fr，中间按内容显示额度，避免被挤成 0 宽。 */
 .hb-rows {
   display: flex;
   min-width: 0;
@@ -576,15 +576,15 @@ html.hoverbar-window #root {
 }
 
 .hb-row {
-  display: grid;
+  display: flex;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
   align-items: baseline;
-  column-gap: 10px;
+  gap: 8px;
 }
 
 .hb-row-label {
-  justify-self: start;
+  flex: 1 1 0;
+  min-width: 0;
   color: var(--q-hoverbar-ink);
   font-size: 12px;
   font-weight: 720;
@@ -593,14 +593,15 @@ html.hoverbar-window #root {
 }
 
 .hb-row-mid {
-  min-width: 0;
+  flex: 0 0 auto;
+  width: 0;
 }
 
 .hb-row-end {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 0;
   min-width: 0;
   align-items: baseline;
-  justify-self: end;
   justify-content: flex-end;
   gap: 8px;
 }
@@ -611,9 +612,7 @@ html.hoverbar-window #root {
 }
 
 .hb-row-value {
-  justify-self: center;
-  min-width: max-content;
-  overflow: visible;
+  flex: 0 0 auto;
   color: var(--q-hoverbar-primary);
   font-size: 17px;
   font-weight: 780;
@@ -1138,7 +1137,7 @@ html.hoverbar-window #root {
 
 .hb-detail-root[data-edge="left"] .hb-row,
 .hb-detail-root[data-edge="right"] .hb-row {
-  column-gap: 8px;
+  gap: 6px;
 }
 
 .hb-detail-root[data-edge="left"] .hb-row-end,
