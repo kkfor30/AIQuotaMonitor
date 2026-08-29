@@ -1,7 +1,8 @@
 /**
  * 悬浮详情平台卡片（最终稿）。
- * 一个平台一张卡：卡头为图标 + 名称 + 平台聚合状态；GPT/Codex 多账户同卡分组，
- * 套餐徽章跟随账户名；窗口时间只显示时间值；GPT 卡底部为重置信号摘要条。
+ * 一个平台一张卡：卡头为图标 + 名称 + 平台聚合状态；按后端 accounts 分组，
+ * 每个账号只聚合自己的 Source 与 Capability；窗口时间只显示时间值；
+ * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Radar, RefreshCw } from "lucide-react";
 import type {
@@ -9,8 +10,6 @@ import type {
   DataFreshness,
   PlatformAggregateStatus,
   PlatformSummaryViewModel,
-  SourceState,
-  SourceSummaryViewModel,
 } from "@/lib/types";
 import type { RadarSnapshot } from "@/lib/ipc";
 import { compactPercentText } from "@/lib/format";
@@ -21,9 +20,6 @@ import { hoverbarProviderVisual } from "./provider-visuals";
 const DEEPSEEK_EXTRA_IDS = ["today_spend", "month_spend", "cache_hit_rate"] as const;
 const ALLOWED_IDS = new Set<string>(["balance", "plan_level", ...DEEPSEEK_EXTRA_IDS]);
 const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
-const ACCOUNT_PROVIDERS = new Set(["openai", "claude_code"]);
-
-type AccountStatus = "healthy" | "partial" | "error";
 
 type HoverbarMetric = {
   id: string;
@@ -37,12 +33,11 @@ type HoverbarGroup = {
   id: string;
   title: string;
   plan: string | null;
-  status: AccountStatus;
+  status: PlatformAggregateStatus;
   metrics: HoverbarMetric[];
-  localAccount: boolean;
 };
 
-const STATUS_LABEL: Record<AccountStatus | PlatformAggregateStatus, string> = {
+const STATUS_LABEL: Record<PlatformAggregateStatus, string> = {
   healthy: "正常",
   partial: "部分可用",
   setup_required: "待配置",
@@ -92,7 +87,7 @@ export function HoverbarPlatformCard({
   radarRefreshError?: string | null;
 }) {
   const groups = buildGroups(platform);
-  const multi = ACCOUNT_PROVIDERS.has(platform.providerId) && groups.length > 1;
+  const multi = platform.accounts.length > 1;
   const single = groups[0];
   const hasStale = groups.some((group) => group.metrics.some((metric) => metric.freshness === "stale"));
   const visual = hoverbarProviderVisual(platform.providerId);
@@ -162,7 +157,7 @@ export function HoverbarPlatformCard({
   );
 }
 
-function StatusChip({ status }: { status: AccountStatus | PlatformAggregateStatus }) {
+function StatusChip({ status }: { status: PlatformAggregateStatus }) {
   const Icon = status === "healthy" ? CheckCircle2 : status === "error" ? CircleX : AlertTriangle;
   return (
     <span className="hb-status-chip" data-status={status}>
@@ -274,71 +269,52 @@ function planKey(plan: string): string {
   return key === "plus" || key === "pro" || key === "free" ? key : "other";
 }
 
+/**
+ * 按后端账号列表构建分组：每个账号只聚合自己的 Source 与 Capability，
+ * 账号顺序沿用后端（本机 → 默认 → 额外）。未配置来源的能力不展示，不补零。
+ */
 function buildGroups(platform: PlatformSummaryViewModel): HoverbarGroup[] {
   const ids = metricIdsFor(platform.providerId);
-  const configured = platform.sources.filter((source) => source.credentialConfigured);
-  const groups = configured
-    .map((source) => groupFromSource(source, capsFor(platform.capabilities, source.sourceId), ids))
-    .filter((group): group is HoverbarGroup => group !== null);
-
-  if (ACCOUNT_PROVIDERS.has(platform.providerId) && groups.length > 1) {
-    return groups;
+  const multi = platform.accounts.length > 1;
+  const configuredSourceIds = new Set(
+    platform.sources.filter((source) => source.credentialConfigured).map((source) => source.sourceId),
+  );
+  const groups = platform.accounts.map((account) =>
+    groupFromAccount(account, platform.capabilities, ids, configuredSourceIds),
+  );
+  if (!multi && groups.every((group) => group.metrics.length === 0 && !group.plan)) {
+    return [];
   }
-  if (groups.length <= 1) return groups;
-  return [mergeGroups(groups, ids)];
+  return groups;
 }
 
-function groupFromSource(
-  source: SourceSummaryViewModel,
+function groupFromAccount(
+  account: PlatformSummaryViewModel["accounts"][number],
   capabilities: CapabilitySnapshotViewModel[],
   ids: string[],
-): HoverbarGroup | null {
-  const plan = planOf(capabilities);
-  const windowMetrics = capabilities
+  configuredSourceIds: Set<string>,
+): HoverbarGroup {
+  const own = capabilities.filter(
+    (item) =>
+      item.accountId === account.accountId &&
+      configuredSourceIds.has(item.sourceId) &&
+      (ALLOWED_IDS.has(item.capabilityId) || isQuotaWindow(item.capabilityId)),
+  );
+  const plan = planOf(own);
+  const windowMetrics = own
     .filter((item) => isQuotaWindow(item.capabilityId) && hasWindowValue(item))
     .sort((left, right) => compareWindowIds(left.capabilityId, right.capabilityId))
     .map(capabilityToMetric);
   const extraMetrics = ids
-    .map((id) => toMetric(capabilities, id))
+    .map((id) => toMetric(own, id))
     .filter((metric): metric is HoverbarMetric => metric !== null);
-  const metrics = [...windowMetrics, ...extraMetrics];
-  if (metrics.length === 0 && !plan) return null;
   return {
-    id: source.sourceId,
-    title: accountTitle(source),
+    id: account.accountId,
+    title: accountTitle(account),
     plan,
-    status: sourceStatus(source.state, metrics, plan),
-    metrics,
-    localAccount: source.sourceId === "openai-codex-local",
+    status: account.status,
+    metrics: [...windowMetrics, ...extraMetrics],
   };
-}
-
-function mergeGroups(groups: HoverbarGroup[], ids: string[]): HoverbarGroup {
-  const windows = groups
-    .flatMap((group) => group.metrics.filter((metric) => isQuotaWindow(metric.id)))
-    .filter((metric, index, list) => list.findIndex((item) => item.id === metric.id) === index)
-    .sort((left, right) => compareWindowIds(left.id, right.id));
-  const extras = ids
-    .map((id) => groups.flatMap((group) => group.metrics).find((metric) => metric.id === id))
-    .filter((metric): metric is HoverbarMetric => Boolean(metric));
-  const metrics = [...windows, ...extras];
-  const plan = groups.map((group) => group.plan).find((value) => Boolean(value)) ?? null;
-  const status = mergeStatus(groups.map((group) => group.status));
-  return {
-    id: groups.map((group) => group.id).join("+"),
-    title: groups[0]?.title ?? "",
-    plan,
-    status,
-    metrics,
-    localAccount: false,
-  };
-}
-
-function capsFor(capabilities: CapabilitySnapshotViewModel[], sourceId: string) {
-  return capabilities.filter(
-    (item) =>
-      item.sourceId === sourceId && (ALLOWED_IDS.has(item.capabilityId) || isQuotaWindow(item.capabilityId)),
-  );
 }
 
 function hasWindowValue(capability: CapabilitySnapshotViewModel): boolean {
@@ -395,26 +371,8 @@ function extractWindowTime(secondary: string | null | undefined): string | null 
   return time || null;
 }
 
-function sourceStatus(state: SourceState, metrics: HoverbarMetric[], plan: string | null): AccountStatus {
-  if (state === "auth_required" || state === "error") return "error";
-  const usable = metrics.filter((metric) => metric.value !== null);
-  if (usable.length === 0 && !plan) return "error";
-  if (usable.some((metric) => metric.freshness === "stale")) return "partial";
-  if (state === "ready" || state === "refreshing") return "healthy";
-  return "partial";
-}
-
-function mergeStatus(statuses: AccountStatus[]): AccountStatus {
-  if (statuses.every((status) => status === "healthy")) return "healthy";
-  if (statuses.every((status) => status === "error")) return "error";
-  return "partial";
-}
-
-function accountTitle(source: SourceSummaryViewModel): string {
-  if (source.sourceId === "openai-codex-local") return "本机";
-  const name = source.displayName.trim();
-  if (source.sourceId.startsWith("openai-codex-extra-")) {
-    return name.replace(/^额外 ChatGPT 账号\s*/, "账号 ") || "额外账号";
-  }
-  return name.replace(/（当前 CLI）$/, "") || name;
+function accountTitle(account: PlatformSummaryViewModel["accounts"][number]): string {
+  if (account.kind === "local") return "本机";
+  const name = account.displayName.trim();
+  return name || "账号";
 }

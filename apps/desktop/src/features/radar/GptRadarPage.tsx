@@ -293,9 +293,23 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
           ) : null}
           {data?.analysis?.conclusion ? (
             <div className="flex min-h-0 flex-col gap-2">
-              <p className="line-clamp-4 text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
-                {data.analysis.conclusion}
-              </p>
+              <div className="flex flex-col gap-1">
+                <p className="text-[11px] font-medium text-q-text-muted">结论</p>
+                <p className="line-clamp-4 text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
+                  {data.analysis.conclusion}
+                </p>
+              </div>
+              {data.analysis.analysisBasis ? (
+                <div className="flex flex-col gap-1">
+                  <p className="text-[11px] font-medium text-q-text-muted">分析依据</p>
+                  <p
+                    className="line-clamp-3 rounded-q-control border-l-2 border-q-primary/50 bg-q-surface-muted px-3 py-2 text-xs leading-relaxed text-q-text-secondary"
+                    data-selectable="true"
+                  >
+                    {data.analysis.analysisBasis}
+                  </p>
+                </div>
+              ) : null}
               <div className="mt-auto flex flex-wrap items-center gap-2">
                 <RadarConfidenceBadge confidence={data.analysis.confidence} />
                 {data.analysis.model && (
@@ -424,8 +438,8 @@ function TiboFeedView({
         ))}
       </div>
 
-      <div className="grid min-h-[420px] grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.4fr)]">
-        {/* 动态列表 */}
+      <div className="grid min-h-[420px] max-h-[calc(100vh-264px)] grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.4fr)]">
+        {/* 动态列表：视口相关限高，超出在自身窗口内滚动，不把页面无限撑长 */}
         <section className="glass-panel flex min-h-0 flex-col gap-2.5 p-3.5">
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5">
             {posts.length === 0 && (
@@ -473,7 +487,7 @@ function TiboFeedView({
         </section>
 
         {/* 动态详情 */}
-        <section className="glass-panel flex min-h-0 flex-col gap-3.5 p-4">
+        <section className="glass-panel flex min-h-0 flex-col gap-3.5 overflow-y-auto p-4">
           {selected ? (
             <>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -510,7 +524,7 @@ function TiboFeedView({
                 </div>
               ) : null}
 
-              <div className="mt-auto flex flex-wrap gap-2 pt-1">
+              <div className="mt-2 flex flex-wrap gap-2 pt-1">
                 {selected.url && (
                   <Button size="sm" onClick={() => void openExternalUrl(selected.url)}>
                     <ExternalLink size={14} aria-hidden />
@@ -682,9 +696,23 @@ function AiAnalysisView({
         {analyzeError ? <p className="text-xs leading-relaxed text-q-danger">{analyzeError}</p> : null}
         {analysis?.conclusion ? (
           <>
-            <p className="text-[15px] font-medium leading-relaxed text-q-text-primary" data-selectable="true">
-              {analysis.conclusion}
-            </p>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-[11px] font-medium text-q-text-muted">结论</p>
+              <p className="text-[15px] font-medium leading-relaxed text-q-text-primary" data-selectable="true">
+                {analysis.conclusion}
+              </p>
+            </div>
+            {analysis.analysisBasis ? (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-[11px] font-medium text-q-text-muted">分析依据</p>
+                <p
+                  className="rounded-q-control border-l-2 border-q-primary/50 bg-q-surface-muted px-3.5 py-2.5 text-[13px] leading-relaxed text-q-text-secondary"
+                  data-selectable="true"
+                >
+                  {analysis.analysisBasis}
+                </p>
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 gap-x-8 gap-y-3 xl:grid-cols-2">
               <ListBlock title="引用" icon={<Link2 size={13} aria-hidden />} items={analysis.citations} />
               <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={analysis.support} />

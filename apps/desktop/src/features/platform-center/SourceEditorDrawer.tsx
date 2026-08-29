@@ -12,8 +12,8 @@ import {
   ipcErrorMessage,
   openExternalUrl,
   refreshPlatform,
-  removeCodexAccount,
-  renameCodexAccount,
+  removePlatformAccount,
+  renamePlatformAccount,
   revealSourceSecret,
   saveSourceCredential,
   startSourceLogin,
@@ -22,6 +22,11 @@ import {
 } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { SourceSummaryViewModel } from "@/lib/types";
+
+/** 额外账号的重命名作用于账号名；其余来源继续展示来源名。 */
+function editableAccountName(source: SourceSummaryViewModel): string {
+  return source.accountKind === "additional" ? source.accountName : source.displayName;
+}
 
 /** 右侧覆盖式来源配置抽屉；秘密仅在该组件的瞬时内存中存在。 */
 export function SourceEditorDrawer({
@@ -58,7 +63,7 @@ export function SourceEditorDrawer({
     setLoginStatus(null);
     setConfirmClear(false);
     setConfirmRemove(false);
-    setDisplayName(source?.displayName ?? "");
+    setDisplayName(source ? editableAccountName(source) : "");
     setLoginOpened(false);
     setVerifiedSecret(null);
     setVerifyMessage(null);
@@ -66,8 +71,8 @@ export function SourceEditorDrawer({
   }, [source?.sourceId, setupQuery.data?.apiBaseUrl]);
 
   useEffect(() => {
-    setDisplayName(source?.displayName ?? "");
-  }, [source?.displayName]);
+    setDisplayName(source ? editableAccountName(source) : "");
+  }, [source?.accountName, source?.accountKind, source?.displayName]);
 
   useEffect(() => {
     if (!source?.supportsInteractiveLogin) return;
@@ -160,7 +165,7 @@ export function SourceEditorDrawer({
         setLoginStatus("Codex 登录完成，正在检测额度…");
         try {
           updatePlatforms(await refreshPlatform(platformId));
-          setLoginStatus(source.sourceId.startsWith("openai-codex-extra-") ? "已登录额外 ChatGPT 账号。" : "已重新连接本机 Codex 登录。");
+          setLoginStatus(source.accountKind === "additional" ? "已登录额外 ChatGPT 账号。" : "已重新连接本机 Codex 登录。");
         } catch (cause) {
           setError(ipcErrorMessage(cause, "登录已完成，但刷新额度失败。"));
         }
@@ -171,7 +176,7 @@ export function SourceEditorDrawer({
     onError: (cause) => setError(ipcErrorMessage(cause, source?.supportsCliLogin ? "无法启动 Codex 登录。" : "无法启动网页登录。")),
   });
   const renameMutation = useMutation({
-    mutationFn: () => renameCodexAccount(source!.sourceId, displayName),
+    mutationFn: () => renamePlatformAccount(source!.accountId, displayName),
     onSuccess: (platforms) => {
       updatePlatforms(platforms);
       setError(null);
@@ -179,7 +184,7 @@ export function SourceEditorDrawer({
     onError: (cause) => setError(ipcErrorMessage(cause, "重命名失败，请稍后重试。")),
   });
   const removeExtraMutation = useMutation({
-    mutationFn: () => removeCodexAccount(source!.sourceId),
+    mutationFn: () => removePlatformAccount(source!.accountId),
     onSuccess: (platforms) => { updatePlatforms(platforms); close(); },
     onError: (cause) => setError(ipcErrorMessage(cause, "移除额外账号失败。")),
   });
@@ -192,23 +197,30 @@ export function SourceEditorDrawer({
   if (!source) return null;
   const input = source.credentialInput ?? null;
   const isCli = source.supportsCliLogin === true;
-  const isExtraCodex = source.sourceId.startsWith("openai-codex-extra-");
+  const isExtraAccount = source.accountKind === "additional";
+  const isCodexAdapter = source.adapterId === "openai-codex-local";
   const busy = verifyMutation.isPending || saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending || renameMutation.isPending || removeExtraMutation.isPending;
-  const nameChanged = displayName.trim() !== source.displayName && displayName.trim().length > 0;
+  const nameChanged = displayName.trim() !== editableAccountName(source) && displayName.trim().length > 0;
   const setup = setupQuery.data;
-  const showApiUrl = source.sourceType === "api_key" && source.sourceId !== "kimi-balance-api";
-  const webLoginHint = webLoginCopy(source.sourceId);
+  const showApiUrl = source.sourceType === "api_key" && source.adapterId !== "kimi-balance-api";
+  const webLoginHint = webLoginCopy(source.adapterId);
   const canSave = Boolean(input && secret.trim() && verifiedSecret === secret && (!showApiUrl || apiBaseUrl.trim()) && !busy);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-sm" role="presentation" onMouseDown={close}>
       <aside className="flex h-full w-full max-w-md flex-col border-l border-q-border bg-q-surface-solid p-5 shadow-xl" role="dialog" aria-modal="true" aria-label={`编辑 ${source.displayName}`} onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
-          <div><p className="text-lg font-semibold text-q-text-primary">编辑来源</p><p className="mt-1 text-sm text-q-text-secondary">{source.displayName}</p></div>
+          <div>
+            <p className="text-lg font-semibold text-q-text-primary">编辑来源</p>
+            <p className="mt-1 text-sm text-q-text-secondary">
+              {source.accountKind === "additional" ? `${source.accountName} · ` : ""}
+              {source.displayName}
+            </p>
+          </div>
           <Button variant="ghost" size="sm" onClick={close} aria-label="关闭编辑来源"><X size={16} /></Button>
         </div>
         <div className="mt-6 flex flex-1 flex-col gap-4">
-          {isExtraCodex && (
+          {isExtraAccount && (
             <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
               账号名称
               <div className="flex gap-2">
@@ -263,12 +275,12 @@ export function SourceEditorDrawer({
           </> : isCli ? (
             <div className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2">
               <p className="text-sm text-q-text-secondary">
-                {isExtraCodex
+                {isExtraAccount
                   ? "额外账号使用独立的 Codex 登录目录，不会覆盖本机当前 CLI 登录。"
                   : "默认直接检测本机 Codex CLI 的 ChatGPT 登录，不必先开网页。"}
               </p>
               <p className="mt-1 text-xs leading-relaxed text-q-text-muted">
-                {isExtraCodex
+                {isExtraAccount
                   ? "点「登录另一个账号」会弹出官方 Codex 登录。额度与本机账号分开刷新、分开展示。"
                   : "点「检测并刷新」即可读取窗口额度。只有要更换本机 CLI 当前账号时，才需要重新登录。"}
               </p>
@@ -314,7 +326,7 @@ export function SourceEditorDrawer({
                 onClick={() => {
                   setError(null);
                   setLoginStatus(
-                    isExtraCodex
+                    isExtraAccount
                       ? "请在弹出的 Codex 登录窗口登录另一个 ChatGPT 账号。不会改写本机 ~/.codex。"
                       : "这会更换本机 Codex CLI 当前登录。若只想读取现有凭证，请关闭后点「检测并刷新」。",
                   );
@@ -323,7 +335,7 @@ export function SourceEditorDrawer({
                 disabled={busy}
               >
                 {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
-                {loginMutation.isPending ? "等待 Codex 登录…" : isExtraCodex ? "登录另一个账号" : "更换本机 Codex 登录"}
+                {loginMutation.isPending ? "等待 Codex 登录…" : isExtraAccount ? "登录另一个账号" : "更换本机 Codex 登录"}
               </Button>
             </div>
           )}
@@ -340,7 +352,7 @@ export function SourceEditorDrawer({
           {verifyMessage && <p className="rounded-q-control border border-q-success/25 bg-q-success-soft px-3 py-2 text-xs text-q-success">{verifyMessage}</p>}
           {loginStatus && <p className="rounded-q-control border border-q-warning/30 bg-q-warning-soft px-3 py-2 text-xs leading-relaxed text-q-text-secondary">{loginStatus}</p>}
           {error && <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">{error}</p>}
-          {!isExtraCodex && (source.credentialConfigured || isCli) && (confirmClear ? (
+          {!isExtraAccount && (source.credentialConfigured || isCli) && (confirmClear ? (
             <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3">
               <p className="text-xs leading-relaxed text-q-danger">
                 {source.sourceType === "local_cli"
@@ -361,10 +373,12 @@ export function SourceEditorDrawer({
               {source.sourceType === "local_cli" ? "清除本机登录" : "清除凭据"}
             </Button>
           ))}
-          {isExtraCodex && (confirmRemove ? (
+          {isExtraAccount && (confirmRemove ? (
             <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3">
               <p className="text-xs leading-relaxed text-q-danger">
-                将删除这个额外账号、独立登录目录和已缓存额度。本机 Codex 不受影响。确定继续？
+                {isCodexAdapter
+                  ? "将删除这个额外账号、独立登录目录和已缓存额度。本机 Codex 不受影响。确定继续？"
+                  : "将删除这个额外账号的来源、凭据和已缓存额度。其他账号不受影响。确定继续？"}
               </p>
               <div className="mt-3 flex gap-2">
                 <Button size="sm" onClick={() => removeExtraMutation.mutate()} disabled={busy}>

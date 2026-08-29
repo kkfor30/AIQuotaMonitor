@@ -1022,6 +1022,33 @@ html.hoverbar-window #root {
   line-height: 19px;
 }
 
+/* 雷达双字段：结论 / 分析依据 分层展示；旧数据无依据时整体隐藏。 */
+.hb-radar-field-label {
+  margin: 7px 0 2px;
+  color: var(--q-hoverbar-muted-strong);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+}
+
+.hb-radar-field-label:first-of-type {
+  margin-top: 2px;
+}
+
+.hb-radar-basis {
+  margin: 0;
+  padding: 7px 9px;
+  border-left: 2px solid color-mix(in srgb, var(--q-hoverbar-primary) 55%, transparent);
+  border-radius: 0 8px 8px 0;
+  color: var(--q-hoverbar-muted-strong);
+  background: var(--q-hoverbar-empty-bg);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+}
+
 .hb-radar-meta-row {
   display: flex;
   flex-wrap: wrap;

@@ -35,6 +35,7 @@ function source(
   capabilityIds: string[],
   accessMode: SourceAccessMode,
   state: SourceState = "ready",
+  credentialConfigured = true,
 ): SourceSummaryViewModel {
   const accountId = sourceId === "openai-codex-local"
     ? "openai-local"
@@ -54,7 +55,7 @@ function source(
     sourceType: accessMode === "local_cli" ? "local_cli" : accessMode === "personal_balance" ? "web_session" : "api_key",
     displayName,
     state,
-    credentialConfigured: true,
+    credentialConfigured,
     lastValidatedAt: null,
     lastSuccessAt: null,
     errorCode: state === "error" ? "PREVIEW_ERROR" : null,
@@ -100,12 +101,14 @@ const gptPlatform: PlatformSummaryViewModel = {
   accessSummary: "本机 Codex + 额外账号",
   supportsMultipleAccounts: true,
   accounts: [
-    { accountId: "openai-local", displayName: "本机 Codex", kind: "local", status: "healthy", sourceIds: ["openai-codex-local"], canRename: false, canRemove: false },
-    { accountId: "openai-extra-2", displayName: "额外账号 2", kind: "additional", status: "healthy", sourceIds: ["openai-codex-extra-2"], canRename: true, canRemove: true },
+    { accountId: "openai-local", displayName: "本地 Codex 账户", kind: "local", status: "healthy", sourceIds: ["openai-codex-local"], canRename: false, canRemove: false },
+    { accountId: "openai-extra-2", displayName: "额外 ChatGPT 账号 2", kind: "additional", status: "healthy", sourceIds: ["openai-codex-extra-2"], canRename: true, canRemove: true },
+    { accountId: "openai-extra-3", displayName: "工作账号", kind: "additional", status: "setup_required", sourceIds: ["openai-codex-extra-3"], canRename: true, canRemove: true },
   ],
   sources: [
     source("openai-codex-local", "本机 Codex（当前 CLI）", ["quota_window_5h", "quota_window_7d", "credits", "plan_level"], "local_cli"),
     source("openai-codex-extra-2", "额外 ChatGPT 账号 2", ["quota_window_30d", "credits", "plan_level"], "local_cli"),
+    source("openai-codex-extra-3", "工作账号", [], "local_cli", "auth_required", false),
   ],
   capabilities: [
     cap("quota_window_5h", "openai-codex-local", "本机 · 5 小时窗口", "62%", "已使用 38.0% · 重置 14:30"),

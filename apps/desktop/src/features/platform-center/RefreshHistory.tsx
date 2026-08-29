@@ -4,9 +4,11 @@ import type { PlatformSummaryViewModel } from "@/lib/types";
 
 /**
  * 最近刷新记录（Apple Glass V6）：直接展示后端 RefreshRun ViewModel。
+ * 多账号平台在记录行展示账号名；旧记录 accountName 为空时降级为仅来源名。
  */
 export function RefreshHistory({ platform }: { platform: PlatformSummaryViewModel }) {
   const entries = platform.refreshHistory ?? [];
+  const multiAccount = platform.accounts.length > 1;
 
   return (
     <div className="glass-panel flex flex-col gap-3 p-4">
@@ -31,6 +33,11 @@ export function RefreshHistory({ platform }: { platform: PlatformSummaryViewMode
               <div className="flex items-baseline justify-between gap-2">
                 <p className="min-w-0 truncate text-[13px] font-medium text-q-text-primary">
                   {entry.sourceName}
+                  {multiAccount && entry.accountName ? (
+                    <span className="ml-1.5 rounded-q-pill bg-q-neutral-soft px-1.5 py-0.5 text-[10px] font-medium text-q-neutral">
+                      {entry.accountName}
+                    </span>
+                  ) : null}
                 </p>
                 <span className="shrink-0 text-[11px] tabular-nums text-q-text-muted">
                   {entry.finishedAt ? formatTime(entry.finishedAt) : "进行中"}

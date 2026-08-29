@@ -44,15 +44,17 @@ export function SourceCard({
 }) {
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const meta = SOURCE_STATE_META[source.state];
-  const [draftName, setDraftName] = useState(source.displayName);
+  // 额外账号的重命名作用于账号名（accountName），标题与输入框都跟随账号名。
+  const editableName = onRename ? source.accountName : source.displayName;
+  const [draftName, setDraftName] = useState(editableName);
   useEffect(() => {
-    setDraftName(source.displayName);
-  }, [source.displayName]);
+    setDraftName(editableName);
+  }, [editableName]);
   const commitRename = () => {
     const next = draftName.trim();
     if (!onRename) return;
-    if (!next || next === source.displayName) {
-      setDraftName(source.displayName);
+    if (!next || next === editableName) {
+      setDraftName(editableName);
       return;
     }
     onRename(next);
@@ -79,7 +81,7 @@ export function SourceCard({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") event.currentTarget.blur();
                   if (event.key === "Escape") {
-                    setDraftName(source.displayName);
+                    setDraftName(editableName);
                     event.currentTarget.blur();
                   }
                 }}

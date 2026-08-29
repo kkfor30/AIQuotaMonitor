@@ -6,8 +6,10 @@ import { SOURCE_STATE_META, type PlatformSummaryViewModel } from "@/lib/types";
 /**
  * 来源健康摘要（Apple Glass V6）：逐行展示每个 Source 的运行状态、徽章与最近成功时间。
  * 单个 Source 失败不影响其他 Source 的展示（部分可用语义）。
+ * 多账号平台为额外账号标注账号名，避免不同账号的来源混淆。
  */
 export function SourceHealthSummary({ platform }: { platform: PlatformSummaryViewModel }) {
+  const multiAccount = platform.accounts.length > 1;
   return (
     <div className="glass-panel flex flex-col gap-2.5 px-4 py-3.5">
       <p className="text-[13px] font-medium text-q-text-secondary">来源状态</p>
@@ -26,6 +28,11 @@ export function SourceHealthSummary({ platform }: { platform: PlatformSummaryVie
                 <CheckCircle2 size={15} className="shrink-0 text-q-success" aria-hidden />
               )}
               <span className="text-[13px] font-medium text-q-text-primary">{source.displayName}</span>
+              {multiAccount && source.accountKind === "additional" && source.accountName ? (
+                <span className="rounded-q-pill bg-q-neutral-soft px-1.5 py-0.5 text-[10px] font-medium text-q-neutral">
+                  {source.accountName}
+                </span>
+              ) : null}
               <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>
               {source.state === "error" && source.errorMessage && (
                 <span className="min-w-0 flex-1 truncate text-xs text-q-danger" title={source.errorMessage}>

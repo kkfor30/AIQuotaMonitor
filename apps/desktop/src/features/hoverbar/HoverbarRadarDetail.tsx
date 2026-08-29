@@ -89,9 +89,18 @@ export function HoverbarRadarDetail({
         {analysis?.conclusion ? (
           <>
             <h3 className="hb-radar-card-title">AI 辅助结论</h3>
+            <p className="hb-radar-field-label">结论</p>
             <p className="hb-radar-text" data-selectable="true">
               {analysis.conclusion}
             </p>
+            {analysis.analysisBasis ? (
+              <>
+                <p className="hb-radar-field-label">分析依据</p>
+                <p className="hb-radar-basis" data-selectable="true">
+                  {analysis.analysisBasis}
+                </p>
+              </>
+            ) : null}
             <div className="hb-radar-meta-row">
               <RadarConfidenceBadge confidence={analysis.confidence} />
               <span className="hb-radar-meta">模型 {analysis.model ?? "—"}</span>
