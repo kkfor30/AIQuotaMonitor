@@ -94,8 +94,9 @@ pub async fn fetch_current_month(client: &Client, token: &str) -> SourceRefreshO
         Ok(cost) => match cost_capabilities(&cost, &now.format("%Y-%m-%d").to_string()) {
             Ok(values) => {
                 capabilities.extend(values);
-                // 累计消费：优先读费用接口聚合值，失败回退逐月累加；拿不到就放弃该能力，不造数。
-                if let Some(total) = fetch_total_spend(client, token).await {
+                // 累计消费 = 当月消费 + 历史逐月累加；拿不到就放弃该能力，不造数。
+                let current_month_cost = month_cost_of(&cost).unwrap_or(Decimal::ZERO);
+                if let Some(total) = fetch_total_spend(client, token, current_month_cost).await {
                     capabilities.push(money_capability("total_spend", "累计消费", total));
                 }
                 SourceRefreshOutput::success(capabilities)
@@ -330,24 +331,13 @@ fn tokens_capability(id: &str, name: &str, value: u64) -> CapabilityData {
     }
 }
 
-/// 累计消费（网页会话口径）：
-/// 优先直接读费用接口不带月份参数的聚合值；接口拒绝缺省参数时回退为从当月回溯逐月累加。
-/// 任一请求失败返回 None（放弃该能力，不造数）。
-async fn fetch_total_spend(client: &Client, token: &str) -> Option<Decimal> {
-    let all_time_url = "https://platform.deepseek.com/api/v0/usage/cost";
-    if let Ok(cost) = get_json::<CostResp>(client, &all_time_url, token).await {
-        if let Some(total) = month_cost_of(&cost) {
-            if !total.is_zero() {
-                return Some(total);
-            }
-        }
-    }
-
+/// 累计消费（网页会话口径）：当月消费 + 从上月回看 36 个月的月度费用逐月累加。
+/// 空月是正常状态不早停；任一月份请求或解析失败返回 None（放弃该能力，不造数）。
+async fn fetch_total_spend(client: &Client, token: &str, current_month_cost: Decimal) -> Option<Decimal> {
     let mut year = Local::now().year();
     let mut month = Local::now().month();
-    let mut total = Decimal::ZERO;
-    let mut empty_streak = 0;
-    for _ in 0..24 {
+    let mut total = current_month_cost;
+    for _ in 0..36 {
         month -= 1;
         if month == 0 {
             month = 12;
@@ -355,16 +345,7 @@ async fn fetch_total_spend(client: &Client, token: &str) -> Option<Decimal> {
         }
         let url = format!("https://platform.deepseek.com/api/v0/usage/cost?month={month}&year={year}");
         let cost = get_json::<CostResp>(client, &url, token).await.ok()?;
-        let month_cost = month_cost_of(&cost)?;
-        if month_cost.is_zero() {
-            empty_streak += 1;
-            if empty_streak >= 2 {
-                break;
-            }
-        } else {
-            empty_streak = 0;
-        }
-        total += month_cost;
+        total += month_cost_of(&cost)?;
     }
     Some(total)
 }
