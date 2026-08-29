@@ -24,6 +24,7 @@ import {
 } from "@/lib/query-client";
 import { applyAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
+import { PlatformMark } from "@/features/platform-center/ProviderRail";
 
 /**
  * 精简设置：常规（自启 / 主题 / 悬浮球开关）、悬浮球排序、刷新间隔、数据与关于。
@@ -33,7 +34,7 @@ export function SettingsPage() {
   const [section, setSection] = useState<SettingsSectionId>("general");
 
   return (
-    <div className="flex min-h-0 flex-1 gap-4 p-6 pt-2">
+    <div className="flex min-h-0 flex-1 gap-4 p-4 pt-2">
       <SettingsSectionRail active={section} onSelect={setSection} />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
@@ -65,7 +66,7 @@ function SettingsSectionRail({
   return (
     <nav
       aria-label="设置分区"
-      className="flex w-[200px] shrink-0 flex-col gap-1 rounded-q-card border border-q-border bg-q-surface-muted/60 p-2 backdrop-blur-xl"
+      className="flex w-[208px] shrink-0 flex-col gap-1 rounded-[18px] border border-q-border bg-q-surface p-2.5 shadow-q-sm backdrop-blur-xl"
     >
       {SECTIONS.map((item) => {
         const Icon = item.icon;
@@ -300,11 +301,14 @@ function HoverbarSettingsSection() {
               return (
                 <div
                   key={id}
-                  className="flex items-center justify-between gap-3 rounded-q-control border border-q-border bg-q-surface-muted/70 px-3 py-2"
+                  className="flex items-center justify-between gap-3 rounded-q-control border border-q-border bg-q-surface-muted px-3 py-2"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-q-text-primary">{platform.displayName}</p>
-                    <p className="truncate text-[11px] text-q-text-muted">{platform.accessSummary}</p>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <PlatformMark providerId={id} size={30} />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-q-text-primary">{platform.displayName}</p>
+                      <p className="truncate text-[11px] text-q-text-muted">{platform.accessSummary}</p>
+                    </div>
                   </div>
                   <div className="flex gap-1">
                     <button
@@ -312,7 +316,7 @@ function HoverbarSettingsSection() {
                       aria-label={`上移 ${platform.displayName}`}
                       disabled={index === 0 || reorderMutation.isPending}
                       onClick={() => move(id, -1)}
-                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-q-control border border-q-border text-q-text-secondary hover:bg-q-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-q-control border border-q-border bg-q-surface-strong text-q-text-secondary shadow-q-sm hover:border-q-border-selected hover:text-q-primary disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ChevronUp size={16} aria-hidden />
                     </button>
@@ -321,7 +325,7 @@ function HoverbarSettingsSection() {
                       aria-label={`下移 ${platform.displayName}`}
                       disabled={index === order.length - 1 || reorderMutation.isPending}
                       onClick={() => move(id, 1)}
-                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-q-control border border-q-border text-q-text-secondary hover:bg-q-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-q-control border border-q-border bg-q-surface-strong text-q-text-secondary shadow-q-sm hover:border-q-border-selected hover:text-q-primary disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ChevronDown size={16} aria-hidden />
                     </button>

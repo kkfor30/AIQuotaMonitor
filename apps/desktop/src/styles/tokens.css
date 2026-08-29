@@ -1,50 +1,57 @@
 /*
- * AIQuotaMonitor 设计 Token
- * 视觉方向：浅色晶体玻璃、细描边、轻阴影；蓝色主操作、绿色成功、橙色部分可用。
+ * AIQuotaMonitor 设计 Token — Apple Glass V6（2026-08-29 设计稿）
+ * 视觉方向：冷白到淡蓝画布、半透明白玻璃卡、细冷色描边、克制阴影；
+ * 主色 #0A66FF、成功色 #00A67D；正文高对比深海军蓝。
  * 所有颜色同时以文字/图标辅助表达状态，禁止仅靠颜色传达信息。
  */
 
 /* 原始调色板：可被主题层覆盖的语义变量 */
 :root {
   /* 表面与背景 */
-  --q-bg: #eef3fb;
-  --q-bg-glow-a: rgba(59, 130, 247, 0.1);
-  --q-bg-glow-b: rgba(36, 224, 182, 0.08);
-  --q-surface: rgba(255, 255, 255, 0.78);
-  --q-surface-strong: rgba(255, 255, 255, 0.94);
+  --q-bg: #f3f7fd;
+  --q-bg-glow-a: rgba(10, 102, 255, 0.07);
+  --q-bg-glow-b: rgba(0, 166, 125, 0.05);
+  --q-bg-glow-c: rgba(120, 170, 255, 0.1);
+  --q-surface: rgba(255, 255, 255, 0.64);
+  --q-surface-strong: rgba(255, 255, 255, 0.92);
   --q-surface-solid: #ffffff;
-  --q-surface-muted: rgba(255, 255, 255, 0.55);
-  --q-surface-hover: rgba(255, 255, 255, 0.92);
+  --q-surface-muted: rgba(255, 255, 255, 0.4);
+  --q-surface-hover: rgba(255, 255, 255, 0.85);
+  --q-surface-highlight: rgba(255, 255, 255, 0.6);
 
   /* 描边 */
-  --q-border: rgba(15, 23, 42, 0.08);
-  --q-border-strong: rgba(15, 23, 42, 0.14);
-  --q-border-selected: rgba(7, 86, 238, 0.45);
+  --q-border: rgba(13, 27, 54, 0.08);
+  --q-border-strong: rgba(13, 27, 54, 0.14);
+  --q-border-selected: rgba(10, 102, 255, 0.45);
 
-  /* 文字 */
-  --q-text-primary: #0f141d;
-  --q-text-secondary: #5a6474;
-  --q-text-muted: #8a93a6;
+  /* 文字：深海军蓝体系，辅助文字保持可读对比 */
+  --q-text-primary: #16233b;
+  --q-text-secondary: #46536b;
+  --q-text-muted: #6b7890;
   --q-text-inverse: #ffffff;
 
   /* 主操作（蓝） */
-  --q-primary: #0756ee;
-  --q-primary-hover: #1a66f2;
-  --q-primary-soft: rgba(7, 86, 238, 0.08);
-  --q-primary-softer: rgba(7, 86, 238, 0.05);
+  --q-primary: #0a66ff;
+  --q-primary-hover: #2b7bff;
+  --q-primary-soft: rgba(10, 102, 255, 0.09);
+  --q-primary-softer: rgba(10, 102, 255, 0.05);
 
   /* 状态：成功（绿） */
-  --q-success: #0ba772;
-  --q-success-strong: #07875d;
-  --q-success-soft: rgba(11, 167, 114, 0.1);
+  --q-success: #009c76;
+  --q-success-strong: #008061;
+  --q-success-soft: rgba(0, 166, 125, 0.1);
 
   /* 状态：部分可用 / 缓存（橙） */
-  --q-warning: #d9640f;
-  --q-warning-soft: rgba(217, 100, 15, 0.1);
+  --q-warning: #b45309;
+  --q-warning-soft: rgba(217, 119, 6, 0.11);
 
   /* 状态：失败（红） */
   --q-danger: #d93025;
   --q-danger-soft: rgba(217, 48, 37, 0.09);
+
+  /* 状态：未配置（灰蓝） */
+  --q-neutral: #64748b;
+  --q-neutral-soft: rgba(100, 116, 139, 0.1);
 
   /* 悬浮球：独立透明窗口内的玻璃表面与状态色 */
   --q-hoverbar-panel-bg:
@@ -69,26 +76,23 @@
   --q-hoverbar-orb-ring: rgba(7, 86, 238, 0.3);
   --q-hoverbar-empty-bg: rgba(255, 255, 255, 0.46);
 
-  /* 状态：未配置（灰蓝） */
-  --q-neutral: #64748b;
-  --q-neutral-soft: rgba(100, 116, 139, 0.1);
-
   /* 阴影与圆角 */
-  --q-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --q-shadow-sm: 0 1px 2px rgba(16, 34, 64, 0.05);
   --q-shadow-md:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 8px 24px rgba(15, 23, 42, 0.07);
+    0 1px 2px rgba(16, 34, 64, 0.04),
+    0 10px 28px rgba(16, 34, 64, 0.08);
   --q-shadow-lg:
-    0 2px 6px rgba(15, 23, 42, 0.06),
-    0 16px 40px rgba(15, 23, 42, 0.12);
-  --q-radius-card: 14px;
-  --q-radius-control: 10px;
+    0 2px 8px rgba(16, 34, 64, 0.06),
+    0 20px 48px rgba(16, 34, 64, 0.14);
+  --q-radius-card: 16px;
+  --q-radius-control: 12px;
   --q-radius-pill: 999px;
 
-  /* 字体 */
+  /* 字体：Windows 系统栈，优先 Segoe UI Variable，不引入在线字体 */
   --q-font:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI",
-    "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC", sans-serif;
+    "Segoe UI Variable Text", "Segoe UI Variable Display", "Segoe UI",
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC",
+    sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -96,11 +100,13 @@
     --q-bg: #101722;
     --q-bg-glow-a: rgba(59, 130, 247, 0.14);
     --q-bg-glow-b: rgba(36, 224, 182, 0.08);
+    --q-bg-glow-c: rgba(70, 110, 200, 0.1);
     --q-surface: rgba(24, 32, 46, 0.86);
     --q-surface-strong: rgba(30, 40, 56, 0.94);
     --q-surface-solid: #1b2433;
     --q-surface-muted: rgba(255, 255, 255, 0.05);
     --q-surface-hover: rgba(255, 255, 255, 0.08);
+    --q-surface-highlight: rgba(255, 255, 255, 0.06);
     --q-border: rgba(255, 255, 255, 0.08);
     --q-border-strong: rgba(255, 255, 255, 0.14);
     --q-border-selected: rgba(117, 165, 255, 0.55);
@@ -111,6 +117,13 @@
     --q-primary-hover: #7aa0ff;
     --q-primary-soft: rgba(91, 140, 255, 0.16);
     --q-primary-softer: rgba(91, 140, 255, 0.1);
+    --q-success: #3ecfa6;
+    --q-success-strong: #58e1c7;
+    --q-success-soft: rgba(62, 207, 166, 0.14);
+    --q-warning: #ffb164;
+    --q-warning-soft: rgba(255, 177, 100, 0.12);
+    --q-danger: #ff8a70;
+    --q-danger-soft: rgba(255, 138, 112, 0.12);
     --q-hoverbar-panel-bg:
       radial-gradient(120% 74% at 50% -24%, rgba(74, 129, 172, 0.42), transparent 58%),
       linear-gradient(142deg, rgba(24, 36, 52, 0.98), rgba(8, 17, 28, 0.99));
@@ -139,11 +152,13 @@
   --q-bg: #101722;
   --q-bg-glow-a: rgba(59, 130, 247, 0.14);
   --q-bg-glow-b: rgba(36, 224, 182, 0.08);
+  --q-bg-glow-c: rgba(70, 110, 200, 0.1);
   --q-surface: rgba(24, 32, 46, 0.86);
   --q-surface-strong: rgba(30, 40, 56, 0.94);
   --q-surface-solid: #1b2433;
   --q-surface-muted: rgba(255, 255, 255, 0.05);
   --q-surface-hover: rgba(255, 255, 255, 0.08);
+  --q-surface-highlight: rgba(255, 255, 255, 0.06);
   --q-border: rgba(255, 255, 255, 0.08);
   --q-border-strong: rgba(255, 255, 255, 0.14);
   --q-border-selected: rgba(117, 165, 255, 0.55);
@@ -154,6 +169,13 @@
   --q-primary-hover: #7aa0ff;
   --q-primary-soft: rgba(91, 140, 255, 0.16);
   --q-primary-softer: rgba(91, 140, 255, 0.1);
+  --q-success: #3ecfa6;
+  --q-success-strong: #58e1c7;
+  --q-success-soft: rgba(62, 207, 166, 0.14);
+  --q-warning: #ffb164;
+  --q-warning-soft: rgba(255, 177, 100, 0.12);
+  --q-danger: #ff8a70;
+  --q-danger-soft: rgba(255, 138, 112, 0.12);
 }
 
 /* 悬浮详情手动主题优先于系统偏好；只覆盖 hoverbar 语义 Token。 */

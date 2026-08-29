@@ -34,9 +34,13 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
   return (
     <div className="glass-panel flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-q-text-secondary">
-          <Icon size={15} aria-hidden />
-          <span className="text-[13px] font-medium">{capability.displayName}</span>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm">
+            <Icon size={16} aria-hidden />
+          </span>
+          <span className="truncate text-[13px] font-medium text-q-text-secondary">
+            {capability.displayName}
+          </span>
         </div>
         <FreshnessTag freshness={capability.freshness} />
       </div>
@@ -44,7 +48,7 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
       {capability.value.primary !== null ? (
         <div>
           <p
-            className="text-[26px] font-semibold leading-none tracking-tight text-q-text-primary"
+            className="text-[26px] font-semibold leading-none tracking-tight tabular-nums text-q-text-primary"
             data-selectable="true"
           >
             {compactPercentText(capability.value.primary)}

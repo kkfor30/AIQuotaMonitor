@@ -110,9 +110,9 @@ export function PlatformCenterPage({
 
   if (!platform) {
     return (
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 p-4 pt-2">
         <ProviderRail platforms={[]} selectedId={null} onSelect={handleSelect} onAdd={() => setAddOpen(true)} />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col p-5">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <EmptyState
             title="还没有监控任何平台"
             description="从产品提供的平台列表中添加。大多数平台填写官方 API Key 并验证连接即可；个别没有官方额度接口的能力再使用网页登录。"
@@ -135,7 +135,7 @@ export function PlatformCenterPage({
   }
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1 p-4 pt-2">
       <ProviderRail
         platforms={platforms}
         selectedId={platform.providerId}
@@ -144,7 +144,7 @@ export function PlatformCenterPage({
         onRemove={setPendingRemoveId}
       />
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 p-5">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
         <ProviderHeader
           platform={platform}
           refreshing={refreshMutation.isPending}
@@ -214,7 +214,7 @@ function RemovePlatformDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" role="presentation" onMouseDown={onCancel}>
       <div
-        className="w-full max-w-md rounded-q-card border border-q-border bg-q-surface-solid p-5 shadow-xl"
+        className="w-full max-w-md rounded-[18px] border border-q-border bg-q-surface-solid p-5 shadow-q-lg"
         role="dialog"
         aria-label="移除平台"
         onMouseDown={(event) => event.stopPropagation()}

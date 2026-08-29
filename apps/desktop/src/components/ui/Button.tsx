@@ -5,9 +5,9 @@ type Size = "sm" | "md";
 
 const VARIANT_CLASS: Record<Variant, string> = {
   primary:
-    "bg-q-primary text-white border border-transparent hover:bg-q-primary-hover shadow-q-sm",
+    "bg-q-primary text-white border border-transparent hover:bg-q-primary-hover shadow-[0_6px_16px_rgba(10,102,255,0.26)]",
   secondary:
-    "bg-q-surface-strong text-q-text-primary border border-q-border-strong hover:bg-q-surface-hover hover:border-q-border-selected hover:text-q-primary",
+    "bg-q-surface-strong text-q-text-primary border border-q-border-strong backdrop-blur hover:border-q-border-selected hover:text-q-primary",
   ghost:
     "bg-transparent text-q-text-secondary border border-transparent hover:bg-q-primary-softer hover:text-q-primary",
 };

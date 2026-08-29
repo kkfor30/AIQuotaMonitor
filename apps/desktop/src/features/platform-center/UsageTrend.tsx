@@ -32,22 +32,22 @@ export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewM
           <AreaChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
             <defs>
               <linearGradient id="q-trend-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#0756ee" stopOpacity={0.28} />
-                <stop offset="100%" stopColor="#0756ee" stopOpacity={0.02} />
+                <stop offset="0%" stopColor="var(--q-primary)" stopOpacity={0.28} />
+                <stop offset="100%" stopColor="var(--q-primary)" stopOpacity={0.02} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 6" stroke="rgba(15,23,42,0.07)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 6" stroke="rgba(13,27,54,0.07)" vertical={false} />
             <XAxis
               dataKey="label"
               tickLine={false}
               axisLine={false}
-              tick={{ fill: "#8a93a6", fontSize: 11 }}
+              tick={{ fill: "#6b7890", fontSize: 11 }}
               dy={6}
             />
             <YAxis
               tickLine={false}
               axisLine={false}
-              tick={{ fill: "#8a93a6", fontSize: 11 }}
+              tick={{ fill: "#6b7890", fontSize: 11 }}
               width={46}
               tickFormatter={(value: number) => `¥${value}`}
             />
@@ -65,10 +65,10 @@ export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewM
             <Area
               type="monotone"
               dataKey="value"
-              stroke="#0756ee"
+              stroke="var(--q-primary)"
               strokeWidth={2}
               fill="url(#q-trend-fill)"
-              activeDot={{ r: 3.5, fill: "#0756ee", strokeWidth: 0 }}
+              activeDot={{ r: 3.5, fill: "var(--q-primary)", strokeWidth: 0 }}
             />
           </AreaChart>
         </ResponsiveContainer>

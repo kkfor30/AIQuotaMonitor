@@ -3,7 +3,7 @@ import { WindowTitleBar } from "@/components/ui/WindowTitleBar";
 import type { NavId } from "@/app/navigation";
 
 /**
- * 应用外壳：自定义标题栏 + 左侧一级导航 + 页面内容区。
+ * 应用外壳（Apple Glass V6）：自定义标题栏 + 玻璃导航列 + 页面内容区。
  * 默认进入「平台中心」。
  */
 export function AppShell({
@@ -20,7 +20,7 @@ export function AppShell({
       <WindowTitleBar />
       <div className="flex min-h-0 flex-1">
         <SidebarNavigation active={active} onSelect={onNavigate} />
-        <div className="app-content flex min-h-0 min-w-0 flex-1 flex-col p-4 pl-0">{children}</div>
+        <div className="app-content flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
       </div>
     </div>
   );

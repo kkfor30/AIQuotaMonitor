@@ -40,12 +40,15 @@ button {
   font-family: inherit;
 }
 
+/* Apple Glass V6 玻璃面板：半透明白 + 细冷描边 + 顶部高光 + 克制模糊 */
 @utility glass-panel {
   background: var(--q-surface);
   border: 1px solid var(--q-border);
   border-radius: var(--q-radius-card);
-  box-shadow: var(--q-shadow-md);
-  backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow:
+    inset 0 1px 0 var(--q-surface-highlight),
+    var(--q-shadow-md);
+  backdrop-filter: blur(14px) saturate(1.4);
 }
 
 @utility glass-inset {
@@ -54,33 +57,52 @@ button {
   border-radius: var(--q-radius-control);
 }
 
+/* V6 画布：冷白 → 淡蓝纵向渐变 + 两团柔和色光（深色主题回退纯色底） */
 @utility app-backdrop {
   background:
-    radial-gradient(1200px 600px at 8% -10%, var(--q-bg-glow-a), transparent 55%),
-    radial-gradient(1000px 700px at 105% 115%, var(--q-bg-glow-b), transparent 55%),
+    radial-gradient(1100px 520px at 6% -8%, var(--q-bg-glow-a), transparent 55%),
+    radial-gradient(900px 620px at 104% 112%, var(--q-bg-glow-b), transparent 55%),
+    radial-gradient(1400px 500px at 50% -20%, var(--q-bg-glow-c), transparent 60%),
+    linear-gradient(180deg, #edf4fc 0%, #f4f8fe 55%, #f7fafe 100%);
+}
+
+:root[data-theme="dark"] .app-backdrop,
+:root:not([data-theme="light"]) .app-backdrop {
+  background:
+    radial-gradient(1100px 520px at 6% -8%, var(--q-bg-glow-a), transparent 55%),
+    radial-gradient(900px 620px at 104% 112%, var(--q-bg-glow-b), transparent 55%),
     var(--q-bg);
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, 0.14);
-  border: 2px solid transparent;
+  background: rgba(22, 35, 59, 0.16);
+  border: 3px solid transparent;
   border-radius: 999px;
   background-clip: content-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 23, 42, 0.24);
-  border: 2px solid transparent;
+  background: rgba(22, 35, 59, 0.28);
+  border: 3px solid transparent;
   background-clip: content-box;
 }
 
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* 隐藏横向滚动条但保留滚动能力（总览平台窗口等） */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

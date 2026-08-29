@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Radar, RefreshCw } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -70,20 +71,29 @@ export function GptRadarPage() {
   const models = data?.models ?? [];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-2 pr-2">
       <header className="glass-panel flex flex-wrap items-start justify-between gap-3 px-5 py-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold tracking-tight text-q-text-primary">GPT 重置雷达</h1>
-            <span className="rounded-q-pill bg-q-neutral-soft px-2.5 py-1 text-xs text-q-neutral">
-              仅为推测，不代表官方结论
-            </span>
+        <div className="flex min-w-0 items-start gap-3.5">
+          <span
+            aria-hidden
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm"
+          >
+            <Radar size={22} aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-[20px] font-semibold tracking-tight text-q-text-primary">GPT 重置雷达</h1>
+              <span className="rounded-q-pill bg-q-neutral-soft px-2.5 py-1 text-xs text-q-neutral">
+                仅为推测，不代表官方结论
+              </span>
+            </div>
+            <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-q-text-secondary">
+              手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译。我们自己的 AI 分析默认关闭，且只使用英文原文。
+            </p>
           </div>
-          <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-q-text-secondary">
-            手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译。我们自己的 AI 分析默认关闭，且只使用英文原文。
-          </p>
         </div>
         <Button onClick={() => checkMutation.mutate()} disabled={checkMutation.isPending}>
+          <RefreshCw size={15} aria-hidden className={checkMutation.isPending ? "animate-spin" : ""} />
           {checkMutation.isPending ? "检查中…" : "立即检查"}
         </Button>
       </header>
