@@ -84,6 +84,7 @@ pub fn run() {
             commands::platform_commands::test_api_endpoints,
             commands::radar_commands::get_radar_snapshot,
             commands::radar_commands::run_radar_check,
+            commands::radar_commands::translate_radar_post,
             commands::settings_commands::get_app_settings,
             commands::settings_commands::set_app_theme,
             commands::settings_commands::set_refresh_interval,

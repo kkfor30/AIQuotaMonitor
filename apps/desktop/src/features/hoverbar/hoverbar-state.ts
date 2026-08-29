@@ -25,6 +25,7 @@ export type HoverbarEdge = "top" | "right" | "bottom" | "left";
 export type HoverbarSortMode = "manual" | "smart";
 
 import type { PlatformSummaryViewModel } from "@/lib/types";
+import type { RadarSnapshot } from "@/lib/ipc";
 
 /** 默认平台顺序（后续由设置页排序编辑持久化）。 */
 export const DEFAULT_HOVERBAR_PROVIDER_ORDER = [
@@ -126,6 +127,34 @@ export function sortHoverbarPlatforms<T extends { providerId: string }>(
 /** 悬浮详情只展示已配置凭据的平台，未接入的留在平台中心。 */
 export function filterHoverbarPlatforms<T extends { aggregateStatus: string }>(platforms: T[]): T[] {
   return platforms.filter((platform) => platform.aggregateStatus !== "setup_required");
+}
+
+/** 悬浮详情时间展示：当天只显示 HH:mm，跨天补 MM-DD 前缀。 */
+export function formatHoverbarClock(value: number): string {
+  const date = new Date(value);
+  const now = new Date();
+  const pad = (input: number) => String(input).padStart(2, "0");
+  const hhmm = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  return sameDay ? hhmm : `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${hhmm}`;
+}
+
+/** 雷达把握度中文标签；未知值原样返回，不臆造等级。 */
+export function radarConfidenceLabel(confidence: string): string {
+  if (confidence === "high") return "高";
+  if (confidence === "medium") return "中";
+  if (confidence === "low") return "低";
+  return confidence;
+}
+
+/** 摘要条第二行的来源状态：只用真实同步时间，不编造。 */
+export function radarSourceLine(radar: RadarSnapshot): string {
+  if (radar.sourceStatus === "stale") return "来源 Codex Radar · 缓存可能过期";
+  if (radar.lastSyncedAt) return `来源 Codex Radar · 更新 ${formatHoverbarClock(radar.lastSyncedAt)}`;
+  return "来源 Codex Radar · 未同步";
 }
 
 /** 悬浮球头部状态文案：成功/部分/失败同时用文字表达。 */

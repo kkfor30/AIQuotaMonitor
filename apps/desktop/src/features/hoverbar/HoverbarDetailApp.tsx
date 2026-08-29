@@ -6,17 +6,22 @@
  * 迁移内容：detail-open/detail-close 事件驱动的开合动画状态机、
  * ResizeObserver 内容测高 → set_hoverbar_detail_size 自适应窗口、
  * 指针进出上报 set_hoverbar_detail_pointer_inside。
- * 变更：完整恢复旧版最终玻璃详情结构、四边布局与状态皮肤；数据改为
- * 当前 Source/Capability 脱敏 ViewModel，不迁移旧平台请求与凭据逻辑。
+ * 变更：数据改为当前 Source/Capability 脱敏 ViewModel；卡片按最终稿重排；
+ * 增加 GPT 重置信号摘要条与同窗口内的雷达二级页切换。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { fetchAppSettings, fetchPlatformSummaries, openMainWindow } from "@/lib/ipc";
-import { APP_SETTINGS_QUERY_KEY, PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
+import { fetchAppSettings, fetchPlatformSummaries, fetchRadarSnapshot, openMainWindow } from "@/lib/ipc";
+import {
+  APP_SETTINGS_QUERY_KEY,
+  PLATFORM_SUMMARIES_QUERY_KEY,
+  RADAR_SNAPSHOT_QUERY_KEY,
+} from "@/lib/query-client";
 import { HoverbarPlatformCard } from "./HoverbarPlatformCard";
+import { HoverbarRadarDetail } from "./HoverbarRadarDetail";
 import { useHoverbarTheme } from "./hoverbar-theme";
 import {
   DEFAULT_HOVERBAR_PROVIDER_ORDER,
@@ -30,16 +35,19 @@ import {
   type HoverbarMotionPhase,
 } from "./hoverbar-state";
 
+type HoverbarView = "quota" | "radar";
+
 export function HoverbarDetailApp() {
   const { theme, toggleTheme } = useHoverbarTheme();
   const [motionPhase, setMotionPhase] = useState<HoverbarMotionPhase>("anchor");
   const [anchor, setAnchor] = useState<HoverbarAnchor>({ edge: "right", ratio: 0.4 });
+  const [view, setView] = useState<HoverbarView>("quota");
   const [contentHeight, setContentHeight] = useState(0);
   const motionPhaseRef = useRef<HoverbarMotionPhase>("anchor");
   const exitTimer = useRef<number | undefined>(undefined);
   const panelRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const { data: platforms = [], isFetching, refetch } = useQuery({
     queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
@@ -48,6 +56,12 @@ export function HoverbarDetailApp() {
   const { data: settings } = useQuery({
     queryKey: APP_SETTINGS_QUERY_KEY,
     queryFn: fetchAppSettings,
+    retry: false,
+  });
+  // GPT 重置雷达：只读快照，检查动作仍由主窗口执行，失败不影响额度状态。
+  const { data: radar } = useQuery({
+    queryKey: RADAR_SNAPSHOT_QUERY_KEY,
+    queryFn: fetchRadarSnapshot,
     retry: false,
   });
 
@@ -65,13 +79,14 @@ export function HoverbarDetailApp() {
     }, HOVERBAR_EXIT_ANIMATION_MS);
   }, [setMotion]);
 
-  // 打开/收起事件驱动动画状态机
+  // 打开/收起事件驱动动画状态机；每次重新展开都回到额度列表页
   useEffect(() => {
     let disposed = false;
     const unlisteners: Array<() => void> = [];
     void listen<HoverbarAnchor>("hoverbar-detail-open", (event) => {
       if (disposed) return;
       window.clearTimeout(exitTimer.current);
+      setView("quota");
       setAnchor(normalizeHoverbarAnchor(event.payload));
       setMotion("opening");
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -95,18 +110,18 @@ export function HoverbarDetailApp() {
     };
   }, [finishClose, setMotion]);
 
-  // 内容测高：驱动窗口尺寸自适应
+  // 内容测高：观察头部与内容盒，额度列表与雷达二级页共用同一滚动容器
   useLayoutEffect(() => {
     const updateContentHeight = () => {
       const panel = panelRef.current;
       const header = headerRef.current;
-      const list = listRef.current;
-      if (!panel || !header || !list) return;
+      const content = contentRef.current;
+      if (!panel || !header || !content) return;
       const style = window.getComputedStyle(panel);
       const padding =
         (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
       const nextHeight = Math.ceil(
-        header.getBoundingClientRect().height + list.scrollHeight + padding + 2,
+        header.getBoundingClientRect().height + content.getBoundingClientRect().height + padding + 2,
       );
       setContentHeight((previous) => (previous === nextHeight ? previous : nextHeight));
     };
@@ -114,12 +129,12 @@ export function HoverbarDetailApp() {
     const frame = window.requestAnimationFrame(updateContentHeight);
     const observer = new ResizeObserver(updateContentHeight);
     if (headerRef.current) observer.observe(headerRef.current);
-    if (listRef.current) observer.observe(listRef.current);
+    if (contentRef.current) observer.observe(contentRef.current);
     return () => {
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [platforms]);
+  }, [view]);
 
   // 上报期望尺寸，后端 clamp 并重排窗口
   useEffect(() => {
@@ -185,17 +200,26 @@ export function HoverbarDetailApp() {
           </div>
         </header>
 
-        <div ref={listRef} className="hb-service-list">
-          {orderedPlatforms.length === 0 ? (
-            <div className="hb-empty">
-              <strong>暂无可展示额度</strong>
-              <span>请在主窗口的平台中心完成接入</span>
-            </div>
-          ) : (
-            orderedPlatforms.map((platform) => (
-              <HoverbarPlatformCard key={platform.providerId} platform={platform} />
-            ))
-          )}
+        <div className="hb-service-list">
+          <div ref={contentRef} className="hb-service-scroll">
+            {view === "radar" ? (
+              <HoverbarRadarDetail radar={radar} onBack={() => setView("quota")} />
+            ) : orderedPlatforms.length === 0 ? (
+              <div className="hb-empty">
+                <strong>暂无可展示额度</strong>
+                <span>请在主窗口的平台中心完成接入</span>
+              </div>
+            ) : (
+              orderedPlatforms.map((platform) => (
+                <HoverbarPlatformCard
+                  key={platform.providerId}
+                  platform={platform}
+                  radar={platform.providerId === "openai" ? radar : undefined}
+                  onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
+                />
+              ))
+            )}
+          </div>
         </div>
 
       </section>

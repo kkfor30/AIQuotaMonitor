@@ -2,8 +2,9 @@
  * 悬浮球组件开发预览：只在 Vite 开发环境手工验收，不参与 Tauri 产品入口。
  * 示例值均明确标注为预览数据，避免与真实平台快照混淆。
  */
-import React from "react";
+import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
 import type {
   CapabilitySnapshotViewModel,
@@ -12,9 +13,11 @@ import type {
   SourceState,
   SourceSummaryViewModel,
 } from "@/lib/types";
+import type { RadarSnapshot } from "@/lib/ipc";
 import "@/styles/global.css";
 import { HoverbarOrb } from "./HoverbarAnchorApp";
 import { HoverbarPlatformCard } from "./HoverbarPlatformCard";
+import { HoverbarRadarDetail } from "./HoverbarRadarDetail";
 import { useHoverbarTheme } from "./hoverbar-theme";
 import type { HoverbarEdge } from "./hoverbar-state";
 
@@ -138,6 +141,89 @@ const staleGlm: PlatformSummaryViewModel = {
 
 const previewPlatforms: PlatformSummaryViewModel[] = [gptPlatform, glmPlatform, deepseekHealthy, kimiError];
 
+/** 预览雷达快照：仅为布局验收示例，不代表任何真实信号。 */
+const previewRadar: RadarSnapshot = {
+  sourceStatus: "fresh",
+  lastSyncedAt: Date.now() - 42 * 60 * 1000,
+  posts: [
+    {
+      id: "preview-1",
+      url: "https://x.com/tibo/status/preview-1",
+      text: "Rates appear to have rolled over for a fresh window in some regions.",
+      postedAt: Date.now() - 3 * 60 * 60 * 1000,
+      kind: "candidate",
+      badge: "VERIFYING",
+      filter: "signal",
+      explicitReset: false,
+      isReply: false,
+      replies: 4,
+      reposts: 12,
+      likes: 38,
+      syncedAt: Date.now() - 42 * 60 * 1000,
+      translatedText: "示例翻译：部分地区额度窗口似乎已经翻滚到新一轮。",
+      translatedAt: Date.now() - 40 * 60 * 1000,
+      translationSource: "DeepSeek · deepseek-chat",
+    },
+    {
+      id: "preview-2",
+      url: "https://x.com/tibo/status/preview-2",
+      text: "Limits holding steady, no reset signal observed today.",
+      postedAt: Date.now() - 8 * 60 * 60 * 1000,
+      kind: "limits",
+      badge: "LIMITS",
+      filter: "limits",
+      explicitReset: false,
+      isReply: false,
+      replies: 1,
+      reposts: 3,
+      likes: 9,
+      syncedAt: Date.now() - 42 * 60 * 1000,
+      translatedText: null,
+      translatedAt: null,
+      translationSource: null,
+    },
+    {
+      id: "preview-3",
+      url: "https://x.com/tibo/status/preview-3",
+      text: "Earlier reset landed yesterday evening.",
+      postedAt: Date.now() - 26 * 60 * 60 * 1000,
+      kind: "signal",
+      badge: "RESET",
+      filter: "signal",
+      explicitReset: true,
+      isReply: false,
+      replies: 8,
+      reposts: 21,
+      likes: 55,
+      syncedAt: Date.now() - 42 * 60 * 1000,
+      translatedText: "示例翻译：昨天傍晚的重置已经落地。",
+      translatedAt: Date.now() - 30 * 60 * 1000,
+      translationSource: "GLM · glm-4.5-flash",
+    },
+  ],
+  latest: null,
+  checks: [],
+  analysis: {
+    id: "preview-analysis",
+    createdAt: Date.now() - 39 * 60 * 1000,
+    rangeKey: "3d",
+    cutPostId: "preview-3",
+    cutLabel: null,
+    sourceId: "deepseek-balance-api",
+    model: "deepseek-chat",
+    conclusion: "示例结论：近期出现新的重置迹象，仍在等待更多区域确认。",
+    confidence: "medium",
+    citations: [],
+    support: ["部分地区窗口翻滚的动态", "限额观察未再恶化"],
+    against: ["尚无官方公告"],
+    uncertainty: ["区域覆盖范围未知"],
+    errorMessage: null,
+  },
+  models: [],
+  cut: null,
+};
+previewRadar.latest = previewRadar.posts[0];
+
 function OrbState({
   label,
   forceState,
@@ -169,12 +255,15 @@ function PreviewPanel({
   edge,
   platforms,
   status,
+  initialView = "quota",
 }: {
   edge: HoverbarEdge;
   platforms: PlatformSummaryViewModel[];
   status: string;
+  initialView?: "quota" | "radar";
 }) {
   const { theme, toggleTheme } = useHoverbarTheme();
+  const [view, setView] = useState<"quota" | "radar">(initialView);
   return (
     <div className="hb-preview-detail-frame" data-edge={edge}>
       <div className="hb-detail-root" data-edge={edge} data-motion="visible">
@@ -202,9 +291,20 @@ function PreviewPanel({
             </div>
           </header>
           <div className="hb-service-list">
-            {platforms.map((platform) => (
-              <HoverbarPlatformCard key={`${edge}-${platform.providerId}`} platform={platform} />
-            ))}
+            <div className="hb-service-scroll">
+              {view === "radar" ? (
+                <HoverbarRadarDetail radar={previewRadar} onBack={() => setView("quota")} />
+              ) : (
+                platforms.map((platform) => (
+                  <HoverbarPlatformCard
+                    key={`${edge}-${platform.providerId}`}
+                    platform={platform}
+                    radar={platform.providerId === "openai" ? previewRadar : undefined}
+                    onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
+                  />
+                ))
+              )}
+            </div>
           </div>
         </section>
       </div>
@@ -217,7 +317,10 @@ function HoverbarPreview() {
     <main className="hb-preview-page">
       <header>
         <h1>悬浮球状态预览</h1>
-        <p>开发验收页。Credits、消费和赠送/充值在预览数据中存在，但不应出现在卡片文案里。</p>
+        <p>
+          开发验收页。Credits、消费和赠送/充值在预览数据中存在，但不应出现在卡片文案里；
+          雷达摘要与翻译均为示例数据。
+        </p>
       </header>
 
       <div className="hb-preview-orb-grid">
@@ -229,7 +332,7 @@ function HoverbarPreview() {
       </div>
 
       <section className="hb-preview-detail-section">
-        <h2>四边停靠 · 一行一个平台</h2>
+        <h2>四边停靠 · 一行一个平台 · 窄版最终稿</h2>
         <div className="hb-preview-edges">
           <div>
             <h2>顶部 420px</h2>
@@ -250,6 +353,20 @@ function HoverbarPreview() {
         </div>
       </section>
 
+      <section className="hb-preview-detail-section">
+        <h2>GPT 重置雷达二级页 · 示例数据</h2>
+        <div className="hb-preview-edges">
+          <div>
+            <h2>右侧停靠 · 雷达页</h2>
+            <PreviewPanel edge="right" platforms={previewPlatforms} status="更新于 11:51" initialView="radar" />
+          </div>
+          <div>
+            <h2>顶部停靠 · 雷达页</h2>
+            <PreviewPanel edge="top" platforms={previewPlatforms} status="更新于 11:51" initialView="radar" />
+          </div>
+        </div>
+      </section>
+
       <div className="hb-preview-panel-grid">
         <section>
           <h2>正常</h2>
@@ -264,8 +381,12 @@ function HoverbarPreview() {
           <HoverbarPlatformCard platform={kimiError} />
         </section>
         <section>
-          <h2>GPT Plus + Free</h2>
-          <HoverbarPlatformCard platform={gptPlatform} />
+          <h2>GPT Plus + Free · 含雷达摘要</h2>
+          <HoverbarPlatformCard
+            platform={gptPlatform}
+            radar={previewRadar}
+            onOpenRadar={() => undefined}
+          />
         </section>
       </div>
     </main>
@@ -279,6 +400,8 @@ window.__HOVERBAR_PREVIEW_ROOT__ = previewRoot;
 
 previewRoot.render(
   <React.StrictMode>
-    <HoverbarPreview />
+    <QueryClientProvider client={new QueryClient()}>
+      <HoverbarPreview />
+    </QueryClientProvider>
   </React.StrictMode>,
 );

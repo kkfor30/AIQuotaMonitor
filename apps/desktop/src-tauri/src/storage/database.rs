@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 3;
+const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -107,6 +107,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 3 {
         migrate_v3(&transaction)?;
+    }
+    if previous_version < 4 {
+        migrate_v4(&transaction)?;
     }
     transaction
         .commit()
@@ -303,6 +306,21 @@ fn migrate_v3(transaction: &Transaction<'_>) -> Result<(), String> {
             "#,
         )
         .map_err(|err| format!("执行 SQLite v3 迁移失败: {err}"))
+}
+
+fn migrate_v4(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            ALTER TABLE tibo_posts ADD COLUMN translated_text TEXT;
+            ALTER TABLE tibo_posts ADD COLUMN translated_at INTEGER;
+            ALTER TABLE tibo_posts ADD COLUMN translation_source TEXT;
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (4, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v4 迁移失败: {err}"))
 }
 
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {

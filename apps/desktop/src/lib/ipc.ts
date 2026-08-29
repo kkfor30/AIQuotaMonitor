@@ -157,6 +157,9 @@ export type RadarPost = {
   reposts: number;
   likes: number;
   syncedAt: number;
+  translatedText: string | null;
+  translatedAt: number | null;
+  translationSource: string | null;
 };
 
 export type RadarCheck = {
@@ -207,6 +210,10 @@ export async function runRadarCheck(input: {
   model?: string | null;
 }): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("run_radar_check", input);
+}
+
+export async function translateRadarPost(postId: string): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("translate_radar_post", { postId });
 }
 
 export type AppSettingsView = {

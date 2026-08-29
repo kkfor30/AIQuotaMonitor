@@ -1,8 +1,9 @@
 /**
- * 悬浮详情平台卡片。一个平台一张卡；GPT 多账户在卡内分组；
- * 只展示 5 小时/7 天窗口、重置时间、个人余额、plan_level 和状态。
+ * 悬浮详情平台卡片（最终稿）。
+ * 一个平台一张卡：卡头为图标 + 名称 + 平台聚合状态；GPT/Codex 多账户同卡分组，
+ * 套餐徽章跟随账户名；窗口时间只显示时间值；GPT 卡底部为重置信号摘要条。
  */
-import { AlertTriangle, CheckCircle2, CircleX, Monitor, User } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Radar } from "lucide-react";
 import type {
   CapabilitySnapshotViewModel,
   DataFreshness,
@@ -11,6 +12,8 @@ import type {
   SourceState,
   SourceSummaryViewModel,
 } from "@/lib/types";
+import type { RadarSnapshot } from "@/lib/ipc";
+import { radarConfidenceLabel, radarSourceLine } from "./hoverbar-state";
 import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
 
 const ALLOWED_IDS = new Set(["quota_window_5h", "quota_window_7d", "balance", "plan_level"]);
@@ -23,7 +26,7 @@ type HoverbarMetric = {
   id: string;
   label: string;
   value: string | null;
-  reset: string | null;
+  time: string | null;
   freshness: DataFreshness;
 };
 
@@ -49,18 +52,25 @@ const METRIC_LABEL: Record<(typeof DATA_IDS)[number], string> = {
   balance: "个人余额",
 };
 
-export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryViewModel }) {
+export function HoverbarPlatformCard({
+  platform,
+  radar,
+  onOpenRadar,
+}: {
+  platform: PlatformSummaryViewModel;
+  radar?: RadarSnapshot;
+  onOpenRadar?: () => void;
+}) {
   const groups = buildGroups(platform);
   const multi = ACCOUNT_PROVIDERS.has(platform.providerId) && groups.length > 1;
   const single = groups[0];
   const hasStale = groups.some((group) => group.metrics.some((metric) => metric.freshness === "stale"));
   const visual = HOVERBAR_PROVIDER_VISUALS[platform.providerId];
-  const platformStatus = platform.aggregateStatus;
-
+  const showRadarStrip = platform.providerId === "openai" && radar !== undefined && onOpenRadar !== undefined;
   return (
     <article
       className="hb-service-card"
-      data-status={platformStatus}
+      data-status={platform.aggregateStatus}
       data-freshness={hasStale ? "stale" : "fresh"}
       data-layout={multi ? "accounts" : "single"}
     >
@@ -77,14 +87,13 @@ export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryVi
             <span>{platform.displayName.slice(0, 1).toUpperCase()}</span>
           )}
         </span>
-        <div className="hb-card-head-main">
-          <b className="hb-card-name">{platform.displayName}</b>
-          <div className="hb-card-meta">
-            {multi ? <span className="hb-chip">{groups.length} 个账户</span> : null}
-            {!multi && single?.plan ? <span className="hb-chip hb-chip-plan">{single.plan}</span> : null}
-            <StatusChip status={platformStatus} />
-          </div>
-        </div>
+        <b className="hb-card-name">{platform.displayName}</b>
+        {!multi && single?.plan ? (
+          <span className="hb-plan-chip" data-plan={planKey(single.plan)}>
+            {single.plan}
+          </span>
+        ) : null}
+        <StatusChip status={platform.aggregateStatus} />
       </header>
 
       {groups.length === 0 ? (
@@ -94,20 +103,25 @@ export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryVi
           {groups.map((group) => (
             <section key={group.id} className="hb-group">
               <div className="hb-group-head">
-                <span className="hb-group-icon" aria-hidden="true">
-                  {group.localAccount ? <Monitor size={14} /> : <User size={14} />}
-                </span>
+                {group.plan ? (
+                  <span className="hb-plan-chip" data-plan={planKey(group.plan)}>
+                    {group.plan}
+                  </span>
+                ) : null}
                 <span className="hb-group-name">{group.title}</span>
-                {group.plan ? <span className="hb-chip hb-chip-plan">{group.plan}</span> : null}
-                <StatusChip status={group.status} />
+                {group.status !== "healthy" ? <StatusChip status={group.status} /> : null}
               </div>
-              <MetricRow metrics={group.metrics} />
+              <MetricRows metrics={group.metrics} />
             </section>
           ))}
         </div>
       ) : (
-        <MetricRow metrics={single?.metrics ?? []} />
+        <MetricRows metrics={single?.metrics ?? []} />
       )}
+
+      {showRadarStrip && radar && onOpenRadar ? (
+        <RadarStrip radar={radar} onOpenRadar={onOpenRadar} />
+      ) : null}
     </article>
   );
 }
@@ -115,40 +129,74 @@ export function HoverbarPlatformCard({ platform }: { platform: PlatformSummaryVi
 function StatusChip({ status }: { status: AccountStatus | PlatformAggregateStatus }) {
   const Icon = status === "healthy" ? CheckCircle2 : status === "error" ? CircleX : AlertTriangle;
   return (
-    <span className="hb-chip hb-chip-status" data-status={status}>
+    <span className="hb-status-chip" data-status={status}>
       <Icon size={11} aria-hidden />
       {STATUS_LABEL[status]}
     </span>
   );
 }
 
-function MetricRow({ metrics }: { metrics: HoverbarMetric[] }) {
+function MetricRows({ metrics }: { metrics: HoverbarMetric[] }) {
   if (metrics.length === 0) {
     return <p className="hb-primary-missing">暂不可用</p>;
   }
   return (
-    <div className="hb-metrics" data-count={metrics.length}>
+    <div className="hb-rows">
       {metrics.map((metric) => {
         const missing = metric.value === null;
         return (
           <div
             key={metric.id}
-            className="hb-metric"
+            className="hb-row"
             data-id={metric.id}
             data-freshness={metric.freshness}
             data-missing={missing || undefined}
           >
-            <span className="hb-metric-label">{metric.label}</span>
-            <b className="hb-metric-value">{missing ? "暂不可用" : metric.value}</b>
-            {metric.reset ? <span className="hb-metric-reset">{metric.reset}</span> : null}
+            <span className="hb-row-label">{metric.label}</span>
+            <b className="hb-row-value">{missing ? "暂不可用" : metric.value}</b>
+            {metric.time && !missing ? <span className="hb-row-time">{metric.time}</span> : null}
             {metric.freshness === "stale" && !missing ? (
-              <span className="hb-metric-reset">可能过期</span>
+              <span className="hb-row-stale">可能过期</span>
             ) : null}
           </div>
         );
       })}
     </div>
   );
+}
+
+/** GPT 卡底部重置信号摘要条：与平台额度状态完全独立的雷达层。 */
+function RadarStrip({ radar, onOpenRadar }: { radar: RadarSnapshot; onOpenRadar: () => void }) {
+  const analysis = radar.analysis;
+  const latest = radar.latest;
+  const summary = analysis?.conclusion ?? latest?.translatedText ?? latest?.text ?? "暂未同步重置信号来源";
+  const confidence = analysis?.confidence ?? null;
+  return (
+    <footer className="hb-radar-strip">
+      <div className="hb-radar-strip-head">
+        <Radar size={14} aria-hidden />
+        <span className="hb-radar-strip-title">重置信号</span>
+        <span className="hb-radar-strip-summary" title={summary}>
+          {summary}
+        </span>
+        {confidence ? (
+          <span className="hb-radar-strip-confidence" data-level={confidence}>
+            {radarConfidenceLabel(confidence)}把握
+          </span>
+        ) : null}
+        <button type="button" className="hb-radar-strip-link" onClick={onOpenRadar}>
+          查看详情
+          <ChevronRight size={13} aria-hidden />
+        </button>
+      </div>
+      <p className="hb-radar-strip-note">{radarSourceLine(radar)} · 仅为推测，不代表官方结论</p>
+    </footer>
+  );
+}
+
+function planKey(plan: string): string {
+  const key = plan.trim().toLowerCase();
+  return key === "plus" || key === "pro" || key === "free" ? key : "other";
 }
 
 function buildGroups(platform: PlatformSummaryViewModel): HoverbarGroup[] {
@@ -212,7 +260,7 @@ function toMetric(capabilities: CapabilitySnapshotViewModel[], id: (typeof DATA_
     id,
     label: METRIC_LABEL[id],
     value,
-    reset: value ? extractReset(capability.value.secondary) : null,
+    time: value ? extractWindowTime(capability.value.secondary) : null,
     freshness: capability.freshness,
   };
 }
@@ -223,13 +271,16 @@ function planOf(capabilities: CapabilitySnapshotViewModel[]): string | null {
   return value || null;
 }
 
-function extractReset(secondary: string | null | undefined): string | null {
+/** 从 secondary 的「重置 14:30 / 重置于 09/02 08:00」片段取出纯时间值。 */
+function extractWindowTime(secondary: string | null | undefined): string | null {
   if (!secondary) return null;
   const hit = secondary
     .split("·")
     .map((part) => part.trim())
     .find((part) => part.startsWith("重置") && part.length > 2);
-  return hit ?? null;
+  if (!hit) return null;
+  const time = hit.replace(/^重置于?\s*[:：]?\s*/, "").trim();
+  return time || null;
 }
 
 function sourceStatus(state: SourceState, metrics: HoverbarMetric[]): AccountStatus {
@@ -247,7 +298,7 @@ function mergeStatus(statuses: AccountStatus[]): AccountStatus {
 }
 
 function accountTitle(source: SourceSummaryViewModel): string {
-  if (source.sourceId === "openai-codex-local") return "本机账户";
+  if (source.sourceId === "openai-codex-local") return "本机";
   if (source.sourceId.startsWith("openai-codex-extra-")) {
     return source.displayName.replace(/^额外 ChatGPT 账号\s*/, "账号 ") || "额外账号";
   }

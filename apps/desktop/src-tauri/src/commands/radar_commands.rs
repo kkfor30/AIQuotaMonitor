@@ -30,3 +30,16 @@ pub async fn run_radar_check(
     )
     .await
 }
+
+/// 翻译单条 Tibo 动态：主窗口与悬浮详情二级页都可调用。
+#[tauri::command]
+pub async fn translate_radar_post(
+    post_id: String,
+    source_id: Option<String>,
+    window: WebviewWindow,
+    database: State<'_, Database>,
+    coordinator: State<'_, RefreshCoordinator>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main", "hoverbar-detail"])?;
+    radar::translate_post(&database, &coordinator, &post_id, source_id.as_deref()).await
+}

@@ -4,9 +4,8 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { fetchRadarSnapshot, ipcErrorMessage, openExternalUrl, runRadarCheck } from "@/lib/ipc";
+import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import type { RadarPost } from "@/lib/ipc";
-
-const RADAR_QUERY_KEY = ["radar-snapshot"] as const;
 
 export function GptRadarPage() {
   const queryClient = useQueryClient();
@@ -18,7 +17,7 @@ export function GptRadarPage() {
   const [sourceId, setSourceId] = useState<string>("");
 
   const { data, isLoading } = useQuery({
-    queryKey: RADAR_QUERY_KEY,
+    queryKey: RADAR_SNAPSHOT_QUERY_KEY,
     queryFn: fetchRadarSnapshot,
   });
 
@@ -31,7 +30,7 @@ export function GptRadarPage() {
         model: data?.models.find((item) => item.sourceId === sourceId)?.model ?? null,
       }),
     onSuccess: (snapshot) => {
-      queryClient.setQueryData(RADAR_QUERY_KEY, snapshot);
+      queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot);
     },
   });
 

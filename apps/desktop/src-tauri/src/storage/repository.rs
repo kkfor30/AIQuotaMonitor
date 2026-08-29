@@ -61,6 +61,9 @@ pub struct TiboPostRecord {
     pub likes: i64,
     pub extra_json: String,
     pub synced_at: i64,
+    pub translated_text: Option<String>,
+    pub translated_at: Option<i64>,
+    pub translation_source: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -661,6 +664,7 @@ impl Database {
                         verification_status = excluded.verification_status, is_reply = excluded.is_reply,
                         replies = excluded.replies, reposts = excluded.reposts, likes = excluded.likes,
                         extra_json = excluded.extra_json, synced_at = excluded.synced_at",
+                    // 冲突时不动 translated_* 列：重新同步不冲掉已缓存的中文翻译
                     params![
                         post.id, post.url, post.text, post.posted_at, post.kind, post.tibo_lane,
                         i64::from(post.explicit_reset), post.verification_status, i64::from(post.is_reply),
@@ -678,7 +682,7 @@ impl Database {
         let connection = self.connect()?;
         let mut statement = connection
             .prepare(
-                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at
+                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source
                  FROM tibo_posts ORDER BY posted_at DESC LIMIT ?1",
             )
             .map_err(|err| format!("准备雷达动态查询失败: {err}"))?;
@@ -687,6 +691,27 @@ impl Database {
             .map_err(|err| format!("查询雷达动态失败: {err}"))?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|err| format!("读取雷达动态失败: {err}"))
+    }
+
+    /// 保存一条动态的中文翻译（由 translate_radar_post 命令调用）。
+    pub fn update_tibo_translation(
+        &self,
+        post_id: &str,
+        translated_text: &str,
+        translated_at: i64,
+        translation_source: &str,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        let changed = connection
+            .execute(
+                "UPDATE tibo_posts SET translated_text = ?2, translated_at = ?3, translation_source = ?4 WHERE id = ?1",
+                params![post_id, translated_text, translated_at, translation_source],
+            )
+            .map_err(|err| format!("保存雷达翻译失败: {err}"))?;
+        if changed == 0 {
+            return Err(format!("雷达动态 {post_id} 不存在"));
+        }
+        Ok(())
     }
 
     pub fn insert_radar_check(&self, check: &RadarCheckRecord) -> Result<(), String> {
@@ -779,6 +804,9 @@ fn map_tibo_post(row: &rusqlite::Row<'_>) -> rusqlite::Result<TiboPostRecord> {
         likes: row.get(11)?,
         extra_json: row.get(12)?,
         synced_at: row.get(13)?,
+        translated_text: row.get(14)?,
+        translated_at: row.get(15)?,
+        translation_source: row.get(16)?,
     })
 }
 

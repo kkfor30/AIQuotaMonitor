@@ -30,6 +30,9 @@ pub struct TiboPostView {
     pub reposts: i64,
     pub likes: i64,
     pub synced_at: i64,
+    pub translated_text: Option<String>,
+    pub translated_at: Option<i64>,
+    pub translation_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -200,6 +203,106 @@ pub async fn run_check(
     snapshot(database)
 }
 
+/// 单条 Tibo 动态的中文翻译：调用已接入的对话模型，结果写回 SQLite 缓存。
+pub async fn translate_post(
+    database: &Database,
+    coordinator: &RefreshCoordinator,
+    post_id: &str,
+    source_id: Option<&str>,
+) -> Result<RadarSnapshot, String> {
+    let post = database
+        .list_tibo_posts(80)?
+        .into_iter()
+        .find(|post| post.id == post_id)
+        .ok_or_else(|| format!("雷达动态 {post_id} 不存在"))?;
+    let target = resolve_chat_target(database, source_id, None)?;
+    let body = json!({
+        "model": target.model,
+        "temperature": 0.1,
+        "messages": [
+            {"role": "system", "content": "Translate the user's English post into Simplified Chinese. Output only the translation itself, keep numbers, URLs and code unchanged."},
+            {"role": "user", "content": post.text}
+        ]
+    });
+    let mut request = coordinator.client().post(&target.url).header("Content-Type", "application/json");
+    request = if target.bearer {
+        request.bearer_auth(&target.secret)
+    } else {
+        request.header("Authorization", &target.secret)
+    };
+    let response = request
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| format!("翻译请求失败：{error}"))?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    if status.as_u16() == 402 || text.contains("余额不足") || text.contains("额度不足") || text.contains("insufficient") {
+        return Err("当前模型额度或余额不足，请更换模型后再翻译".into());
+    }
+    if !status.is_success() {
+        return Err(format!("翻译接口失败（HTTP {}）", status.as_u16()));
+    }
+    let translated = extract_chat_text(&text)?;
+    if translated.is_empty() {
+        return Err("模型未返回可用的翻译".into());
+    }
+    let source_label = chat_target(&target.source_id)
+        .map(|(display, _)| format!("{display} · {}", target.model))
+        .unwrap_or_else(|| target.model.clone());
+    database.update_tibo_translation(post_id, &translated, epoch_ms(), &source_label)?;
+    snapshot(database)
+}
+
+/// 可用对话模型解析：优先用户指定来源，否则取第一个已就绪的 API Key 来源。
+struct ChatTarget {
+    source_id: String,
+    model: String,
+    url: String,
+    bearer: bool,
+    secret: String,
+}
+
+fn resolve_chat_target(
+    database: &Database,
+    source_id: Option<&str>,
+    model: Option<&str>,
+) -> Result<ChatTarget, String> {
+    let source_id = source_id
+        .map(str::to_string)
+        .or_else(|| {
+            chat_models(database)
+                .ok()
+                .and_then(|models| models.into_iter().find(|item| item.ready).map(|item| item.source_id))
+        })
+        .ok_or_else(|| "请先接入可用于对话的 API Key（DeepSeek / GLM / Kimi 开放平台 / MiniMax）".to_string())?;
+    let source = database.source(&source_id)?;
+    let secret = source
+        .secret_ref
+        .as_deref()
+        .and_then(|reference| vault::get(reference).ok().flatten())
+        .ok_or_else(|| "所选模型没有可用凭据".to_string())?;
+    let model = model
+        .map(str::to_string)
+        .or_else(|| chat_target(&source_id).map(|(_, model)| model.to_string()))
+        .ok_or_else(|| "该来源不支持对话分析".to_string())?;
+    let api_base = database.user_platform(&source.platform_id)?.and_then(|item| item.api_base_url);
+    let (url, bearer) = chat_endpoint(&source_id, api_base.as_deref())
+        .ok_or_else(|| "该来源没有对话接口".to_string())?;
+    Ok(ChatTarget { source_id, model, url, bearer, secret })
+}
+
+/// 从 OpenAI 兼容响应中取出 assistant 文本。
+fn extract_chat_text(body: &str) -> Result<String, String> {
+    let value: Value = serde_json::from_str(body).map_err(|_| "翻译返回不是 JSON".to_string())?;
+    Ok(value
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string())
+}
+
 async fn fetch_feed(client: &Client) -> Result<(Vec<TiboPostRecord>, bool), String> {
     let response = client
         .get(FEED_URL)
@@ -244,6 +347,9 @@ pub fn parse_feed(body: &str) -> Result<(Vec<TiboPostRecord>, bool), String> {
             likes: tweet.likes.unwrap_or(0),
             extra_json: "{}".into(),
             synced_at,
+            translated_text: None,
+            translated_at: None,
+            translation_source: None,
         });
     }
     if posts.is_empty() {
@@ -283,6 +389,9 @@ fn to_view(post: TiboPostRecord) -> TiboPostView {
         reposts: post.reposts,
         likes: post.likes,
         synced_at: post.synced_at,
+        translated_text: post.translated_text,
+        translated_at: post.translated_at,
+        translation_source: post.translation_source,
     }
 }
 
@@ -439,22 +548,7 @@ async fn run_analysis(
     if selected.is_empty() {
         return Err("当前时间窗内没有新的 Tibo 动态可分析（可能都在上次已落地重置之前）".into());
     }
-    let source_id = source_id
-        .map(str::to_string)
-        .or_else(|| chat_models(database).ok().and_then(|models| models.into_iter().find(|item| item.ready).map(|item| item.source_id)))
-        .ok_or_else(|| "请先接入可用于对话的 API Key（DeepSeek / GLM / Kimi 开放平台 / MiniMax）".to_string())?;
-    let source = database.source(&source_id)?;
-    let secret = source
-        .secret_ref
-        .as_deref()
-        .and_then(|reference| vault::get(reference).ok().flatten())
-        .ok_or_else(|| "所选模型没有可用凭据".to_string())?;
-    let model = model
-        .map(str::to_string)
-        .or_else(|| chat_target(&source_id).map(|(_, model)| model.to_string()))
-        .ok_or_else(|| "该来源不支持对话分析".to_string())?;
-    let api_base = database.user_platform(&source.platform_id)?.and_then(|item| item.api_base_url);
-    let (url, bearer) = chat_endpoint(&source_id, api_base.as_deref()).ok_or_else(|| "该来源没有对话接口".to_string())?;
+    let target = resolve_chat_target(database, source_id, model)?;
     let input = selected
         .iter()
         .map(|post| {
@@ -469,24 +563,24 @@ async fn run_analysis(
         .join("\n\n");
     let input_hash = format!("{:x}", simple_hash(&input));
     if let Some(previous) = database.latest_radar_analysis()? {
-        if previous.input_hash == input_hash && previous.model.as_deref() == Some(model.as_str()) && previous.error_message.is_none()
+        if previous.input_hash == input_hash && previous.model.as_deref() == Some(target.model.as_str()) && previous.error_message.is_none()
         {
             return Ok(());
         }
     }
     let body = json!({
-        "model": model,
+        "model": target.model,
         "temperature": 0.2,
         "messages": [
             {"role": "system", "content": "You analyze public Tibo/Codex reset posts. Reply with JSON only: {\"conclusion\":\"\",\"confidence\":\"low|medium|high\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. Do not treat older already-landed resets as current evidence. Chinese conclusion is allowed."},
             {"role": "user", "content": format!("Last settled reset is excluded. Analyze only these newer posts:\n{input}")}
         ]
     });
-    let mut request = coordinator.client().post(&url).header("Content-Type", "application/json");
-    request = if bearer {
-        request.bearer_auth(&secret)
+    let mut request = coordinator.client().post(&target.url).header("Content-Type", "application/json");
+    request = if target.bearer {
+        request.bearer_auth(&target.secret)
     } else {
-        request.header("Authorization", &secret)
+        request.header("Authorization", &target.secret)
     };
     let response = request
         .json(&body)
@@ -509,8 +603,8 @@ async fn run_analysis(
         cut_post_id: cut.map(|post| post.id),
         from_posted_at: selected.last().map(|post| post.posted_at),
         to_posted_at: selected.first().map(|post| post.posted_at),
-        source_id: Some(source_id),
-        model: Some(model),
+        source_id: Some(target.source_id),
+        model: Some(target.model),
         prompt_version: PROMPT_VERSION.into(),
         input_hash,
         conclusion: parsed.conclusion,
@@ -637,6 +731,9 @@ mod tests {
             reposts: 0,
             likes: 0,
             synced_at: epoch_ms(),
+            translated_text: None,
+            translated_at: None,
+            translation_source: None,
         };
         assert!(is_settled_reset_view(&post));
         let recent = TiboPostView {
