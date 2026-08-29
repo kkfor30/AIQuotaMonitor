@@ -66,4 +66,3 @@ GPT / Codex        2 个账户       部分可用
 - 正常、部分可用、异常同时有文字和颜色；stale/missing 语义保持。
 - 主窗口与悬浮详情继续共享同一份平台 ViewModel，不新增平台请求。
 - 只执行与改动相称的 typecheck、build；若修改 Rust 窗口尺寸，再执行 `cargo check`。不要补大量测试。
-
