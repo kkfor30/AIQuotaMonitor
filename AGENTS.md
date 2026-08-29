@@ -12,6 +12,7 @@
 6. `docs/project/handoff.md`
 7. 与任务相关的 `docs/ui-design/*/README.md`
 8. `docs/iterations.md` 的最新记录
+9. 扩平台任务再读 `docs/project/GLM-ADD-PLATFORMS.md`
 
 ## 产品与数据底线
 
