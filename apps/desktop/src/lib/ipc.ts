@@ -112,6 +112,10 @@ export async function closeSourceLogin(sourceId: string): Promise<void> {
   return invoke<void>("close_source_login", { sourceId });
 }
 
+export async function takeCapturedSourceSecret(sourceId: string): Promise<string> {
+  return invoke<string>("take_captured_source_secret", { sourceId });
+}
+
 export function ipcErrorMessage(cause: unknown, fallback: string): string {
   if (typeof cause === "string" && cause.trim()) return cause.trim();
   if (cause instanceof Error && cause.message.trim()) return cause.message.trim();

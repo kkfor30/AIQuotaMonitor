@@ -15,7 +15,7 @@ function capabilitySection(capabilityId: string): { title: string; order: number
   if (capabilityId === "usage_trend") return null;
   if (capabilityId.startsWith("quota_window")) return { title: "窗口额度", order: 0 };
   if (capabilityId === "credits" || capabilityId === "plan_level") return { title: "订阅信息", order: 1 };
-  if (capabilityId === "balance" || capabilityId === "month_spend" || capabilityId === "today_spend") {
+  if (capabilityId === "balance" || capabilityId === "month_spend" || capabilityId === "today_spend" || capabilityId === "total_spend") {
     return { title: "余额与消费", order: 2 };
   }
   return { title: "用量统计", order: 3 };

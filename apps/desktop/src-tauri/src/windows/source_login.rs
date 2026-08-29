@@ -40,12 +40,12 @@ struct LoginTemplate {
 
 const DEEPSEEK_CAPTURE_SCRIPT: &str = r#"
 (function() {
-  if (window.__aiqm_token_hook__) return;
-  window.__aiqm_token_hook__ = true;
   function deliver(token) {
     if (!token || typeof token !== 'string') return;
-    token = token.trim();
-    if (token.length < 20) return;
+    token = String(token).trim().replace(/^Bearer\s+/i, '');
+    if (token.length < 20 || /\s/.test(token)) return;
+    if (/^(null|undefined)$/i.test(token)) return;
+    window.__aiqm_token__ = token;
     try { document.title = 'AIQM_USAGE_TOKEN:' + token; } catch (_) {}
   }
   function fromAuth(value) {
@@ -53,33 +53,61 @@ const DEEPSEEK_CAPTURE_SCRIPT: &str = r#"
     var match = /Bearer\s+(\S+)/i.exec(String(value));
     if (match && match[1]) deliver(match[1]);
   }
-  var originalFetch = window.fetch;
-  if (typeof originalFetch === 'function') {
-    window.fetch = function(input, init) {
-      try {
-        var headers = (init && init.headers) || (input && input.headers);
-        if (headers) {
-          if (typeof Headers !== 'undefined' && headers instanceof Headers) {
-            fromAuth(headers.get('authorization'));
-          } else if (Array.isArray(headers)) {
-            for (var i = 0; i < headers.length; i++) {
-              if (headers[i] && String(headers[i][0]).toLowerCase() === 'authorization') fromAuth(headers[i][1]);
-            }
-          } else if (typeof headers === 'object') {
-            for (var key in headers) {
-              if (key.toLowerCase() === 'authorization') fromAuth(headers[key]);
+  function fromUserToken(raw) {
+    if (!raw) return;
+    try {
+      var parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        deliver(parsed.value || parsed.token || parsed.access_token || parsed.accessToken || '');
+        return;
+      }
+    } catch (_) {}
+    deliver(raw);
+  }
+  function scanStores() {
+    try { fromUserToken(localStorage.getItem('userToken')); } catch (_) {}
+    try { fromUserToken(sessionStorage.getItem('userToken')); } catch (_) {}
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i) || '';
+        if (!/token/i.test(key) || /csrf|captcha|hcaptcha|turnstile|apdid/i.test(key)) continue;
+        fromUserToken(localStorage.getItem(key));
+      }
+    } catch (_) {}
+    if (window.__aiqm_token__) deliver(window.__aiqm_token__);
+  }
+  if (!window.__aiqm_token_hook__) {
+    window.__aiqm_token_hook__ = true;
+    var originalFetch = window.fetch;
+    if (typeof originalFetch === 'function') {
+      window.fetch = function(input, init) {
+        try {
+          var headers = (init && init.headers) || (input && input.headers);
+          if (headers) {
+            if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+              fromAuth(headers.get('authorization') || headers.get('Authorization'));
+            } else if (Array.isArray(headers)) {
+              for (var i = 0; i < headers.length; i++) {
+                if (headers[i] && String(headers[i][0]).toLowerCase() === 'authorization') fromAuth(headers[i][1]);
+              }
+            } else if (typeof headers === 'object') {
+              for (var key in headers) {
+                if (key.toLowerCase() === 'authorization') fromAuth(headers[key]);
+              }
             }
           }
-        }
-      } catch (_) {}
-      return originalFetch.apply(this, arguments);
+        } catch (_) {}
+        return originalFetch.apply(this, arguments);
+      };
+    }
+    var originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+    XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+      try { if (name && String(name).toLowerCase() === 'authorization') fromAuth(value); } catch (_) {}
+      return originalSetRequestHeader.apply(this, arguments);
     };
+    setInterval(scanStores, 800);
   }
-  var originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
-  XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
-    try { if (name && String(name).toLowerCase() === 'authorization') fromAuth(value); } catch (_) {}
-    return originalSetRequestHeader.apply(this, arguments);
-  };
+  scanStores();
 })();
 "#;
 
@@ -256,7 +284,7 @@ const TEMPLATES: &[LoginTemplate] = &[
         cookie_required: None,
         cookie_min_len: 0,
         isolated_profile: false,
-        status_open: "请在登录窗口完成 DeepSeek 登录并打开用量页。同步成功后会自动保存会话并刷新 Token 与缓存。",
+        status_open: "请在登录窗口完成 DeepSeek 登录。捕获到会话后会自动关闭登录页并填入 Token，然后请点击「验证连接」再保存。",
         timeout_message: "DeepSeek 网页登录等待超时，请关闭后重试或手动粘贴 usage token。",
     },
     LoginTemplate {
@@ -320,6 +348,25 @@ fn current_watcher(source_id: &str) -> u64 {
         .unwrap_or(0)
 }
 
+fn pending_secrets() -> &'static Mutex<HashMap<String, String>> {
+    static PENDING: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn take_captured_secret(source_id: &str) -> Option<String> {
+    pending_secrets()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(source_id)
+}
+
+fn store_captured_secret(source_id: &str, secret: &str) {
+    pending_secrets()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(source_id.to_string(), secret.to_string());
+}
+
 fn captures_in_flight() -> &'static Mutex<HashSet<String>> {
     static CAPTURES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     CAPTURES.get_or_init(|| Mutex::new(HashSet::new()))
@@ -341,6 +388,7 @@ fn end_capture(source_id: &str) {
 
 pub async fn open(app: &tauri::AppHandle, source_id: &str) -> Result<(), String> {
     let template = template_for(source_id).ok_or_else(|| "此来源不支持网页登录".to_string())?;
+    let _ = take_captured_secret(template.source_id);
     let generation = bump_watcher(template.source_id);
     if let Some(window) = app.get_webview_window(template.window_label) {
         let _ = window.show();
@@ -488,10 +536,10 @@ fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64
             if tick % 2 == 0 {
                 let _ = window.eval(template.init_script);
             }
-            if template.source_id == deepseek::WEB_SOURCE_ID && !cache_scan_failed {
+            if template.source_id == deepseek::WEB_SOURCE_ID && !cache_scan_failed && tick >= 4 && is_usage_page(&window)
+            {
                 if let Some(token) = find_webview_cached_usage_token() {
-                    let allow_blank = is_usage_page(&window);
-                    match capture_and_finish(&app, &window, template.source_id, &token, allow_blank).await {
+                    match capture_and_finish(&app, &window, template.source_id, &token, true).await {
                         CaptureOutcome::Success => return,
                         CaptureOutcome::Retry => {}
                         CaptureOutcome::Failed => cache_scan_failed = true,
@@ -814,26 +862,38 @@ async fn capture_and_finish(
     if !begin_capture(source_id) {
         return CaptureOutcome::Retry;
     }
-    let outcome = match capture(app, source_id, secret, allow_blank).await {
-        Ok(()) => {
-            let _ = window.close();
-            let _ = app.emit("source-credential-updated", source_id);
-            let _ = app.emit("source-login-status", "已验证并保存网页会话。");
-            CaptureOutcome::Success
-        }
-        Err(error) if error.contains("尚未就绪") => {
-            let _ = app.emit(
-                "source-login-status",
-                "已捕获登录过程中的临时会话，用量仍为空。请留在平台页等待自动同步，不要关闭窗口。",
-            );
-            CaptureOutcome::Retry
-        }
-        Err(error) => {
-            let _ = app.emit(
-                "source-login-status",
-                format!("已读取登录态，正在等待余额接口就绪：{error}"),
-            );
-            CaptureOutcome::Failed
+    let outcome = if source_id == deepseek::WEB_SOURCE_ID {
+        store_captured_secret(source_id, secret);
+        let _ = bump_watcher(source_id);
+        let _ = window.close();
+        let _ = app.emit("source-login-captured", source_id);
+        let _ = app.emit(
+            "source-login-status",
+            "已捕获网页会话。登录页已关闭，请点击「验证连接」，通过后再保存。",
+        );
+        CaptureOutcome::Success
+    } else {
+        match capture(app, source_id, secret, allow_blank).await {
+            Ok(()) => {
+                let _ = window.close();
+                let _ = app.emit("source-credential-updated", source_id);
+                let _ = app.emit("source-login-status", "已验证并保存网页会话。");
+                CaptureOutcome::Success
+            }
+            Err(error) if error.contains("尚未就绪") => {
+                let _ = app.emit(
+                    "source-login-status",
+                    "已捕获登录过程中的临时会话，用量仍为空。请留在平台页等待自动同步，不要关闭窗口。",
+                );
+                CaptureOutcome::Retry
+            }
+            Err(error) => {
+                let _ = app.emit(
+                    "source-login-status",
+                    format!("已读取登录态，正在等待余额接口就绪：{error}"),
+                );
+                CaptureOutcome::Failed
+            }
         }
     };
     end_capture(source_id);
@@ -902,5 +962,15 @@ mod tests {
         assert!(is_glm_login_flow("/user/login"));
         assert!(is_glm_login_flow("/oauth/authorize"));
         assert!(!is_glm_login_flow("/usercenter/financialoverview"));
+    }
+
+    #[test]
+    fn captured_secret_is_taken_once() {
+        store_captured_secret("deepseek-web-session", "km/example-token-value-12345");
+        assert_eq!(
+            take_captured_secret("deepseek-web-session").as_deref(),
+            Some("km/example-token-value-12345")
+        );
+        assert!(take_captured_secret("deepseek-web-session").is_none());
     }
 }

@@ -415,6 +415,13 @@ function PlatformStripCard({
   const balance = platform.capabilities.find(
     (capability) => capability.capabilityId === "balance" && capability.value.primary !== null,
   );
+  const totalSpend = platform.capabilities.find(
+    (capability) => capability.capabilityId === "total_spend" && capability.value.primary !== null,
+  );
+  // 余额卡下的小字：优先展示真实累计消费；无累计消费时退回能力自带的次要说明。
+  const balanceFootnote = totalSpend
+    ? `累计消费 ${compactPercentText(totalSpend.value.primary ?? "")}`
+    : (balance?.value.secondary ?? null);
   const tone = providerBrand(platform.providerId).color;
   const stale = windows.some((capability) => capability.freshness === "stale");
 
@@ -478,7 +485,7 @@ function PlatformStripCard({
             </div>
             {balance && (
               <div className="mt-auto flex items-baseline justify-between border-t border-q-border pt-2">
-                <span className="text-[11px] text-q-text-muted">余额</span>
+                <span className="text-[11px] text-q-text-muted">{balance.displayName}</span>
                 <span
                   className="text-[13px] font-bold tabular-nums text-q-text-primary"
                   data-selectable="true"
@@ -490,16 +497,19 @@ function PlatformStripCard({
           </>
         ) : balance ? (
           <div className="flex flex-1 flex-col gap-0.5">
-            <span className="text-[11px] text-q-text-muted">余额</span>
+            <span className="text-[11px] text-q-text-muted">{balance.displayName}</span>
             <span
               className="mt-1 truncate text-[26px] font-bold leading-8 tracking-tight tabular-nums text-q-text-primary"
               data-selectable="true"
             >
               {compactPercentText(balance.value.primary ?? "")}
             </span>
-            {balance.value.secondary && (
-              <span className="mt-auto text-[11px] text-q-text-muted">
-                {compactPercentText(balance.value.secondary)}
+            {balanceFootnote && (
+              <span
+                className="mt-auto truncate text-[11px] font-semibold tabular-nums text-q-text-primary"
+                data-selectable="true"
+              >
+                {compactPercentText(balanceFootnote)}
               </span>
             )}
           </div>

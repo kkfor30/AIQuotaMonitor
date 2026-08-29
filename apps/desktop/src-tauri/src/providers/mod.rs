@@ -618,6 +618,7 @@ fn missing_capability_ok(
     }
     capability.capability_id == "credits"
         || capability.capability_id == "plan_level"
+        || capability.capability_id == "total_spend"
         || capability.capability_id.starts_with("quota_window_")
 }
 

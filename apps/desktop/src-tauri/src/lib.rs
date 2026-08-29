@@ -68,6 +68,7 @@ pub fn run() {
             commands::platform_commands::rename_codex_account,
             commands::platform_commands::remove_codex_account,
             commands::platform_commands::close_source_login,
+            commands::platform_commands::take_captured_source_secret,
             commands::platform_commands::inspect_legacy_config,
             commands::platform_commands::import_legacy_config,
             commands::window_commands::show_hoverbar_detail,

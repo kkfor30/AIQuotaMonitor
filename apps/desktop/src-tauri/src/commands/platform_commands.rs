@@ -457,6 +457,16 @@ pub async fn close_source_login(
 }
 
 #[tauri::command]
+pub fn take_captured_source_secret(
+    source_id: String,
+    window: WebviewWindow,
+) -> Result<String, String> {
+    require_label(&window, &["main"])?;
+    crate::windows::source_login::take_captured_secret(&source_id)
+        .ok_or_else(|| "没有捕获到网页会话，请重新登录".to_string())
+}
+
+#[tauri::command]
 pub fn inspect_legacy_config(
     database: State<'_, Database>,
 ) -> Result<LegacyConfigInspection, String> {

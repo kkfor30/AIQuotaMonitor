@@ -17,6 +17,7 @@ import {
   revealSourceSecret,
   saveSourceCredential,
   startSourceLogin,
+  takeCapturedSourceSecret,
   validateSourceCredential,
 } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
@@ -82,6 +83,22 @@ export function SourceEditorDrawer({
       if (!event.payload || event.payload === source.sourceId) {
         setLoginOpened(false);
       }
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    void listen<string>("source-login-captured", (event) => {
+      if (event.payload !== source.sourceId) return;
+      void takeCapturedSourceSecret(source.sourceId)
+        .then((captured) => {
+          setSecret(captured);
+          setVerifiedSecret(null);
+          setVerifyMessage(null);
+          setLoginOpened(false);
+          setError(null);
+          setLoginStatus("已捕获网页会话。请点击「验证连接」，通过后再保存。");
+        })
+        .catch((cause) => {
+          setLoginOpened(false);
+          setError(ipcErrorMessage(cause, "已捕获登录态，但读取会话失败，请重新登录。"));
+        });
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen<string>("source-credential-updated", (event) => {
       if (event.payload === source.sourceId) {
@@ -411,8 +428,8 @@ function webLoginCopy(sourceId: string): { start: string; reload: string; help: 
     };
   }
   return {
-    start: "请在登录窗口完成登录并打开用量页。同步成功后会刷新 Token 与缓存。",
-    reload: "正在打开 DeepSeek 用量页并同步…",
-    help: "会打开 DeepSeek 用量页并同步 Token 与缓存。清除凭据会退出网页登录态；下次需要重新登录，不会静默复用旧会话。",
+    start: "请在登录窗口完成登录。捕获到会话后会自动关闭登录页并填入 Token。",
+    reload: "正在打开 DeepSeek 用量页并捕获会话…",
+    help: "登录成功后会自动填入 Token 并关闭登录页。请再点「验证连接」，通过后再保存。清除凭据会退出网页登录态。",
   };
 }
