@@ -1,8 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Radar, RefreshCw } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Card } from "@/components/ui/Card";
+import {
+  BrainCircuit,
+  Check,
+  ExternalLink,
+  Heart,
+  HelpCircle,
+  Link2,
+  LoaderCircle,
+  Megaphone,
+  MessageCircle,
+  Minus,
+  Radar,
+  RefreshCw,
+  Repeat2,
+  ShieldCheck,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Switch } from "@/components/ui/Switch";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import { fetchRadarSnapshot, ipcErrorMessage, openExternalUrl, runRadarCheck, saveRadarAnalysisPrefs } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
@@ -72,6 +91,7 @@ export function GptRadarPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-2 pr-2">
+      {/* 页头：图标磁贴 + 标题 + 推测声明 + 立即检查 */}
       <header className="glass-panel flex flex-wrap items-start justify-between gap-3 px-5 py-4">
         <div className="flex min-w-0 items-start gap-3.5">
           <span
@@ -103,7 +123,11 @@ export function GptRadarPage() {
         </p>
       )}
 
-      <div role="tablist" className="inline-flex w-fit items-center gap-1 rounded-q-control border border-q-border bg-q-surface-muted p-1">
+      {/* 分段 Tab（胶囊分段控件） */}
+      <div
+        role="tablist"
+        className="inline-flex w-fit items-center gap-1 rounded-q-pill border border-q-border bg-q-surface-muted p-1"
+      >
         {RADAR_TABS.map((item) => (
           <button
             key={item.id}
@@ -113,8 +137,9 @@ export function GptRadarPage() {
             onClick={() => setTab(item.id)}
             data-active={tab === item.id}
             className={cn(
-              "cursor-pointer rounded-[7px] px-4 py-1.5 text-[13px] font-medium text-q-text-secondary hover:text-q-text-primary",
-              "data-[active=true]:bg-q-surface-solid data-[active=true]:text-q-primary data-[active=true]:shadow-q-sm",
+              "cursor-pointer rounded-q-pill px-4 py-1.5 text-[13px] font-medium transition-colors duration-150",
+              "text-q-text-secondary hover:text-q-text-primary",
+              "data-[active=true]:bg-white data-[active=true]:text-q-primary data-[active=true]:shadow-q-sm",
             )}
           >
             {item.label}
@@ -127,6 +152,9 @@ export function GptRadarPage() {
       {tab === "tibo" && (
         <TiboFeedView
           posts={visible}
+          totalCount={posts.length}
+          relatedCount={posts.filter((p) => p.filter === "related" || p.filter === "signal").length}
+          noneCount={posts.filter((p) => p.filter === "none").length}
           selected={selected}
           filter={filter}
           onFilter={setFilter}
@@ -159,188 +187,413 @@ const RADAR_TABS: Array<{ id: RadarTabId; label: string }> = [
   { id: "ai", label: "AI 辅助分析" },
 ];
 
+function formatTime(value: number) {
+  return new Date(value).toLocaleString("zh-CN", { hour12: false });
+}
+
+function sourceLabel(status?: string) {
+  if (status === "fresh") return "正常";
+  if (status === "stale") return "缓存";
+  return "未同步";
+}
+
+function sourceTone(status?: string): "success" | "warning" | "neutral" {
+  if (status === "fresh") return "success";
+  if (status === "stale") return "warning";
+  return "neutral";
+}
+
+/** 帖子信号徽章色调：显式重置 → 红；信号/相关 → 橙；无信号 → 灰 */
+function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "primary" {
+  if (post.explicitReset) return "danger";
+  if (post.filter === "signal" || post.filter === "related") return "warning";
+  if (post.filter === "none") return "neutral";
+  return "primary";
+}
+
+/* ————————————————— 信号摘要（设计稿 04） ————————————————— */
+
 function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined }) {
   const latest = data?.latest;
   const notice = data?.notice;
   const latestCheck = data?.checks[0];
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Card className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">CodexRadar 来源</h2>
-          <p className="text-[13px] text-q-text-secondary">状态：{sourceLabel(data?.sourceStatus)}</p>
-          <p className="text-xs text-q-text-muted">
-            {data?.lastSyncedAt ? `上次同步 ${formatTime(data.lastSyncedAt)}` : "尚未同步，请点立即检查"}
+        {/* CodexRadar 来源 */}
+        <section className="glass-panel flex flex-col gap-3 p-4">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm"
+            >
+              <Radar size={17} aria-hidden />
+            </span>
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">CodexRadar 来源</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <StatusBadge tone={sourceTone(data?.sourceStatus)}>{sourceLabel(data?.sourceStatus)}</StatusBadge>
+            <span className="text-[11px] text-q-text-muted">
+              {data?.lastSyncedAt ? `上次同步 ${formatTime(data.lastSyncedAt)}` : "尚未同步"}
+            </span>
+          </div>
+          <p className="text-xs leading-relaxed text-q-text-secondary">
+            内容来自 codexradar.com 公开首页转载的 Tibo 原文，同步失败时保留最后成功快照。
           </p>
-          <Button variant="ghost" size="sm" onClick={() => void openExternalUrl("https://codexradar.com/")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-auto self-start"
+            onClick={() => void openExternalUrl("https://codexradar.com/")}
+          >
+            <ExternalLink size={14} aria-hidden />
             打开 CodexRadar
           </Button>
-        </Card>
-        <Card className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">顶部公告</h2>
+        </section>
+
+        {/* 顶部公告 */}
+        <section className="glass-panel flex flex-col gap-3 p-4">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-q-border bg-q-surface-strong text-q-warning shadow-q-sm"
+            >
+              <Megaphone size={17} aria-hidden />
+            </span>
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">顶部公告</h2>
+          </div>
           {notice ? (
-            <>
-              <p className="text-[13px] font-medium leading-relaxed text-q-text-primary">{notice.headline}</p>
-              {notice.lead ? <p className="text-xs text-q-text-secondary">{notice.lead}</p> : null}
-              {notice.items[0] ? <p className="text-xs leading-relaxed text-q-text-muted">{notice.items[0]}</p> : null}
-            </>
+            <div className="flex min-h-0 flex-col gap-1.5">
+              <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary">{notice.headline}</p>
+              {notice.lead && <p className="text-xs leading-relaxed text-q-text-secondary">{notice.lead}</p>}
+              {notice.items[0] && <p className="text-xs leading-relaxed text-q-text-muted">{notice.items[0]}</p>}
+            </div>
           ) : latest ? (
-            <>
-              <p className="text-xs font-medium text-q-primary">{latest.badge}</p>
-              <p className="text-[13px] leading-relaxed text-q-text-primary">
+            <div className="flex min-h-0 flex-col gap-1.5">
+              <StatusBadge tone={postBadgeTone(latest)}>{latest.badge}</StatusBadge>
+              <p className="line-clamp-3 text-[13px] leading-relaxed text-q-text-primary">
                 {latest.summary ?? latest.translatedText ?? latest.text}
               </p>
-              <p className="text-xs text-q-text-muted">{formatTime(latest.postedAt)}</p>
-            </>
+              <p className="text-[11px] text-q-text-muted">{formatTime(latest.postedAt)}</p>
+            </div>
           ) : (
             <p className="text-xs text-q-text-muted">暂无公告</p>
           )}
-        </Card>
-        <Card className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">AI 辅助结论</h2>
+        </section>
+
+        {/* AI 辅助结论 */}
+        <section className="glass-panel flex flex-col gap-3 p-4">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm"
+            >
+              <BrainCircuit size={17} aria-hidden />
+            </span>
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">AI 辅助结论</h2>
+          </div>
           {data?.analysis?.errorMessage ? (
             <p className="text-xs leading-relaxed text-q-danger">{data.analysis.errorMessage}</p>
           ) : null}
           {data?.analysis?.conclusion ? (
-            <>
-              <p className="text-[13px] text-q-text-primary">{data.analysis.conclusion}</p>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
+            <div className="flex min-h-0 flex-col gap-2">
+              <p className="line-clamp-4 text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
+                {data.analysis.conclusion}
+              </p>
+              <div className="mt-auto flex flex-wrap items-center gap-2">
                 <RadarConfidenceBadge confidence={data.analysis.confidence} />
+                {data.analysis.model && (
+                  <span className="text-[11px] text-q-text-muted">{data.analysis.model}</span>
+                )}
               </div>
-            </>
+            </div>
           ) : (
-            <p className="text-xs text-q-text-muted">
-              {data?.analysis?.errorMessage
-                ? "本次分析失败，可更换模型后重试。"
-                : "未分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。"}
-            </p>
+            <div className="flex flex-col gap-2">
+              <p className="text-xs leading-relaxed text-q-text-muted">
+                {data?.analysis?.errorMessage
+                  ? "本次分析失败，可更换模型后重试。"
+                  : "未分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。"}
+              </p>
+              <RadarConfidenceBadge confidence={data?.analysis?.confidence ?? null} />
+            </div>
           )}
-        </Card>
+        </section>
       </div>
-      <Card>
-        <h2 className="text-sm font-semibold text-q-text-primary">检查流程</h2>
-        <p className="mt-2 text-xs text-q-text-secondary">
-          同步 {latestCheck?.syncStatus ?? "—"} · 解析 {latestCheck?.parseStatus ?? "—"} · 分析 {latestCheck?.analyzeStatus ?? "—"}
-        </p>
-        {latestCheck?.errorMessage && <p className="mt-2 text-xs text-q-danger">{latestCheck.errorMessage}</p>}
-      </Card>
-      <Card>
-        <h2 className="text-sm font-semibold text-q-text-primary">检查历史</h2>
-        <div className="mt-3 space-y-2">
-          {(data?.checks ?? []).length === 0 && <p className="text-xs text-q-text-muted">还没有检查记录</p>}
+
+      {/* 检查流程：同步 → 解析 → 分析 步骤链 */}
+      <section className="glass-panel flex flex-col gap-3 p-4">
+        <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">检查流程</h2>
+        <div className="flex flex-wrap items-center gap-y-3">
+          <FlowStep label="同步" status={latestCheck?.syncStatus ?? null} />
+          <span aria-hidden className="mx-4 h-px min-w-10 flex-1 bg-q-border" />
+          <FlowStep label="解析" status={latestCheck?.parseStatus ?? null} />
+          <span aria-hidden className="mx-4 h-px min-w-10 flex-1 bg-q-border" />
+          <FlowStep label="分析" status={latestCheck?.analyzeStatus ?? null} />
+        </div>
+        {latestCheck?.errorMessage && (
+          <p className="text-xs leading-relaxed text-q-danger">{latestCheck.errorMessage}</p>
+        )}
+      </section>
+
+      {/* 检查历史 */}
+      <section className="glass-panel flex flex-col gap-2.5 p-4">
+        <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">检查历史</h2>
+        {(data?.checks ?? []).length === 0 && <p className="text-xs text-q-text-muted">还没有检查记录</p>}
+        <div className="flex flex-col">
           {(data?.checks ?? []).map((check) => (
-            <p key={check.id} className="text-xs text-q-text-secondary">
-              {formatTime(check.startedAt)} · {check.status} · {check.postCount} 条
-              {check.errorMessage ? ` · ${check.errorMessage}` : ""}
-            </p>
+            <div
+              key={check.id}
+              className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-q-border/60 py-2 text-xs last:border-b-0"
+            >
+              <span className="w-[150px] shrink-0 tabular-nums text-q-text-secondary">
+                {formatTime(check.startedAt)}
+              </span>
+              <StatusBadge
+                tone={
+                  check.status === "success"
+                    ? "success"
+                    : check.status === "running"
+                      ? "primary"
+                      : check.status === "partial"
+                        ? "warning"
+                        : "danger"
+                }
+              >
+                {check.status === "success"
+                  ? "成功"
+                  : check.status === "running"
+                    ? "进行中"
+                    : check.status === "partial"
+                      ? "部分完成"
+                      : "失败"}
+              </StatusBadge>
+              <span className="shrink-0 text-q-text-muted">{check.postCount} 条</span>
+              {check.errorMessage && (
+                <span className="min-w-0 flex-1 truncate text-q-danger" title={check.errorMessage}>
+                  {check.errorMessage}
+                </span>
+              )}
+            </div>
           ))}
         </div>
-      </Card>
+      </section>
+
+      <p className="flex items-center gap-1.5 px-1 text-[11px] text-q-text-muted">
+        <ShieldCheck size={13} aria-hidden className="shrink-0" />
+        雷达内容独立于平台额度状态；AI 分析只接收英文原文、发布时间与原帖链接，不发送凭据。
+      </p>
     </div>
   );
 }
 
+function FlowStep({ label, status }: { label: string; status: string | null }) {
+  const state =
+    status === "ok" ? "ok" : status === "failed" ? "failed" : status === "skipped" ? "skipped" : "pending";
+  const stateText =
+    state === "ok" ? "完成" : state === "failed" ? "失败" : state === "skipped" ? "跳过" : "未运行";
+  const icon =
+    state === "ok" ? (
+      <Check size={13} aria-hidden />
+    ) : state === "failed" ? (
+      <X size={13} aria-hidden />
+    ) : state === "skipped" ? (
+      <Minus size={13} aria-hidden />
+    ) : (
+      <LoaderCircle size={13} aria-hidden />
+    );
+  const toneClass =
+    state === "ok"
+      ? "border-q-border bg-q-success-soft text-q-success"
+      : state === "failed"
+        ? "border-q-border bg-q-danger-soft text-q-danger"
+        : "border-q-border bg-q-surface-muted text-q-text-muted";
+  return (
+    <div className="flex items-center gap-2.5">
+      <span
+        aria-hidden
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border shadow-q-sm",
+          toneClass,
+          state === "pending" && "opacity-70",
+        )}
+      >
+        {icon}
+      </span>
+      <div className="flex flex-col">
+        <span className="text-[13px] font-medium text-q-text-primary">{label}</span>
+        <span className="text-[11px] text-q-text-muted">{stateText}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ————————————————— Tibo 动态（设计稿 05） ————————————————— */
+
 function TiboFeedView({
   posts,
+  totalCount,
+  relatedCount,
+  noneCount,
   selected,
   filter,
   onFilter,
   onSelect,
 }: {
   posts: RadarPost[];
+  totalCount: number;
+  relatedCount: number;
+  noneCount: number;
   selected: RadarPost | null;
   filter: "all" | "related" | "none";
   onFilter: (value: "all" | "related" | "none") => void;
   onSelect: (id: string) => void;
 }) {
+  const chips: Array<{ id: "all" | "related" | "none"; label: string; count: number }> = [
+    { id: "all", label: "全部", count: totalCount },
+    { id: "related", label: "重置相关", count: relatedCount },
+    { id: "none", label: "无重置信号", count: noneCount },
+  ];
+
   return (
-    <div className="grid min-h-[360px] grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-      <Card className="flex min-h-0 flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">Tibo 动态</h2>
-          <div className="flex gap-1">
-            {[
-              ["all", "全部"],
-              ["related", "重置相关"],
-              ["none", "无重置信号"],
-            ].map(([id, label]) => (
+    <div className="flex flex-col gap-3">
+      {/* 筛选 chips：带计数 */}
+      <div className="flex flex-wrap items-center gap-2 px-1">
+        {chips.map((chip) => (
+          <button
+            key={chip.id}
+            type="button"
+            onClick={() => onFilter(chip.id)}
+            aria-pressed={filter === chip.id}
+            className={cn(
+              "inline-flex cursor-pointer items-center gap-1.5 rounded-q-pill px-3 py-1.5 text-[12px] font-medium transition-colors duration-150",
+              filter === chip.id
+                ? "bg-q-primary text-white shadow-[0_4px_12px_rgba(10,102,255,0.28)]"
+                : "border border-q-border bg-white/70 text-q-text-secondary shadow-q-sm hover:border-q-border-selected hover:text-q-primary",
+            )}
+          >
+            {chip.label}
+            <span
+              className={cn(
+                "rounded-full px-1.5 text-[10px] tabular-nums",
+                filter === chip.id ? "bg-white/25" : "bg-q-primary-soft text-q-primary",
+              )}
+            >
+              {chip.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="grid min-h-[420px] grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.4fr)]">
+        {/* 动态列表 */}
+        <section className="glass-panel flex min-h-0 flex-col gap-2.5 p-3.5">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5">
+            {posts.length === 0 && (
+              <p className="px-1 py-6 text-center text-xs text-q-text-muted">点「立即检查」同步 CodexRadar。</p>
+            )}
+            {posts.map((post) => (
               <button
-                key={id}
+                key={post.id}
                 type="button"
-                onClick={() => onFilter(id as typeof filter)}
+                onClick={() => onSelect(post.id)}
+                aria-current={selected?.id === post.id ? "true" : undefined}
                 className={cn(
-                  "rounded-q-pill px-2.5 py-1 text-xs",
-                  filter === id ? "bg-q-primary text-white" : "bg-q-neutral-soft text-q-text-secondary",
+                  "w-full cursor-pointer rounded-[14px] border p-3.5 text-left transition-colors duration-150",
+                  selected?.id === post.id
+                    ? "border-q-border-selected bg-q-primary-softer shadow-q-sm"
+                    : "border-q-border bg-q-surface-strong hover:border-q-border-selected",
                 )}
               >
-                {label}
+                <div className="flex items-center gap-2">
+                  <StatusBadge tone={postBadgeTone(post)}>{post.badge}</StatusBadge>
+                  <span className="ml-auto shrink-0 text-[11px] tabular-nums text-q-text-muted">
+                    {formatTime(post.postedAt)}
+                  </span>
+                </div>
+                <p className="mt-2 line-clamp-3 text-[13px] leading-relaxed text-q-text-primary">
+                  {post.summary ?? post.translatedText ?? post.text}
+                </p>
+                <div className="mt-2.5 flex items-center gap-3.5 text-[11px] text-q-text-muted">
+                  <span className="inline-flex items-center gap-1">
+                    <MessageCircle size={12} aria-hidden />
+                    {post.replies}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Repeat2 size={12} aria-hidden />
+                    {post.reposts}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Heart size={12} aria-hidden />
+                    {post.likes}
+                  </span>
+                </div>
               </button>
             ))}
           </div>
-        </div>
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-          {posts.length === 0 && <p className="text-xs text-q-text-muted">点「立即检查」同步 CodexRadar。</p>}
-          {posts.map((post) => (
-            <button
-              key={post.id}
-              type="button"
-              onClick={() => onSelect(post.id)}
-              className={cn(
-                "w-full rounded-q-control border px-3 py-2.5 text-left",
-                selected?.id === post.id ? "border-q-border-selected bg-q-primary-softer" : "border-q-border hover:bg-q-surface-hover",
-              )}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-bold text-q-primary">{post.badge}</span>
-                <span className="text-[11px] text-q-text-muted">{formatTime(post.postedAt)}</span>
+        </section>
+
+        {/* 动态详情 */}
+        <section className="glass-panel flex min-h-0 flex-col gap-3.5 p-4">
+          {selected ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <StatusBadge tone={postBadgeTone(selected)}>{selected.badge}</StatusBadge>
+                <span className="text-[11px] tabular-nums text-q-text-muted">{formatTime(selected.postedAt)}</span>
               </div>
-              <p className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-q-text-primary">
-                {post.summary ?? post.translatedText ?? post.text}
-              </p>
-            </button>
-          ))}
-        </div>
-      </Card>
-      <Card className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold text-q-text-primary">动态详情</h2>
-        {selected ? (
-          <>
-            <p className="text-xs font-medium text-q-primary">{selected.badge}</p>
-            <p className="text-xs text-q-text-muted">{formatTime(selected.postedAt)}</p>
-            <div>
-              <p className="text-xs font-medium text-q-text-secondary">中文翻译</p>
-              <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-q-text-primary">
-                {selected.translatedText ?? selected.summary ?? "尚无中文翻译"}
-              </p>
-            </div>
-            <details>
-              <summary className="cursor-pointer text-xs text-q-text-secondary">英文原文</summary>
-              <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-q-text-muted">{selected.text}</p>
-            </details>
-            {selected.analysis ? (
-              <div className="rounded-q-control border border-q-border bg-q-surface-muted/70 px-3 py-2">
-                <p className="text-xs font-medium text-q-text-secondary">CodexRadar 解读 · 仅为上游参考</p>
-                <p className="mt-1 text-[13px] leading-relaxed text-q-text-primary">{selected.analysis}</p>
+
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-medium text-q-text-secondary">中文翻译</p>
+                <div
+                  className="rounded-q-control border border-q-border bg-q-surface-strong px-3.5 py-3 text-[13px] leading-relaxed text-q-text-primary"
+                  data-selectable="true"
+                >
+                  {selected.translatedText ?? selected.summary ?? "尚无中文翻译"}
+                </div>
               </div>
-            ) : null}
-            <div className="mt-auto flex gap-2">
-              {selected.url && (
-                <Button variant="secondary" size="sm" onClick={() => void openExternalUrl(selected.url)}>
-                  打开 X 原帖
+
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-medium text-q-text-secondary">英文原文</p>
+                <div
+                  className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-q-control border border-q-border bg-q-surface-muted px-3.5 py-3 text-[13px] leading-relaxed text-q-text-secondary"
+                  data-selectable="true"
+                >
+                  {selected.text}
+                </div>
+              </div>
+
+              {selected.analysis ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-medium text-q-text-secondary">CodexRadar 解读 · 仅为上游参考</p>
+                  <div className="rounded-q-control border border-q-border bg-q-primary-softer px-3.5 py-3 text-[13px] leading-relaxed text-q-text-primary">
+                    {selected.analysis}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                {selected.url && (
+                  <Button size="sm" onClick={() => void openExternalUrl(selected.url)}>
+                    <ExternalLink size={14} aria-hidden />
+                    打开 X 原帖
+                  </Button>
+                )}
+                <Button variant="secondary" size="sm" onClick={() => void openExternalUrl("https://codexradar.com/")}>
+                  <Radar size={14} aria-hidden />
+                  CodexRadar 来源
                 </Button>
-              )}
-              <Button variant="ghost" size="sm" onClick={() => void openExternalUrl("https://codexradar.com/")}>
-                CodexRadar 来源
-              </Button>
-            </div>
-          </>
-        ) : (
-          <p className="text-xs text-q-text-muted">从左侧选择一条动态</p>
-        )}
-      </Card>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-q-text-muted">从左侧选择一条动态</p>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
+
+/* ————————————————— AI 辅助分析（设计稿 06） ————————————————— */
 
 function AiAnalysisView({
   data,
@@ -377,34 +630,33 @@ function AiAnalysisView({
     const start = rangeStartMs(rangeKey);
     return (data?.posts ?? []).filter((post) => post.postedAt >= start);
   }, [data?.posts, rangeKey]);
+  const selectClass =
+    "h-10 w-full cursor-pointer rounded-q-control border border-q-border bg-q-surface-strong px-3 text-sm text-q-text-primary outline-none focus:border-q-primary";
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-q-text-primary">分析配置</h2>
-          <label className="flex items-center gap-2 text-sm text-q-text-secondary">
-            <input type="checkbox" checked={analyze} onChange={(event) => onAnalyzeChange(event.target.checked)} />
-            立即检查时同时运行 AI 分析
-          </label>
-          <label className="text-sm text-q-text-secondary">
-            时间范围
-            <select
-              value={rangeKey}
-              onChange={(event) => onRangeChange(event.target.value)}
-              className="mt-1 h-10 w-full rounded-q-control border border-q-border bg-q-surface px-3"
-            >
+        {/* 分析配置 */}
+        <section className="glass-panel flex flex-col gap-4 p-4">
+          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">分析配置</h2>
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-q-text-primary">立即检查时同时运行 AI 分析</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-q-text-muted">默认关闭；关闭后仅同步与展示来源内容。</p>
+            </div>
+            <Switch checked={analyze} onCheckedChange={onAnalyzeChange} label="立即检查时同时运行 AI 分析" />
+          </div>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-q-text-primary">时间范围</span>
+            <select value={rangeKey} onChange={(event) => onRangeChange(event.target.value)} className={selectClass}>
               <option value="today">当天</option>
               <option value="3d">过去 3 天</option>
               <option value="7d">过去 7 天</option>
             </select>
           </label>
-          <label className="text-sm text-q-text-secondary">
-            分析模型
-            <select
-              value={sourceId}
-              onChange={(event) => onSourceChange(event.target.value)}
-              className="mt-1 h-10 w-full rounded-q-control border border-q-border bg-q-surface px-3"
-            >
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-q-text-primary">分析模型</span>
+            <select value={sourceId} onChange={(event) => onSourceChange(event.target.value)} className={selectClass}>
               {models.length === 0 && <option value="">请先在平台中心接入 API Key</option>}
               {models.map((item) => (
                 <option key={item.sourceId} value={item.sourceId} disabled={!item.ready}>
@@ -417,32 +669,48 @@ function AiAnalysisView({
           <p className="text-xs leading-relaxed text-q-text-muted">
             每次检查都会按当前时间范围重新分析所选帖子，不跳过、不沿用旧结果。
           </p>
-        </Card>
-        <Card className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">本次输入</h2>
-          <p className="text-xs leading-relaxed text-q-text-muted">
-            只发送英文原文、时间和原帖链接。不发送 CodexRadar 的中文翻译、信号标签或模型语境解读。
-          </p>
+        </section>
+
+        {/* 本次输入 */}
+        <section className="glass-panel flex flex-col gap-3 p-4">
+          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">本次输入</h2>
+          <div className="flex items-start gap-2.5 rounded-q-control border border-q-border bg-q-primary-softer px-3 py-2.5">
+            <ShieldCheck size={15} aria-hidden className="mt-0.5 shrink-0 text-q-primary" />
+            <p className="text-xs leading-relaxed text-q-text-secondary">
+              只发送英文原文、时间和原帖链接。不发送 CodexRadar 的中文翻译、信号标签或模型语境解读。
+            </p>
+          </div>
           {analysisInput.length === 0 ? (
             <p className="text-xs text-q-text-muted">当前时间窗内没有可分析的帖子。</p>
           ) : (
-            <div className="max-h-48 space-y-2 overflow-y-auto">
+            <div className="flex min-h-0 flex-col gap-2">
               <p className="text-xs text-q-text-secondary">将发送 {analysisInput.length} 条</p>
-              {analysisInput.slice(0, 6).map((post) => (
-                <p key={post.id} className="text-[12px] leading-relaxed text-q-text-primary">
-                  {formatTime(post.postedAt)} · {post.text}
-                </p>
-              ))}
+              <div className="max-h-64 space-y-1.5 overflow-y-auto pr-0.5">
+                {analysisInput.slice(0, 8).map((post) => (
+                  <div
+                    key={post.id}
+                    className="rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2 text-[12px] leading-relaxed"
+                  >
+                    <span className="mr-2 shrink-0 tabular-nums text-q-text-muted">{formatTime(post.postedAt)}</span>
+                    <span className="text-q-text-primary">{post.text}</span>
+                  </div>
+                ))}
+                {analysisInput.length > 8 && (
+                  <p className="px-1 text-[11px] text-q-text-muted">…共 {analysisInput.length} 条</p>
+                )}
+              </div>
             </div>
           )}
-        </Card>
+        </section>
       </div>
-      <Card className="flex flex-col gap-2">
+
+      {/* 语义提示 */}
+      <section className="glass-panel flex flex-col gap-2.5 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-q-text-primary">语义提示</h2>
+          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">语义提示</h2>
           <button
             type="button"
-            className="text-xs font-medium text-q-primary hover:underline"
+            className="cursor-pointer text-xs font-medium text-q-primary hover:underline"
             onClick={() => onUserPromptChange(defaultUserPrompt)}
             disabled={!defaultUserPrompt || userPrompt === defaultUserPrompt}
           >
@@ -458,59 +726,81 @@ function AiAnalysisView({
           rows={6}
           maxLength={4000}
           placeholder="例如：提到 dashboard、milestone、Hold on to your Codex 时视为即将重置的强信号。"
-          className="min-h-[132px] w-full resize-y rounded-q-control border border-q-border bg-q-surface px-3 py-2 text-[13px] leading-relaxed text-q-text-primary"
+          className="min-h-[132px] w-full resize-y rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2.5 text-[13px] leading-relaxed text-q-text-primary outline-none focus:border-q-primary"
         />
         <p className="text-[11px] text-q-text-muted">{userPrompt.length}/4000</p>
-      </Card>
-      <Card className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold text-q-text-primary">辅助结论</h2>
+      </section>
+
+      {/* 辅助结论 */}
+      <section className="glass-panel flex flex-col gap-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">辅助结论</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <RadarConfidenceBadge confidence={analysis?.confidence ?? null} />
+            {analysis?.model ? <span className="text-[11px] text-q-text-muted">{analysis.model}</span> : null}
+          </div>
+        </div>
         {analyzeError ? <p className="text-xs leading-relaxed text-q-danger">{analyzeError}</p> : null}
         {analysis?.conclusion ? (
           <>
-            <p className="text-[13px] leading-relaxed text-q-text-primary">{analysis.conclusion}</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <RadarConfidenceBadge confidence={analysis.confidence} />
-              {analysis.model ? (
-                <span className="text-xs font-medium text-q-text-primary">模型 {analysis.model}</span>
-              ) : null}
+            <p className="text-[15px] font-medium leading-relaxed text-q-text-primary" data-selectable="true">
+              {analysis.conclusion}
+            </p>
+            <div className="grid grid-cols-1 gap-x-8 gap-y-3 xl:grid-cols-2">
+              <ListBlock title="引用" icon={<Link2 size={13} aria-hidden />} items={analysis.citations} />
+              <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={analysis.support} />
+              <ListBlock title="反向依据" icon={<ThumbsDown size={13} aria-hidden />} items={analysis.against} />
+              <ListBlock title="不确定性" icon={<HelpCircle size={13} aria-hidden />} items={analysis.uncertainty} />
             </div>
-            <ListBlock title="引用" items={analysis.citations} />
-            <ListBlock title="支持依据" items={analysis.support} />
-            <ListBlock title="反向依据" items={analysis.against} />
-            <ListBlock title="不确定性" items={analysis.uncertainty} />
           </>
         ) : (
           <p className="text-xs text-q-text-muted">
-            {analyzeError ? "分析未完成，请更换模型或稍后重试。" : "尚未生成分析。勾选 AI 后点立即检查。"}
+            {analyzeError ? "分析未完成，请更换模型或稍后重试。" : "尚未生成分析。开启 AI 后点立即检查。"}
           </p>
         )}
-      </Card>
+      </section>
+
+      <p className="flex items-center gap-1.5 px-1 text-[11px] text-q-text-muted">
+        <BrainCircuit size={13} aria-hidden className="shrink-0" />
+        AI 是解释器而不是证据来源：每个输出必须引用实际原文；没有真实原文或分析失败时不生成结论。
+      </p>
     </div>
   );
 }
 
-function ListBlock({ title, items }: { title: string; items: string[] }) {
+function ListBlock({
+  title,
+  icon,
+  items,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  items: string[];
+}) {
   if (items.length === 0) return null;
   return (
-    <div>
-      <p className="text-xs font-medium text-q-text-secondary">{title}</p>
-      <ul className="mt-1 list-disc pl-4 text-xs leading-relaxed text-q-text-primary">
-        {items.map((item) => (
-          <li key={item}>{item}</li>
+    <div className="flex flex-col gap-1.5">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-q-text-secondary">
+        <span aria-hidden className="text-q-primary">
+          {icon}
+        </span>
+        {title}
+        <span className="text-q-text-muted">· {items.length}</span>
+      </p>
+      <ul className="flex flex-col gap-1 pl-0.5">
+        {items.map((item, index) => (
+          <li
+            key={`${index}-${item.slice(0, 12)}`}
+            className="flex gap-2 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2 text-xs leading-relaxed text-q-text-primary"
+            data-selectable="true"
+          >
+            <span className="shrink-0 tabular-nums font-medium text-q-primary">{index + 1}.</span>
+            <span className="min-w-0 break-words">{item}</span>
+          </li>
         ))}
       </ul>
     </div>
   );
-}
-
-function sourceLabel(status?: string) {
-  if (status === "fresh") return "正常";
-  if (status === "stale") return "缓存";
-  return "未同步";
-}
-
-function formatTime(value: number) {
-  return new Date(value).toLocaleString("zh-CN", { hour12: false });
 }
 
 function rangeStartMs(rangeKey: string) {
