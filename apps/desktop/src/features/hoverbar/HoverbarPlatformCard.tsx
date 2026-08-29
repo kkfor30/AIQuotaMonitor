@@ -16,7 +16,7 @@ import type { RadarSnapshot } from "@/lib/ipc";
 import { compactPercentText } from "@/lib/format";
 import { RadarConfidenceBadge } from "@/features/radar/RadarConfidenceBadge";
 import { radarSourceLine } from "./hoverbar-state";
-import { HOVERBAR_PROVIDER_VISUALS } from "./provider-visuals";
+import { hoverbarProviderVisual } from "./provider-visuals";
 
 const CORE_IDS = ["quota_window_5h", "quota_window_7d", "balance"] as const;
 const DEEPSEEK_EXTRA_IDS = ["today_spend", "month_spend", "cache_hit_rate"] as const;
@@ -81,7 +81,7 @@ export function HoverbarPlatformCard({
   const multi = ACCOUNT_PROVIDERS.has(platform.providerId) && groups.length > 1;
   const single = groups[0];
   const hasStale = groups.some((group) => group.metrics.some((metric) => metric.freshness === "stale"));
-  const visual = HOVERBAR_PROVIDER_VISUALS[platform.providerId];
+  const visual = hoverbarProviderVisual(platform.providerId);
   const showRadarStrip = platform.providerId === "openai" && radar !== undefined && onOpenRadar !== undefined;
   return (
     <article
