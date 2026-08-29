@@ -15,28 +15,38 @@ const CARD_WIDTH = 258;
 const CARD_GAP = 14;
 const CARD_STEP = CARD_WIDTH + CARD_GAP;
 
+type CardDragState = {
+  id: string;
+  index: number;
+  connectedIds: string[];
+  startX: number;
+  startY: number;
+  moved: boolean;
+  /** 各卡在内容坐标系的中心点（拖拽期间顺序不变，基点恒定） */
+  centers: Map<string, number>;
+};
+
 /**
  * 关键平台横向窗口（Apple Glass V6 总览）：
- * - 滚轮/触控板、鼠标拖拽（卡身）、两侧悬浮圆形箭头与下方位置圆点
- * - 卡片右上拖拽把手排序，复用 reorder_platforms 持久化，不建第二套排序
- * - 平台增多时只横向滚动，不向下堆叠
+ * - 拖动卡身即可排序（指针事件自绘拖拽）；卡片不可点击进入详情，详情从平台中心查看
+ * - 滚轮/触控板、空白处鼠标拖拽、两侧悬浮圆形箭头与下方位置圆点浏览
+ * - 排序复用 reorder_platforms 持久化，不建第二套排序；平台增多只横向滚动
  */
 export function KeyPlatformWindow({
   platforms,
-  onOpenPlatform,
 }: {
   platforms: PlatformSummaryViewModel[];
-  onOpenPlatform: (providerId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const stripRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef(new Map<string, HTMLDivElement>());
   const [order, setOrder] = useState<string[]>(() => platforms.map((p) => p.providerId));
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [scrollState, setScrollState] = useState({ atStart: true, atEnd: true, index: 0 });
 
-  // 拖拽滚动状态（非受控，避免重渲染打断惯性）
+  const cardDrag = useRef<CardDragState | null>(null);
+  // 空白处拖拽滚动状态（非受控，避免重渲染打断惯性）
   const dragScroll = useRef<{ startX: number; startScroll: number; moved: boolean } | null>(null);
-  const suppressClick = useRef(false);
   const orderRef = useRef(order);
   const initialOrderRef = useRef(order);
 
@@ -103,20 +113,137 @@ export function KeyPlatformWindow({
     el.scrollBy({ left: direction * CARD_STEP * 2, behavior: "smooth" });
   };
 
-  // —— 鼠标拖拽滚动（卡身与空白；拖拽把手与按钮不参与）——
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+  // —— 卡片指针拖拽排序 ——
+  const contentX = (clientX: number) => {
+    const strip = stripRef.current;
+    if (!strip) return clientX;
+    const rect = strip.getBoundingClientRect();
+    return clientX - rect.left + strip.scrollLeft;
+  };
+
+  const clearCardTransforms = () => {
+    for (const el of cardRefs.current.values()) {
+      el.style.transform = "";
+      el.style.transition = "";
+      el.style.zIndex = "";
+    }
+  };
+
+  const onCardPointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
+    if (event.button !== 0) return;
+    const index = connected.findIndex((p) => p.providerId === id);
+    if (index < 0) return;
+    const centers = new Map<string, number>();
+    for (const platform of connected) {
+      const el = cardRefs.current.get(platform.providerId);
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      centers.set(platform.providerId, rect.left + rect.width / 2 - stripRef.current!.scrollLeft);
+    }
+    cardDrag.current = {
+      id,
+      index,
+      connectedIds: connected.map((p) => p.providerId),
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      centers,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onCardPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = cardDrag.current;
+    if (!state) return;
+    const dx = event.clientX - state.startX;
+    const dy = event.clientY - state.startY;
+    if (!state.moved) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      state.moved = true;
+      setDraggingId(state.id);
+    }
+    const px = contentX(event.clientX);
+    for (const [id, el] of cardRefs.current) {
+      if (id === state.id) continue;
+      const center = state.centers.get(id);
+      if (center === undefined) continue;
+      const idx = state.connectedIds.indexOf(id);
+      let push = 0;
+      if (idx > state.index && px > center) push = -1;
+      else if (idx < state.index && px < center) push = 1;
+      const base = el.style.transition;
+      if (!base) el.style.transition = "transform 160ms ease";
+      el.style.transform = push !== 0 ? `translate(${push * CARD_STEP}px, 0)` : "";
+    }
+    const draggedEl = cardRefs.current.get(state.id);
+    if (draggedEl) {
+      const clampedDy = Math.max(-10, Math.min(10, dy));
+      draggedEl.style.transform = `translate(${dx}px, ${clampedDy}px)`;
+    }
+    // 拖近窗口边缘时自动滚动
+    const strip = stripRef.current;
+    if (strip) {
+      const rect = strip.getBoundingClientRect();
+      if (event.clientX < rect.left + 80) strip.scrollLeft -= 16;
+      else if (event.clientX > rect.right - 80) strip.scrollLeft += 16;
+    }
+  };
+
+  const onCardPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = cardDrag.current;
+    cardDrag.current = null;
+    if (!state || !state.moved) return;
+
+    // 计算目标下标：later 卡中心在指针左侧 → 后移；earlier 卡中心在指针右侧 → 前移
+    const px = contentX(event.clientX);
+    let target = state.index;
+    for (const [id, center] of state.centers) {
+      if (id === state.id) continue;
+      const idx = state.connectedIds.indexOf(id);
+      if (idx > state.index && px > center) target += 1;
+      else if (idx < state.index && px < center) target -= 1;
+    }
+    clearCardTransforms();
+    setDraggingId(null);
+
+    if (target === state.index) return;
+    const nextConnected = state.connectedIds.filter((id) => id !== state.id);
+    nextConnected.splice(Math.max(0, Math.min(nextConnected.length, target)), 0, state.id);
+    // 以新连接顺序回填完整排序（未接入平台保持原位）
+    let cursor = 0;
+    const nextFull = orderRef.current.map((id) =>
+      state.connectedIds.includes(id) ? nextConnected[cursor++] ?? id : id,
+    );
+    setOrder(nextFull);
+    orderRef.current = nextFull;
+    if (nextFull.join("\n") !== initialOrderRef.current.join("\n")) {
+      reorderMutation.mutate(nextFull);
+      initialOrderRef.current = nextFull;
+    }
+  };
+
+  const onCardPointerCancel = () => {
+    cardDrag.current = null;
+    clearCardTransforms();
+    setDraggingId(null);
+  };
+
+  // —— 空白处拖拽滚动（卡片自身处理排序，互不干扰）——
+  const onStripPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const el = stripRef.current;
     if (!el) return;
-    if ((event.target as HTMLElement).closest("[data-no-strip-drag]")) return;
+    if ((event.target as HTMLElement).closest("[data-strip-card]")) return;
     dragScroll.current = {
       startX: event.clientX,
       startScroll: el.scrollLeft,
       moved: false,
     };
+    // 捕获指针：拖出窗口边界后仍能继续滚动
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+  const onStripPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const state = dragScroll.current;
     const el = stripRef.current;
     if (!state || !el) return;
@@ -126,49 +253,8 @@ export function KeyPlatformWindow({
     el.scrollLeft = state.startScroll - dx;
   };
 
-  const onPointerUp = () => {
-    if (dragScroll.current?.moved) suppressClick.current = true;
+  const onStripPointerUp = () => {
     dragScroll.current = null;
-    // 点击抑制只作用于紧随其后的一次 click
-    window.setTimeout(() => {
-      suppressClick.current = false;
-    }, 0);
-  };
-
-  // —— 卡片拖拽排序（拖拽把手触发 HTML5 DnD，乐观更新 + 松手持久化）——
-  const commitOrder = (next: string[]) => {
-    setOrder(next);
-    orderRef.current = next;
-  };
-
-  const moveDraggedTo = (draggedId: string, targetId: string) => {
-    if (draggedId === targetId) return;
-    const current = orderRef.current;
-    const from = current.indexOf(draggedId);
-    const to = current.indexOf(targetId);
-    if (from < 0 || to < 0) return;
-    const next = [...current];
-    next.splice(from, 1);
-    next.splice(to, 0, draggedId);
-    commitOrder(next);
-  };
-
-  const persistIfChanged = () => {
-    if (orderRef.current.join("\n") !== initialOrderRef.current.join("\n")) {
-      reorderMutation.mutate(orderRef.current);
-      initialOrderRef.current = orderRef.current;
-    }
-  };
-
-  const onStripDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!draggingId) return;
-    event.preventDefault();
-    // 拖拽靠近窗口边缘时自动滚动
-    const el = stripRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    if (event.clientX - rect.left < 72) el.scrollLeft -= 18;
-    else if (rect.right - event.clientX < 72) el.scrollLeft += 18;
   };
 
   if (connected.length === 0) {
@@ -204,28 +290,25 @@ export function KeyPlatformWindow({
         <div
           ref={stripRef}
           onScroll={updateScrollState}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
-          onDragOver={onStripDragOver}
-          className="no-scrollbar flex cursor-grab select-none items-stretch gap-[14px] overflow-x-auto py-1 pl-0.5 pr-0.5 active:cursor-grabbing"
+          onPointerDown={onStripPointerDown}
+          onPointerMove={onStripPointerMove}
+          onPointerUp={onStripPointerUp}
+          onPointerLeave={onStripPointerUp}
+          className="no-scrollbar flex items-stretch gap-[14px] overflow-x-auto py-1 pl-0.5 pr-0.5"
         >
           {connected.map((platform) => (
             <PlatformStripCard
               key={platform.providerId}
               platform={platform}
               dragging={draggingId === platform.providerId}
-              onDragStarted={(id) => setDraggingId(id)}
-              onDragFinished={() => {
-                setDraggingId(null);
-                persistIfChanged();
+              registerRef={(el) => {
+                if (el) cardRefs.current.set(platform.providerId, el);
+                else cardRefs.current.delete(platform.providerId);
               }}
-              onDropOn={(dragged, target) => moveDraggedTo(dragged, target)}
-              onOpen={() => {
-                if (suppressClick.current) return;
-                onOpenPlatform(platform.providerId);
-              }}
+              onPointerDown={(event) => onCardPointerDown(event, platform.providerId)}
+              onPointerMove={onCardPointerMove}
+              onPointerUp={onCardPointerUp}
+              onPointerCancel={onCardPointerCancel}
             />
           ))}
         </div>
@@ -253,7 +336,7 @@ function SectionHeader() {
       <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">关键平台</h2>
       <span className="inline-flex items-center gap-1 text-[11px] text-q-text-muted">
         <GripVertical size={12} aria-hidden />
-        拖拽排序
+        拖动卡片排序
       </span>
     </div>
   );
@@ -294,19 +377,20 @@ function CarouselArrow({
 function PlatformStripCard({
   platform,
   dragging,
-  onDragStarted,
-  onDragFinished,
-  onDropOn,
-  onOpen,
+  registerRef,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
 }: {
   platform: PlatformSummaryViewModel;
   dragging: boolean;
-  onDragStarted: (id: string) => void;
-  onDragFinished: () => void;
-  onDropOn: (draggedId: string, targetId: string) => void;
-  onOpen: () => void;
+  registerRef: (el: HTMLDivElement | null) => void;
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
-  const cardRef = useRef<HTMLButtonElement>(null);
   const windows = platform.capabilities.filter(
     (capability) =>
       (capability.capabilityId === "quota_window_5h" || capability.capabilityId === "quota_window_7d") &&
@@ -319,46 +403,27 @@ function PlatformStripCard({
   const stale = windows.some((capability) => capability.freshness === "stale");
 
   return (
-    <button
-      ref={cardRef}
-      type="button"
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        const dragged = event.dataTransfer.getData("text/plain");
-        if (dragged) onDropOn(dragged, platform.providerId);
-      }}
-      onClick={onOpen}
+    <div
+      ref={registerRef}
+      data-strip-card
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       className={cn(
-        "glass-panel group relative flex h-[186px] w-[258px] shrink-0 cursor-pointer flex-col p-4 text-left transition duration-150",
-        dragging ? "opacity-45 ring-2 ring-q-primary/50" : "hover:-translate-y-0.5 hover:shadow-q-md",
+        "glass-panel group relative flex h-[186px] w-[258px] shrink-0 cursor-grab select-none flex-col p-4",
+        dragging
+          ? "z-30 scale-[1.03] opacity-90 shadow-q-lg ring-2 ring-q-primary/50"
+          : "transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-q-md",
       )}
-      style={{ borderRadius: 16 }}
+      style={{ borderRadius: 16, touchAction: "none" }}
     >
-      {/* 拖拽把手：自身作为 HTML5 拖拽源，拖拽幽灵替换为整卡 */}
+      {/* 拖拽提示（纯装饰，整卡可拖） */}
       <span
-        role="button"
-        aria-label={`拖拽排序 ${platform.displayName}`}
-        title="拖拽排序"
-        draggable
-        data-no-strip-drag
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => event.stopPropagation()}
-        onDragStart={(event) => {
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("text/plain", platform.providerId);
-          if (cardRef.current) {
-            event.dataTransfer.setDragImage(cardRef.current, 129, 20);
-          }
-          onDragStarted(platform.providerId);
-        }}
-        onDragEnd={() => onDragFinished()}
-        className="absolute right-2 top-2 inline-flex h-6 w-6 cursor-grab items-center justify-center rounded-[7px] text-q-text-muted opacity-40 transition-opacity duration-150 hover:bg-q-primary-softer hover:text-q-primary group-hover:opacity-100 active:cursor-grabbing"
+        aria-hidden
+        className="pointer-events-none absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-[7px] text-q-text-muted opacity-0 transition-opacity duration-150 group-hover:opacity-60"
       >
-        <GripVertical size={14} aria-hidden />
+        <GripVertical size={14} />
       </span>
 
       <div className="flex items-center gap-2.5 pr-7">
@@ -432,6 +497,6 @@ function PlatformStripCard({
           </p>
         )}
       </div>
-    </button>
+    </div>
   );
 }

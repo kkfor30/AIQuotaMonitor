@@ -145,11 +145,8 @@ export function OverviewPage({
         />
       </section>
 
-      {/* 关键平台：固定高度横向窗口 */}
-      <KeyPlatformWindow
-        platforms={platforms}
-        onOpenPlatform={(providerId) => onOpenPlatform({ providerId, tab: "usage" })}
-      />
+      {/* 关键平台：固定高度横向窗口（卡片仅展示与拖拽排序，详情从平台中心进入） */}
+      <KeyPlatformWindow platforms={platforms} />
 
       {/* 需要关注 + 窗口压力趋势 + 消费趋势 */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(280px,0.95fr)_minmax(0,1.25fr)_minmax(0,1fr)]">
