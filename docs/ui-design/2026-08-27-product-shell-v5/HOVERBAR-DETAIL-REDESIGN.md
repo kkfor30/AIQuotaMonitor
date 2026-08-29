@@ -69,7 +69,8 @@ GPT / Codex        2 个账户       部分可用
 
 ## GPT 多账户与重置信号补充稿
 
-- `12-hoverbar-gpt-multi-account-radar-summary.png`：把平台状态固定在卡头右侧，Plus/Free 固定在对应账户行；完整展示每个账户的 5 小时、7 天窗口和重置时间。GPT 卡底部增加独立的重置信号摘要条，避免与额度指标混排。
+- `12-hoverbar-gpt-multi-account-radar-summary.png`：顶部/底部最终稿。把平台状态固定在卡头右侧，Plus/Free 固定在对应账户行；完整展示每个账户的 5 小时、7 天窗口和时间，时间前不再显示“重置”。保持窄版比例，不横向拉长。
 - `13-hoverbar-gpt-radar-detail.png`：点击摘要条后在悬浮面板内切换二级详情，展示来源摘要、最近三条 Tibo 中文动态和可选 AI 辅助分析；雷达结论始终标记为推测。
+- `14-hoverbar-detail-right-docked-final.png`：右侧停靠最终稿。面板贴右侧并向屏幕内侧展开，小球始终贴在屏幕最右边；左侧停靠时镜像处理。
 - 雷达来源状态、GPT 平台聚合状态和账户套餐类型属于三个不同语义，不共用一个徽章。
 - Tibo 中文翻译需要后续增加可缓存字段；没有真实翻译时不得由前端临时伪造。
