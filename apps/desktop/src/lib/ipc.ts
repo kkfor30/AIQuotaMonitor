@@ -148,6 +148,8 @@ export type RadarAnalysisPrefs = {
   analyze: boolean;
   rangeKey: string;
   sourceId: string | null;
+  userPrompt: string;
+  defaultUserPrompt: string;
 };
 
 export type RadarNotice = {
@@ -223,6 +225,7 @@ export async function runRadarCheck(input: {
   rangeKey?: string;
   sourceId?: string | null;
   model?: string | null;
+  userPrompt?: string | null;
 }): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("run_radar_check", input);
 }
@@ -235,6 +238,7 @@ export async function saveRadarAnalysisPrefs(input: {
   analyze: boolean;
   rangeKey: string;
   sourceId?: string | null;
+  userPrompt?: string | null;
 }): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("save_radar_analysis_prefs", input);
 }

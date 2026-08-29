@@ -230,6 +230,8 @@ const previewRadar: RadarSnapshot = {
     analyze: false,
     rangeKey: "3d",
     sourceId: null,
+    userPrompt: "",
+    defaultUserPrompt: "",
   },
   notice: {
     headline: "Tibo：明天可能迎来 Codex 新里程碑",

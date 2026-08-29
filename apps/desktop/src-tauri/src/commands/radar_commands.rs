@@ -15,6 +15,7 @@ pub async fn run_radar_check(
     range_key: Option<String>,
     source_id: Option<String>,
     model: Option<String>,
+    user_prompt: Option<String>,
     window: WebviewWindow,
     app: AppHandle,
     database: State<'_, Database>,
@@ -28,6 +29,7 @@ pub async fn run_radar_check(
         range_key.as_deref().unwrap_or("3d"),
         source_id.as_deref(),
         model.as_deref(),
+        user_prompt.as_deref(),
     )
     .await?;
     let _ = app.emit("radar-data-changed", ());
@@ -55,12 +57,19 @@ pub fn save_radar_analysis_prefs(
     analyze: bool,
     range_key: String,
     source_id: Option<String>,
+    user_prompt: Option<String>,
     window: WebviewWindow,
     app: AppHandle,
     database: State<'_, Database>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main"])?;
-    radar::save_analysis_prefs(&database, analyze, &range_key, source_id.as_deref())?;
+    radar::save_analysis_prefs(
+        &database,
+        analyze,
+        &range_key,
+        source_id.as_deref(),
+        user_prompt.as_deref(),
+    )?;
     let snapshot = radar::snapshot(&database)?;
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)

@@ -15,7 +15,9 @@ use std::error::Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const FEED_URL: &str = "https://codexradar.com/";
-pub const PROMPT_VERSION: &str = "radar-v2";
+pub const PROMPT_VERSION: &str = "radar-v3";
+pub const USER_PROMPT_MAX_CHARS: usize = 4000;
+pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” 等措辞，视为即将重置的强信号，把握度应偏高，即使没有给出确切时间。\n已落地的历史重置只作背景，不能当成否定新一轮重置的证据。\n没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -103,6 +105,8 @@ pub struct RadarAnalysisPrefs {
     pub analyze: bool,
     pub range_key: String,
     pub source_id: Option<String>,
+    pub user_prompt: String,
+    pub default_user_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,8 +159,9 @@ pub async fn run_check(
     range_key: &str,
     source_id: Option<&str>,
     model: Option<&str>,
+    user_prompt: Option<&str>,
 ) -> Result<RadarSnapshot, String> {
-    let _ = save_analysis_prefs(database, analyze, range_key, source_id);
+    let _ = save_analysis_prefs(database, analyze, range_key, source_id, user_prompt);
     let started = epoch_ms();
     let id = format!("radar-{started}");
     let client = Client::builder()
@@ -602,14 +607,23 @@ async fn run_analysis_inner(
         .collect::<Vec<_>>()
         .join("\n\n");
     let input_hash = format!("{:x}", simple_hash(&input));
+    let user_prompt = load_analysis_prefs(database)?.user_prompt;
+    let mut messages = vec![json!({"role": "system", "content": ANALYSIS_SYSTEM_PROMPT})];
+    if !user_prompt.is_empty() {
+        messages.push(json!({
+            "role": "system",
+            "content": format!("User semantic hints for judging upcoming-reset signals and confidence:\n{user_prompt}")
+        }));
+    }
+    messages.push(json!({
+        "role": "user",
+        "content": format!("Analyze every post in the selected time window. Do not skip any of them:\n{input}")
+    }));
     let body = json!({
         "model": target.model,
         "temperature": 0.1,
         "stream": false,
-        "messages": [
-            {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
-            {"role": "user", "content": format!("Analyze every post in the selected time window. Do not skip any of them:\n{input}")}
-        ]
+        "messages": messages
     });
     let text = send_chat(client, &target, &body).await?;
     let parsed = parse_model_json(&text)?;
@@ -638,12 +652,10 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "You analyze public Tibo/Codex reset-related posts in the selected time window. ",
     "Reply with JSON only: {\"conclusion\":\"\",\"confidence\":\"low|medium|high\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
     "Write conclusion in Simplified Chinese. ",
-    "Confidence: high if Tibo teases an upcoming reset with dashboard, milestone, celebration, countdown, or phrases like \"hold on to your Codex\", or if there is an explicit reset announcement in this window; ",
-    "medium if there are mixed or indirect reset hints without a clear upcoming-reset tease; ",
-    "low only if there is no reset-related content, or only historical already-landed resets without a new upcoming signal. ",
-    "Do not default to low when Tibo uses dashboard, milestone, celebration, or hold-on-to-Codex language; that is a strong upcoming-reset signal even if the exact time is unstated. ",
-    "Treat already-landed historical resets as background, not as evidence against a new upcoming reset. ",
-    "This output is speculation, not an official conclusion."
+    "Apply the user's semantic hints when judging upcoming-reset signals and confidence. ",
+    "If no user hints are provided, read the posts ordinarily without inventing extra rules. ",
+    "This output is speculation, not an official conclusion. ",
+    "Only use the English original posts, timestamps and URLs provided; do not invent quotes."
 );
 
 fn persist_failed_analysis(
@@ -813,6 +825,7 @@ pub fn save_analysis_prefs(
     analyze: bool,
     range_key: &str,
     source_id: Option<&str>,
+    user_prompt: Option<&str>,
 ) -> Result<(), String> {
     let range_key = match range_key {
         "today" | "7d" => range_key,
@@ -820,10 +833,19 @@ pub fn save_analysis_prefs(
     };
     database.set_setting_bool("radar_analyze", analyze)?;
     database.set_setting_string("radar_range_key", range_key)?;
-    database.set_setting_string("radar_source_id", source_id.unwrap_or(""))
+    database.set_setting_string("radar_source_id", source_id.unwrap_or(""))?;
+    if let Some(user_prompt) = user_prompt {
+        database.set_setting_string("radar_user_prompt", &sanitize_user_prompt(user_prompt))?;
+    }
+    Ok(())
 }
 
 fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String> {
+    let stored = database.setting_string("radar_user_prompt")?;
+    let user_prompt = match stored {
+        None => DEFAULT_USER_PROMPT.to_string(),
+        Some(value) => sanitize_user_prompt(&value),
+    };
     Ok(RadarAnalysisPrefs {
         analyze: database.setting_bool("radar_analyze")?,
         range_key: database
@@ -833,7 +855,21 @@ fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String
         source_id: database
             .setting_string("radar_source_id")?
             .filter(|value| !value.is_empty()),
+        user_prompt,
+        default_user_prompt: DEFAULT_USER_PROMPT.into(),
     })
+}
+
+pub(crate) fn sanitize_user_prompt(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .filter(|ch| *ch == '\n' || *ch == '\t' || !ch.is_control())
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.chars().count() <= USER_PROMPT_MAX_CHARS {
+        return trimmed.to_string();
+    }
+    trimmed.chars().take(USER_PROMPT_MAX_CHARS).collect()
 }
 
 struct ModelJson {
@@ -941,5 +977,15 @@ mod tests {
         assert!(urls.iter().any(|(url, _)| url == "https://open.bigmodel.cn/api/paas/v4/chat/completions"));
         let intl = glm_chat_candidates(Some("https://api.z.ai"), true);
         assert_eq!(intl[0].0, "https://api.z.ai/api/coding/paas/v4/chat/completions");
+    }
+
+    #[test]
+    fn user_prompt_is_trimmed_and_capped() {
+        assert_eq!(sanitize_user_prompt("  dashboard  "), "dashboard");
+        assert_eq!(sanitize_user_prompt("a\u{0000}b"), "ab");
+        let long: String = "测".repeat(USER_PROMPT_MAX_CHARS + 8);
+        assert_eq!(sanitize_user_prompt(&long).chars().count(), USER_PROMPT_MAX_CHARS);
+        assert!(DEFAULT_USER_PROMPT.contains("Hold on to your Codex"));
+        assert!(DEFAULT_USER_PROMPT.contains("仪表盘"));
     }
 }

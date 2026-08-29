@@ -15,6 +15,7 @@ export function GptRadarPage() {
   const [rangeKey, setRangeKey] = useState("3d");
   const [analyze, setAnalyze] = useState(false);
   const [sourceId, setSourceId] = useState<string>("");
+  const [userPrompt, setUserPrompt] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: RADAR_SNAPSHOT_QUERY_KEY,
@@ -28,6 +29,7 @@ export function GptRadarPage() {
     setAnalyze(data.analysisPrefs.analyze);
     setRangeKey(data.analysisPrefs.rangeKey || "3d");
     if (data.analysisPrefs.sourceId) setSourceId(data.analysisPrefs.sourceId);
+    setUserPrompt(data.analysisPrefs.userPrompt ?? data.analysisPrefs.defaultUserPrompt ?? "");
   }, [data]);
 
   useEffect(() => {
@@ -37,10 +39,11 @@ export function GptRadarPage() {
         analyze,
         rangeKey,
         sourceId: sourceId || null,
+        userPrompt,
       });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [analyze, rangeKey, sourceId]);
+  }, [analyze, rangeKey, sourceId, userPrompt]);
 
   const checkMutation = useMutation({
     mutationFn: () =>
@@ -49,6 +52,7 @@ export function GptRadarPage() {
         rangeKey,
         sourceId: sourceId || data?.models.find((item) => item.ready)?.sourceId || null,
         model: data?.models.find((item) => item.sourceId === sourceId)?.model ?? null,
+        userPrompt,
       }),
     onSuccess: (snapshot) => {
       queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot);
@@ -128,6 +132,9 @@ export function GptRadarPage() {
           onAnalyzeChange={setAnalyze}
           onRangeChange={setRangeKey}
           onSourceChange={setSourceId}
+          userPrompt={userPrompt}
+          defaultUserPrompt={data?.analysisPrefs.defaultUserPrompt ?? ""}
+          onUserPromptChange={setUserPrompt}
         />
       )}
     </div>
@@ -328,18 +335,24 @@ function AiAnalysisView({
   rangeKey,
   sourceId,
   models,
+  userPrompt,
+  defaultUserPrompt,
   onAnalyzeChange,
   onRangeChange,
   onSourceChange,
+  onUserPromptChange,
 }: {
   data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined;
   analyze: boolean;
   rangeKey: string;
   sourceId: string;
   models: { sourceId: string; displayName: string; model: string; ready: boolean }[];
+  userPrompt: string;
+  defaultUserPrompt: string;
   onAnalyzeChange: (value: boolean) => void;
   onRangeChange: (value: string) => void;
   onSourceChange: (value: string) => void;
+  onUserPromptChange: (value: string) => void;
 }) {
   const analysis = data?.analysis;
   const latestCheck = data?.checks[0];
@@ -411,6 +424,31 @@ function AiAnalysisView({
           )}
         </Card>
       </div>
+      <Card className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-q-text-primary">语义提示</h2>
+          <button
+            type="button"
+            className="text-xs font-medium text-q-primary hover:underline"
+            onClick={() => onUserPromptChange(defaultUserPrompt)}
+            disabled={!defaultUserPrompt || userPrompt === defaultUserPrompt}
+          >
+            恢复默认
+          </button>
+        </div>
+        <p className="text-xs leading-relaxed text-q-text-muted">
+          会随每次分析发给模型，用来补充你认为算强重置信号的措辞。不会改变只发送英文原文、时间和链接的限制。留空则不做额外语义引导。
+        </p>
+        <textarea
+          value={userPrompt}
+          onChange={(event) => onUserPromptChange(event.target.value.slice(0, 4000))}
+          rows={6}
+          maxLength={4000}
+          placeholder="例如：提到 dashboard、milestone、Hold on to your Codex 时视为即将重置的强信号。"
+          className="min-h-[132px] w-full resize-y rounded-q-control border border-q-border bg-q-surface px-3 py-2 text-[13px] leading-relaxed text-q-text-primary"
+        />
+        <p className="text-[11px] text-q-text-muted">{userPrompt.length}/4000</p>
+      </Card>
       <Card className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-q-text-primary">辅助结论</h2>
         {analyzeError ? <p className="text-xs leading-relaxed text-q-danger">{analyzeError}</p> : null}
