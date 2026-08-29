@@ -21,10 +21,8 @@ const CORE_IDS = ["quota_window_5h", "quota_window_7d", "balance"] as const;
 const DEEPSEEK_EXTRA_IDS = ["today_spend", "month_spend", "cache_hit_rate"] as const;
 const ALLOWED_IDS = new Set<string>([...CORE_IDS, "plan_level", ...DEEPSEEK_EXTRA_IDS]);
 const ACCOUNT_PROVIDERS = new Set(["openai", "claude_code"]);
-const END_ALIGNED_IDS = new Set<string>(DEEPSEEK_EXTRA_IDS);
 
 type AccountStatus = "healthy" | "partial" | "error";
-type MetricAlign = "center" | "end";
 
 type HoverbarMetric = {
   id: string;
@@ -32,7 +30,6 @@ type HoverbarMetric = {
   value: string | null;
   time: string | null;
   freshness: DataFreshness;
-  align: MetricAlign;
 };
 
 type HoverbarGroup = {
@@ -169,28 +166,18 @@ function MetricRows({ metrics }: { metrics: HoverbarMetric[] }) {
       {metrics.map((metric) => {
         const missing = metric.value === null;
         return (
-          <div
-            key={metric.id}
-            className="hb-row"
-            data-id={metric.id}
-            data-align={metric.align}
-            data-freshness={metric.freshness}
-            data-missing={missing || undefined}
-          >
+          <div key={metric.id} className="hb-row">
             <span className="hb-row-label">{metric.label}</span>
-            {metric.align === "end" ? (
-              <span className="hb-row-mid" />
-            ) : (
-              <span className="hb-row-value" data-selectable="true">
-                {missing ? "暂不可用" : metric.value}
-              </span>
-            )}
+            <span
+              className="hb-row-value"
+              data-id={metric.id}
+              data-selectable="true"
+              data-freshness={metric.freshness}
+              data-missing={missing || undefined}
+            >
+              {missing ? "暂不可用" : metric.value}
+            </span>
             <span className="hb-row-end">
-              {metric.align === "end" ? (
-                <span className="hb-row-value" data-selectable="true">
-                  {missing ? "暂不可用" : metric.value}
-                </span>
-              ) : null}
               {metric.time && !missing ? (
                 <span className="hb-row-time" data-selectable="true">
                   {metric.time}
@@ -342,7 +329,6 @@ function toMetric(capabilities: CapabilitySnapshotViewModel[], id: string): Hove
     value,
     time: value ? extractWindowTime(capability.value.secondary) : null,
     freshness: capability.freshness,
-    align: END_ALIGNED_IDS.has(id) ? "end" : "center",
   };
 }
 

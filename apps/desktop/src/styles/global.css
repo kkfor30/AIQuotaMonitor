@@ -567,24 +567,22 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-/* 窗口 / 余额行：左右各 1fr，中间按内容显示额度，避免被挤成 0 宽。 */
+/* 同一组里的额度/余额/消费数字共用中间列，左边缘对齐。 */
 .hb-rows {
-  display: flex;
+  display: grid;
   min-width: 0;
-  flex-direction: column;
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 7px;
 }
 
 .hb-row {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 8px;
+  display: contents;
 }
 
 .hb-row-label {
-  flex: 1 1 0;
-  min-width: 0;
+  justify-self: start;
   color: var(--q-hoverbar-ink);
   font-size: 12px;
   font-weight: 720;
@@ -592,37 +590,30 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-.hb-row-mid {
-  flex: 0 0 auto;
-  width: 0;
-}
-
 .hb-row-end {
   display: flex;
-  flex: 1 1 0;
   min-width: 0;
   align-items: baseline;
+  justify-self: end;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.hb-row[data-align="end"] .hb-row-end .hb-row-value {
-  font-size: 15px;
-  line-height: 19px;
-}
-
 .hb-row-value {
-  flex: 0 0 auto;
+  justify-self: start;
   color: var(--q-hoverbar-primary);
   font-size: 17px;
   font-weight: 780;
   line-height: 21px;
   font-variant-numeric: tabular-nums;
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
 }
 
-.hb-row[data-id="balance"] .hb-row-value {
+.hb-row-value[data-id="balance"],
+.hb-row-value[data-id="today_spend"],
+.hb-row-value[data-id="month_spend"],
+.hb-row-value[data-id="cache_hit_rate"] {
   font-size: 16px;
 }
 
@@ -648,14 +639,14 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-.hb-row[data-missing] .hb-row-value {
+.hb-row-value[data-missing] {
   color: var(--q-hoverbar-muted-strong);
   font-size: 13px;
   font-weight: 700;
   line-height: 18px;
 }
 
-.hb-row[data-freshness="stale"] .hb-row-value {
+.hb-row-value[data-freshness="stale"] {
   color: var(--q-hoverbar-warning);
 }
 
@@ -1135,9 +1126,9 @@ html.hoverbar-window #root {
   border-radius: 10px;
 }
 
-.hb-detail-root[data-edge="left"] .hb-row,
-.hb-detail-root[data-edge="right"] .hb-row {
-  gap: 6px;
+.hb-detail-root[data-edge="left"] .hb-rows,
+.hb-detail-root[data-edge="right"] .hb-rows {
+  column-gap: 8px;
 }
 
 .hb-detail-root[data-edge="left"] .hb-row-end,
@@ -1151,10 +1142,14 @@ html.hoverbar-window #root {
   line-height: 20px;
 }
 
-.hb-detail-root[data-edge="left"] .hb-row[data-id="balance"] .hb-row-value,
-.hb-detail-root[data-edge="right"] .hb-row[data-id="balance"] .hb-row-value,
-.hb-detail-root[data-edge="left"] .hb-row[data-align="end"] .hb-row-end .hb-row-value,
-.hb-detail-root[data-edge="right"] .hb-row[data-align="end"] .hb-row-end .hb-row-value {
+.hb-detail-root[data-edge="left"] .hb-row-value[data-id="balance"],
+.hb-detail-root[data-edge="right"] .hb-row-value[data-id="balance"],
+.hb-detail-root[data-edge="left"] .hb-row-value[data-id="today_spend"],
+.hb-detail-root[data-edge="right"] .hb-row-value[data-id="today_spend"],
+.hb-detail-root[data-edge="left"] .hb-row-value[data-id="month_spend"],
+.hb-detail-root[data-edge="right"] .hb-row-value[data-id="month_spend"],
+.hb-detail-root[data-edge="left"] .hb-row-value[data-id="cache_hit_rate"],
+.hb-detail-root[data-edge="right"] .hb-row-value[data-id="cache_hit_rate"] {
   font-size: 14px;
   line-height: 18px;
 }

@@ -14,7 +14,7 @@
 3. GPT/Codex 多账户不拆成多个平台卡。卡头显示平台名称、账户数量和平台聚合状态，卡内按 Source/账户分组。
 4. 每个账户组独立显示账户名、真实 `plan_level`、5 小时窗口、7 天窗口、重置时间和账户状态。
 5. 默认只允许展示：`quota_window_5h`、`quota_window_7d`、`balance`、`plan_level`，以及平台/Source 状态。
-6. DeepSeek 额外展示 `today_spend`、`month_spend`、`cache_hit_rate`，数值放在该行右侧。其余仍不展示 Credits、Token 明细、赠送/充值额度、请求数和趋势。
+6. DeepSeek 额外展示 `today_spend`、`month_spend`、`cache_hit_rate`，数字与个人余额同一列对齐。其余仍不展示 Credits、Token 明细、赠送/充值额度、请求数和趋势。
 7. 状态必须有文字：正常、部分可用、异常；绿色/橙色/红色只作辅助。
 8. 不生成示例值，不把缺失值补成 0、Free 或正常。有最后成功快照时保留值并标记缓存/可能过期；无真实值时显示暂不可用。
 9. 顶部/底部共用全宽单列结构，只改变面板入场方向和小球所在边；左右侧共用窄版结构。
