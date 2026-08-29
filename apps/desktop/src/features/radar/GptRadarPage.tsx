@@ -295,7 +295,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             <div className="flex min-h-0 flex-col gap-2">
               <div className="flex flex-col gap-1">
                 <p className="text-[11px] font-medium text-q-text-muted">结论</p>
-                <p className="line-clamp-4 text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
+                <p className="text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
                   {data.analysis.conclusion}
                 </p>
               </div>
@@ -303,7 +303,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                 <div className="flex flex-col gap-1">
                   <p className="text-[11px] font-medium text-q-text-muted">分析依据</p>
                   <p
-                    className="line-clamp-3 rounded-q-control border-l-2 border-q-primary/50 bg-q-surface-muted px-3 py-2 text-xs leading-relaxed text-q-text-secondary"
+                    className="rounded-q-control border-l-2 border-q-primary/50 bg-q-surface-muted px-3 py-2 text-xs leading-relaxed text-q-text-secondary"
                     data-selectable="true"
                   >
                     {data.analysis.analysisBasis}
@@ -580,11 +580,19 @@ function AiAnalysisView({
     (latestCheck?.analyzeStatus === "failed" ? latestCheck.errorMessage : null) ||
     null;
   const analysisInput = useMemo(() => {
-    const start = rangeStartMs(rangeKey);
-    return (data?.posts ?? []).filter((post) => post.postedAt >= start);
+    const { start, end } = rangeBoundsMs(rangeKey);
+    return (data?.posts ?? []).filter((post) => post.postedAt >= start && post.postedAt <= end);
   }, [data?.posts, rangeKey]);
-  const customDays = parseRangeDays(rangeKey);
-  const customActive = !QUICK_RANGES.some((range) => range.id === rangeKey) && customDays !== null;
+  const customRange = customRangeOf(rangeKey);
+  const customActive = !QUICK_RANGES.some((range) => range.id === rangeKey) && customRange !== null;
+  const todayIso = toIsoDate(new Date());
+  const applyCustomRange = (start: string, end: string) => {
+    if (!start || !end || start.length !== 10 || end.length !== 10) return;
+    const [from, to] = start <= end ? [start, end] : [end, start];
+    onRangeChange(`range:${from}:${to}`);
+  };
+  const dateInputClass =
+    "h-9 rounded-md border border-q-border bg-q-surface px-2.5 text-xs text-q-text-primary outline-none focus:border-q-primary";
   const selectClass =
     "h-10 w-full cursor-pointer rounded-q-control border border-q-border bg-q-surface-strong px-3 text-sm text-q-text-primary outline-none focus:border-q-primary";
 
@@ -619,43 +627,33 @@ function AiAnalysisView({
                 type="button"
                 aria-pressed={customActive}
                 onClick={() => {
-                  if (!customActive) onRangeChange("30d");
+                  if (!customActive) onRangeChange(defaultCustomRangeKey());
                 }}
                 className={rangeChipClass(customActive)}
               >
                 自定义
               </button>
             </div>
-            {customActive && customDays !== null && (
-              <div className="flex flex-wrap items-center gap-3 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2.5">
+            {customActive && customRange && (
+              <div className="flex flex-wrap items-center gap-2.5 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2.5">
                 <input
-                  type="range"
-                  min={1}
-                  max={365}
-                  step={1}
-                  value={customDays}
-                  onChange={(event) => onRangeChange(`${event.target.value}d`)}
-                  aria-label="自定义分析天数"
-                  className="h-1.5 min-w-32 flex-1 cursor-pointer accent-q-primary"
+                  type="date"
+                  value={customRange.start}
+                  max={todayIso}
+                  onChange={(event) => applyCustomRange(event.target.value, customRange.end)}
+                  aria-label="分析开始日期"
+                  className={dateInputClass}
                 />
-                <span className="flex items-center gap-1.5 text-xs text-q-text-secondary">
-                  过去
-                  <input
-                    type="number"
-                    min={1}
-                    max={365}
-                    value={customDays}
-                    onChange={(event) => {
-                      const next = Number(event.target.value);
-                      if (Number.isFinite(next) && next >= 1 && next <= 365) {
-                        onRangeChange(`${Math.round(next)}d`);
-                      }
-                    }}
-                    aria-label="自定义分析天数"
-                    className="h-7 w-14 rounded-md border border-q-border bg-q-surface px-2 text-xs tabular-nums text-q-text-primary outline-none focus:border-q-primary"
-                  />
-                  天
-                </span>
+                <span className="text-xs text-q-text-muted">至</span>
+                <input
+                  type="date"
+                  value={customRange.end}
+                  max={todayIso}
+                  onChange={(event) => applyCustomRange(customRange.start, event.target.value)}
+                  aria-label="分析结束日期"
+                  className={dateInputClass}
+                />
+                <span className="text-xs text-q-text-muted">包含起止两天</span>
               </div>
             )}
           </div>
@@ -824,21 +822,59 @@ function ListBlock({
   );
 }
 
-function rangeStartMs(rangeKey: string) {
+/** 时间范围换算成 [起始毫秒, 结束毫秒]（含端点）；无上限用 MAX_SAFE_INTEGER。 */
+function rangeBoundsMs(rangeKey: string): { start: number; end: number } {
+  const custom = parseCustomRange(rangeKey);
+  if (custom) {
+    return {
+      start: Date.parse(`${custom.start}T00:00:00`),
+      end: Date.parse(`${custom.end}T23:59:59.999`),
+    };
+  }
   if (rangeKey === "today") {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
-    return start.getTime();
+    return { start: start.getTime(), end: Number.MAX_SAFE_INTEGER };
   }
   const days = parseRangeDays(rangeKey) ?? 7;
-  return Date.now() - days * 24 * 60 * 60 * 1000;
+  return { start: Date.now() - days * 24 * 60 * 60 * 1000, end: Number.MAX_SAFE_INTEGER };
 }
 
-/** 自定义时间范围：`Nd` 表示过去 N 天（与后端 parse_range_days 对齐）。 */
+/** 相对天数档：`Nd` 表示过去 N 天（与后端 parse_range_days 对齐）。 */
 function parseRangeDays(rangeKey: string): number | null {
   if (!rangeKey.endsWith("d")) return null;
   const days = Number(rangeKey.slice(0, -1));
   return Number.isInteger(days) && days >= 1 && days <= 365 ? days : null;
+}
+
+/** 自定义日期区间档：`range:YYYY-MM-DD:YYYY-MM-DD`。 */
+function parseCustomRange(rangeKey: string): { start: string; end: string } | null {
+  const match = /^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(rangeKey);
+  return match ? { start: match[1], end: match[2] } : null;
+}
+
+function toIsoDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/** 默认自定义区间：最近 30 天。 */
+function defaultCustomRangeKey(): string {
+  const today = new Date();
+  const start = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+  return `range:${toIsoDate(start)}:${toIsoDate(today)}`;
+}
+
+/** 自定义档的当前值：日期区间优先；旧的 Nd 偏好换算成区间回显。 */
+function customRangeOf(rangeKey: string): { start: string; end: string } | null {
+  const parsed = parseCustomRange(rangeKey);
+  if (parsed) return parsed;
+  const days = parseRangeDays(rangeKey);
+  if (days === null) return null;
+  const today = new Date();
+  const start = new Date(today.getTime() - days * 24 * 60 * 60 * 1000);
+  return { start: toIsoDate(start), end: toIsoDate(today) };
 }
 
 /** 时间范围快捷档（与 Tibo 筛选 chips 同款视觉）。 */

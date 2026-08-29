@@ -7,7 +7,7 @@ use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use crate::storage::repository::{RadarAnalysisRecord, RadarCheckRecord, TiboPostRecord};
 use crate::storage::vault;
-use chrono::{Duration as ChronoDuration, Local, TimeZone};
+use chrono::{Duration as ChronoDuration, Local, NaiveDate, TimeZone};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -600,10 +600,10 @@ async fn run_analysis_inner(
 ) -> Result<(), String> {
     let posts = database.list_tibo_posts(80)?;
     let views = posts.into_iter().map(to_view).collect::<Vec<_>>();
-    let window_start = range_start(range_key);
+    let (window_start, window_end) = range_bounds(range_key);
     let selected: Vec<_> = views
         .into_iter()
-        .filter(|post| post.posted_at >= window_start)
+        .filter(|post| post.posted_at >= window_start && post.posted_at <= window_end)
         .collect();
     if selected.is_empty() {
         return Err("当前时间窗内没有 Tibo 动态可分析".into());
@@ -839,10 +839,10 @@ pub fn save_analysis_prefs(
     source_id: Option<&str>,
     user_prompt: Option<&str>,
 ) -> Result<(), String> {
-    let range_key = match range_key {
-        "today" => range_key,
-        key if parse_range_days(key).is_some() => key,
-        _ => "3d",
+    let range_key = if is_valid_range_key(range_key) {
+        range_key
+    } else {
+        "3d"
     };
     database.set_setting_bool("radar_analyze", analyze)?;
     database.set_setting_string("radar_range_key", range_key)?;
@@ -863,7 +863,7 @@ fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String
         analyze: database.setting_bool("radar_analyze")?,
         range_key: database
             .setting_string("radar_range_key")?
-            .filter(|value| value == "today" || parse_range_days(value).is_some())
+            .filter(|value| is_valid_range_key(value))
             .unwrap_or_else(|| "3d".into()),
         source_id: database
             .setting_string("radar_source_id")?
@@ -937,24 +937,54 @@ fn string_list(value: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// 时间范围解析：`Nd` 表示过去 N 天（1..=365），覆盖 3d/7d 快捷档与自定义天数。
+/// 时间范围解析：`Nd` 表示过去 N 天（1..=365），覆盖 3d/7d 快捷档。
 fn parse_range_days(range_key: &str) -> Option<u32> {
     let days = range_key.strip_suffix('d')?.parse::<u32>().ok()?;
     (1..=365).contains(&days).then_some(days)
 }
 
-fn range_start(range_key: &str) -> i64 {
+/// 自定义日期区间：`range:YYYY-MM-DD:YYYY-MM-DD`，包含起止两天。
+fn parse_custom_range(range_key: &str) -> Option<(i64, i64)> {
+    let rest = range_key.strip_prefix("range:")?;
+    let (start, end) = rest.split_once(':')?;
+    let start = NaiveDate::parse_from_str(start, "%Y-%m-%d").ok()?;
+    let end = NaiveDate::parse_from_str(end, "%Y-%m-%d").ok()?;
+    if end < start {
+        return None;
+    }
+    let midnight_ms = |date: NaiveDate| -> Option<i64> {
+        let naive = date.and_hms_opt(0, 0, 0)?;
+        Local.from_local_datetime(&naive).single().map(|time| time.timestamp_millis())
+    };
+    let start_ms = midnight_ms(start)?;
+    // 结束日当天 23:59:59.999：下一天 0 点减 1 毫秒
+    let end_ms = midnight_ms(end.succ_opt()?)? - 1;
+    Some((start_ms, end_ms))
+}
+
+fn is_valid_range_key(range_key: &str) -> bool {
+    range_key == "today"
+        || parse_range_days(range_key).is_some()
+        || parse_custom_range(range_key).is_some()
+}
+
+/// 时间范围换算成 [起始毫秒, 结束毫秒]（含端点）；无上限用 i64::MAX。
+fn range_bounds(range_key: &str) -> (i64, i64) {
+    if let Some(bounds) = parse_custom_range(range_key) {
+        return bounds;
+    }
     let now = Local::now();
     if range_key == "today" {
         let naive = now.date_naive().and_hms_opt(0, 0, 0).unwrap_or_else(|| now.naive_local());
-        return Local
+        let start = Local
             .from_local_datetime(&naive)
             .single()
             .unwrap_or(now)
             .timestamp_millis();
+        return (start, i64::MAX);
     }
     let days = parse_range_days(range_key).unwrap_or(7);
-    (now - ChronoDuration::days(days as i64)).timestamp_millis()
+    ((now - ChronoDuration::days(days as i64)).timestamp_millis(), i64::MAX)
 }
 
 fn format_iso(ms: i64) -> String {
