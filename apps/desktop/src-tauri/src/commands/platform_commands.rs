@@ -176,7 +176,8 @@ pub async fn refresh_platform(
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     coordinator.refresh_platform(&database, &provider_id).await?;
-    let _ = app.emit("platform-data-changed", ());
+    // 单平台刷新：事件带平台 ID，主窗口跳过重复失效（命令返回值已回填），悬浮窗照常失效。
+    let _ = app.emit("platform-data-changed", provider_id.clone());
     providers::platform_summaries(&database)
 }
 
