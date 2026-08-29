@@ -31,7 +31,7 @@ function formatValue(value: number, kind: TrendValueKind): string {
 export function TrendLineChart({
   series,
   valueKind = "money",
-  height = 190,
+  height = 200,
   emptyTitle,
   emptyDescription,
 }: {
@@ -68,9 +68,10 @@ export function TrendLineChart({
     }
     return row;
   });
+  const unitSuffix = valueKind === "money" ? "（¥）" : "";
 
   return (
-    <div className="flex flex-col gap-2.5" data-selectable="true">
+    <div className="flex min-w-0 flex-col gap-2" data-selectable="true">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         {series.map((item) => (
           <span
@@ -83,12 +84,13 @@ export function TrendLineChart({
               style={{ backgroundColor: item.color }}
             />
             {item.name}
+            {unitSuffix}
           </span>
         ))}
       </div>
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 10, bottom: 0, left: -16 }}>
+          <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -14 }}>
             <CartesianGrid strokeDasharray="3 6" stroke="rgba(13,27,54,0.07)" vertical={false} />
             <XAxis
               dataKey="label"
@@ -101,7 +103,9 @@ export function TrendLineChart({
               tickLine={false}
               axisLine={false}
               tick={{ fill: "#6b7890", fontSize: 11 }}
-              width={52}
+              width={46}
+              domain={valueKind === "percent" ? [0, 100] : ["auto", "auto"]}
+              ticks={valueKind === "percent" ? [0, 25, 50, 75, 100] : undefined}
               tickFormatter={(value: number) => formatValue(value, valueKind)}
             />
             <Tooltip
@@ -128,8 +132,8 @@ export function TrendLineChart({
                 strokeWidth={2}
                 type="monotone"
                 connectNulls
-                dot={false}
-                activeDot={{ r: 3.5, fill: item.color, strokeWidth: 0 }}
+                dot={{ r: 2.5, fill: item.color, strokeWidth: 0 }}
+                activeDot={{ r: 4, fill: item.color, strokeWidth: 0 }}
               />
             ))}
           </LineChart>

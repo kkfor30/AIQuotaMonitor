@@ -30,9 +30,7 @@ export function AppRoot() {
 
   return (
     <AppShell active={nav} onNavigate={setNav}>
-      {nav === "overview" && (
-        <OverviewPage onOpenPlatform={openPlatform} onOpenRadar={() => setNav("gpt-radar")} />
-      )}
+      {nav === "overview" && <OverviewPage onOpenPlatform={openPlatform} />}
       {nav === "platform-center" && (
         <PlatformCenterPage target={platformTarget} onTargetConsumed={consumeTarget} />
       )}
