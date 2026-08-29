@@ -116,6 +116,18 @@ pub const CATALOG: &[CatalogEntry] = &[
         needs_local_cli: true,
     },
     CatalogEntry {
+        id: "grok",
+        display_name: "Grok",
+        official_url: "https://grok.com",
+        api_base_url: None,
+        api_key_url: None,
+        api_endpoint_hint: "",
+        access_hint: "检测本机 Grok CLI（SuperGrok）登录；查周额度窗口",
+        needs_api_key: false,
+        needs_web_login: false,
+        needs_local_cli: true,
+    },
+    CatalogEntry {
         id: "mimo",
         display_name: "MiMo",
         official_url: "https://platform.xiaomimimo.com",

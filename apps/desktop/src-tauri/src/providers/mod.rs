@@ -6,6 +6,7 @@ pub mod coding_plan;
 pub mod codex;
 pub mod deepseek;
 pub mod glm;
+pub mod grok;
 pub mod kimi;
 pub mod mimo;
 pub mod money;
@@ -57,6 +58,7 @@ fn source_definitions(platform_id: &str) -> Vec<SourceDefinition> {
         "minimax" => vec![one(coding_plan::MINIMAX_SOURCE_ID, "api_key", "Token Plan")],
         "minimax_intl" => vec![one(coding_plan::MINIMAX_INTL_SOURCE_ID, "api_key", "Token Plan")],
         "claude_code" => vec![one("claude-code-local", "local_cli", "本地 Claude 订阅")],
+        "grok" => vec![one(grok::SOURCE_ID, "local_cli", "本机 Grok CLI")],
         "mimo" => vec![one(mimo::SOURCE_ID, "web_session", "网页会话")],
         "siliconflow" => vec![one(balance::SILICONFLOW_SOURCE_ID, "api_key", "账户余额")],
         "siliconflow_intl" => vec![one(balance::SILICONFLOW_INTL_SOURCE_ID, "api_key", "账户余额")],
@@ -133,6 +135,10 @@ fn glm_templates() -> Vec<CapabilityTemplate> {
 
 fn mimo_templates() -> Vec<CapabilityTemplate> {
     vec![template("balance", mimo::SOURCE_ID, "账户余额", "money")]
+}
+
+fn grok_templates() -> Vec<CapabilityTemplate> {
+    vec![template("quota_window_7d", grok::SOURCE_ID, "周窗口", "percent")]
 }
 
 fn balance_platform_templates(source_id: &str) -> Vec<CapabilityTemplate> {
@@ -222,6 +228,14 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
                 official_url,
                 added.api_base_url.as_deref(),
                 &mimo_templates(),
+            )?),
+            "grok" => platforms.push(real_platform(
+                database,
+                "grok",
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                &grok_templates(),
             )?),
             id if coding_plan::is_coding_plan_source(coding_plan_source_id(id)) => {
                 let source_id = coding_plan_source_id(id).to_string();
@@ -575,6 +589,7 @@ fn real_platform(
         "kimi" => kimi_access_summary(&sources),
         "glm" | "glm_intl" => glm_access_summary(&sources),
         "mimo" if configured_count > 0 => "网页会话".to_string(),
+        "grok" if configured_count > 0 => "本机 Grok CLI".to_string(),
         "minimax" | "minimax_intl" if configured_count > 0 => "Token Plan".to_string(),
         id if balance::source_id_for_platform(id).is_some() && configured_count > 0 => "API Key".to_string(),
         _ => "尚未接入".to_string(),
@@ -619,6 +634,9 @@ fn is_web_login_source(source_id: &str) -> bool {
 fn source_configured(database: &Database, source: &SourceRecord) -> bool {
     if source.adapter_id == codex::SOURCE_ID && source.account_kind == "local" {
         return codex::local_auth_available();
+    }
+    if source.adapter_id == grok::SOURCE_ID {
+        return grok::local_auth_available();
     }
     if source.adapter_id == codex::SOURCE_ID && source.account_kind == "additional" {
         return database

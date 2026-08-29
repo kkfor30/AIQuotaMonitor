@@ -87,6 +87,7 @@
 | --- | --- | --- |
 | GPT / Codex | 5 小时/7 天窗口、计划、接口返回的 Credits | 默认检测本机 `~/.codex`，不必开网页。可再登录额外 ChatGPT 账号（独立 Codex 目录，不覆盖 CLI） |
 | Claude Code | 会话/周窗口 | 本机 Claude 登录与 `/usage` |
+| Grok CLI | SuperGrok 周额度窗口与重置时间 | 检测本机 `~/.grok` OAuth（SuperGrok OIDC 条目优先）；查询走 CLI 内部 billing 端点 `cli-chat-proxy.grok.com/v1/billing?format=credits`（无公开文档，改版时报结构变化不补零）。token 刷新由 Grok CLI 负责，过期提示在终端 `grok login`；本应用只读登录态，不代登录不代退出 |
 | Gemini CLI | 订阅窗口 | 有本机凭据时再开放 |
 
 ### 需要网页登录补字段

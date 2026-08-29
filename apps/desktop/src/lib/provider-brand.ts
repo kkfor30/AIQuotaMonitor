@@ -27,6 +27,7 @@ const BRAND_BY_ID: Record<string, ProviderBrand> = {
   stepfun: { logo: "/assets/providers/stepfun.png", color: "#1c1c1e" },
   openrouter: { logo: "/assets/providers/openrouter.png", color: "#7624f4" },
   novita: { logo: "/assets/providers/novita.svg", color: "#020145" },
+  grok: { logo: "/assets/providers/grok.png", color: "#0a0a0a" },
 };
 
 /** 未提供官方资产的平台使用的中性回退色序列（按 id 稳定取值）。 */

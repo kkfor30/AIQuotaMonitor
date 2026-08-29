@@ -29,6 +29,7 @@ const HOVERBAR_LOGO_SCALE: Record<string, number> = {
   stepfun: 0.82,
   openrouter: 0.8,
   novita: 0.85,
+  grok: 0.82,
 };
 
 export function hoverbarProviderVisual(providerId: string): HoverbarProviderVisual | null {

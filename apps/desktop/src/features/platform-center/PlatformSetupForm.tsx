@@ -110,9 +110,12 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
     onSuccess: (platforms) => {
       queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
       setError(null);
-      setVerifyMessage("已检测本机 Codex 登录并刷新。");
+      setVerifyMessage(platformId === "grok" ? "已检测本机 Grok CLI 登录并刷新。" : "已检测本机 Codex 登录并刷新。");
     },
-    onError: (cause) => setError(ipcErrorMessage(cause, "检测本机 Codex 登录失败。")),
+    onError: (cause) =>
+      setError(
+        ipcErrorMessage(cause, platformId === "grok" ? "检测本机 Grok CLI 登录失败。" : "检测本机 Codex 登录失败。"),
+      ),
   });
   const cliClearMutation = useMutation({
     mutationFn: () => clearSourceCredential(setup!.localCliSourceId!),
@@ -264,31 +267,47 @@ export function PlatformSetupForm({ platformId }: { platformId: string }) {
 
       {setup.needsLocalCli && (
         <div className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-3">
-          <p className="text-sm text-q-text-secondary">默认直接检测本机 Codex CLI 登录，不必先开网页。</p>
-          <p className="mt-1 text-xs leading-relaxed text-q-text-muted">
-            点「检测并刷新」读取当前 `~/.codex` 的窗口额度。若要同时监控另一个 ChatGPT 账号，到下方来源点「添加另一个 ChatGPT 账号」；那次登录使用独立目录，不会覆盖本机 CLI。
-          </p>
+          {platformId === "grok" ? (
+            <>
+              <p className="text-sm text-q-text-secondary">默认直接检测本机 Grok CLI（SuperGrok）登录。</p>
+              <p className="mt-1 text-xs leading-relaxed text-q-text-muted">
+                点「检测并刷新」读取 `~/.grok` 登录的周额度窗口与重置时间。未登录或登录失效时，请在终端运行
+                grok login 后再检测；本应用只读取登录态，不代为登录或退出。
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-q-text-secondary">默认直接检测本机 Codex CLI 登录，不必先开网页。</p>
+              <p className="mt-1 text-xs leading-relaxed text-q-text-muted">
+                点「检测并刷新」读取当前 `~/.codex` 的窗口额度。若要同时监控另一个 ChatGPT 账号，到下方来源点「添加另一个 ChatGPT 账号」；那次登录使用独立目录，不会覆盖本机 CLI。
+              </p>
+            </>
+          )}
           {setup.localCliSourceId && (
             <div className="mt-3 flex flex-wrap gap-2">
               <Button variant="secondary" size="sm" disabled={busy} onClick={() => cliRefreshMutation.mutate()}>
                 {cliRefreshMutation.isPending ? "检测中…" : "检测并刷新"}
               </Button>
-              <Button variant="secondary" size="sm" disabled={busy} onClick={() => cliLoginMutation.mutate()}>
-                {cliLoginMutation.isPending ? "等待登录…" : "更换本机 Codex 登录"}
-              </Button>
-              {confirmCliClear ? (
+              {platformId !== "grok" && (
                 <>
-                  <Button size="sm" disabled={busy} onClick={() => cliClearMutation.mutate()}>
-                    {cliClearMutation.isPending ? "清除中…" : "确认退出本机登录"}
+                  <Button variant="secondary" size="sm" disabled={busy} onClick={() => cliLoginMutation.mutate()}>
+                    {cliLoginMutation.isPending ? "等待登录…" : "更换本机 Codex 登录"}
                   </Button>
-                  <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmCliClear(false)}>
-                    取消
-                  </Button>
+                  {confirmCliClear ? (
+                    <>
+                      <Button size="sm" disabled={busy} onClick={() => cliClearMutation.mutate()}>
+                        {cliClearMutation.isPending ? "清除中…" : "确认退出本机登录"}
+                      </Button>
+                      <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmCliClear(false)}>
+                        取消
+                      </Button>
+                    </>
+                  ) : (
+                    <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmCliClear(true)}>
+                      清除本机登录
+                    </Button>
+                  )}
                 </>
-              ) : (
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmCliClear(true)}>
-                  清除本机登录
-                </Button>
               )}
             </div>
           )}

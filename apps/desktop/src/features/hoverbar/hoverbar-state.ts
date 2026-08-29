@@ -41,10 +41,11 @@ export const DEFAULT_HOVERBAR_PROVIDER_ORDER = [
   "stepfun",
   "openrouter",
   "novita",
+  "grok",
 ] as const;
 
 /** 智能排序中优先展示的「套餐制」平台（与旧项目语义一致）。 */
-const SMART_PLAN_PROVIDERS = new Set(["openai", "claude_code", "glm", "minimax"]);
+const SMART_PLAN_PROVIDERS = new Set(["openai", "claude_code", "glm", "minimax", "grok"]);
 
 export type HoverbarAnchor = {
   edge: HoverbarEdge;
