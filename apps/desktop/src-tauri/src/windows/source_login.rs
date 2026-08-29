@@ -43,10 +43,29 @@ const DEEPSEEK_CAPTURE_SCRIPT: &str = r#"
   function deliver(token) {
     if (!token || typeof token !== 'string') return;
     token = String(token).trim().replace(/^Bearer\s+/i, '');
-    if (token.length < 20 || /\s/.test(token)) return;
+    if (token.length < 20 || token.length > 4096 || /\s/.test(token)) return;
     if (/^(null|undefined)$/i.test(token)) return;
+    if (window.__aiqm_token__ === token) {
+      try {
+        if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+          window.chrome.webview.postMessage('AIQM_USAGE_TOKEN:' + token);
+        }
+      } catch (_) {}
+      return;
+    }
     window.__aiqm_token__ = token;
+    try {
+      if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+        window.chrome.webview.postMessage('AIQM_USAGE_TOKEN:' + token);
+      }
+    } catch (_) {}
     try { document.title = 'AIQM_USAGE_TOKEN:' + token; } catch (_) {}
+    try {
+      if (location.pathname.indexOf('/usage') === 0) {
+        var hash = '#AIQM_USAGE_TOKEN=' + encodeURIComponent(token);
+        if (location.hash !== hash) history.replaceState(null, '', location.pathname + location.search + hash);
+      }
+    } catch (_) {}
   }
   function fromAuth(value) {
     if (!value) return;
@@ -395,6 +414,7 @@ pub async fn open(app: &tauri::AppHandle, source_id: &str) -> Result<(), String>
         let _ = window.set_focus();
         let _ = window.eval(template.init_script);
         let _ = window.eval(&format!("location.href = '{}';", template.login_url));
+        attach_deepseek_native_hooks(app, &window, template.source_id);
         let _ = app.emit("source-login-status", format!("正在打开 {}…", template.window_title));
         start_watcher(app.clone(), template.source_id, generation);
         return Ok(());
@@ -446,14 +466,17 @@ pub async fn open(app: &tauri::AppHandle, source_id: &str) -> Result<(), String>
         .map_err(|error| format!("打开登录窗口失败：{error}"))?;
     let app_handle = app.clone();
     let closed_source = template.source_id;
+    let closed_label = template.window_label;
     window.on_window_event(move |event| {
         if matches!(
             event,
             tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
         ) {
+            unhook_native_capture(closed_label);
             let _ = app_handle.emit("source-login-closed", closed_source);
         }
     });
+    attach_deepseek_native_hooks(app, &window, template.source_id);
     let _ = app.emit("source-login-status", template.status_open);
     start_watcher(app.clone(), template.source_id, generation);
     Ok(())
@@ -519,13 +542,265 @@ fn is_usage_page(window: &tauri::WebviewWindow) -> bool {
         .is_some_and(|url| url.path().starts_with("/usage"))
 }
 
+const DEEPSEEK_POLL_SCRIPT: &str = r#"
+(() => {
+  function looks(token) {
+    token = String(token || '').trim().replace(/^Bearer\s+/i, '');
+    if (token.length < 20 || token.length > 4096 || /\s/.test(token)) return '';
+    if (/^(null|undefined)$/i.test(token)) return '';
+    return token;
+  }
+  function fromValue(value, depth) {
+    if (depth > 6 || value == null) return '';
+    if (typeof value === 'string') return looks(value);
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) {
+        var nested = fromValue(value[i], depth + 1);
+        if (nested) return nested;
+      }
+      return '';
+    }
+    if (typeof value === 'object') {
+      var prefer = ['value', 'token', 'userToken', 'access_token', 'accessToken'];
+      for (var p = 0; p < prefer.length; p++) {
+        if (value[prefer[p]]) {
+          var nested = fromValue(value[prefer[p]], depth + 1);
+          if (nested) return nested;
+        }
+      }
+      for (var key in value) {
+        if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+        if (!/token/i.test(key)) continue;
+        var nested = fromValue(value[key], depth + 1);
+        if (nested) return nested;
+      }
+    }
+    return '';
+  }
+  function readStore(store) {
+    if (!store) return '';
+    try {
+      var raw = store.getItem('userToken');
+      if (raw) {
+        try {
+          var hit = fromValue(JSON.parse(raw), 0);
+          if (hit) return hit;
+        } catch (_) {
+          var hit = looks(raw);
+          if (hit) return hit;
+        }
+      }
+      for (var i = 0; i < store.length; i++) {
+        var key = store.key(i) || '';
+        if (!/token/i.test(key) || /csrf|captcha|hcaptcha|turnstile|apdid/i.test(key)) continue;
+        raw = store.getItem(key) || '';
+        try {
+          var hit = fromValue(JSON.parse(raw), 0);
+          if (hit) return hit;
+        } catch (_) {
+          var hit = looks(raw);
+          if (hit) return hit;
+        }
+      }
+    } catch (_) {}
+    return '';
+  }
+  return looks(window.__aiqm_token__) || readStore(localStorage) || readStore(sessionStorage) || '';
+})()
+"#;
+
+fn looks_like_usage_token(secret: &str) -> bool {
+    let secret = secret.trim();
+    secret.len() >= 20
+        && secret.len() <= 4096
+        && !secret.chars().any(char::is_whitespace)
+        && !secret.eq_ignore_ascii_case("null")
+        && !secret.eq_ignore_ascii_case("undefined")
+}
+
+fn token_from_prefix(value: &str) -> Option<String> {
+    let secret = value.strip_prefix("AIQM_USAGE_TOKEN:")?.trim();
+    looks_like_usage_token(secret).then(|| secret.to_string())
+}
+
+fn token_from_location(window: &tauri::WebviewWindow) -> Option<String> {
+    let url = window.url().ok()?;
+    let fragment = url.fragment()?;
+    let raw = fragment.strip_prefix("AIQM_USAGE_TOKEN=")?;
+    looks_like_usage_token(raw).then(|| raw.to_string())
+}
+
+fn parse_script_string(result: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(result).ok()?;
+    match value {
+        serde_json::Value::String(secret) if looks_like_usage_token(&secret) => Some(secret),
+        _ => None,
+    }
+}
+
+fn native_hooks_attached() -> &'static Mutex<HashSet<String>> {
+    static HOOKS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    HOOKS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn unhook_native_capture(window_label: &str) {
+    native_hooks_attached()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(window_label);
+}
+
+fn spawn_deepseek_capture(app: tauri::AppHandle, source_id: &'static str, secret: String) {
+    if !looks_like_usage_token(&secret) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let Some(template) = template_for(source_id) else {
+            return;
+        };
+        let Some(window) = app.get_webview_window(template.window_label) else {
+            return;
+        };
+        let _ = capture_and_finish(&app, &window, source_id, &secret, true).await;
+    });
+}
+
+fn attach_deepseek_native_hooks(app: &tauri::AppHandle, window: &tauri::WebviewWindow, source_id: &'static str) {
+    if source_id != deepseek::WEB_SOURCE_ID {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        attach_deepseek_native_hooks_windows(app, window, source_id);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, window, source_id);
+    }
+}
+
+fn poll_deepseek_page_token(app: &tauri::AppHandle, window: &tauri::WebviewWindow, source_id: &'static str) {
+    #[cfg(windows)]
+    {
+        poll_deepseek_page_token_windows(app, window, source_id);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window.eval(DEEPSEEK_POLL_SCRIPT);
+        let _ = (app, source_id);
+    }
+}
+
+#[cfg(windows)]
+fn attach_deepseek_native_hooks_windows(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    source_id: &'static str,
+) {
+    let label = window.label().to_string();
+    {
+        let mut hooked = native_hooks_attached().lock().unwrap_or_else(|error| error.into_inner());
+        if !hooked.insert(label.clone()) {
+            return;
+        }
+    }
+    let app_for_webview = app.clone();
+    let result = window.with_webview(move |webview| unsafe {
+        use webview2_com::{DocumentTitleChangedEventHandler, WebMessageReceivedEventHandler};
+
+        let controller = webview.controller();
+        let Ok(core) = controller.CoreWebView2() else {
+            return;
+        };
+        let app_for_message = app_for_webview.clone();
+        let message_handler = WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+            let mut raw = windows_core::PWSTR::null();
+            let message = if args.TryGetWebMessageAsString(&mut raw).is_ok() {
+                webview2_com::take_pwstr(raw)
+            } else {
+                let mut json = windows_core::PWSTR::null();
+                if args.WebMessageAsJson(&mut json).is_err() {
+                    return Ok(());
+                }
+                webview2_com::take_pwstr(json).trim_matches('"').to_string()
+            };
+            if let Some(token) = token_from_prefix(&message) {
+                spawn_deepseek_capture(app_for_message.clone(), source_id, token);
+            }
+            Ok(())
+        }));
+        let mut message_token = 0i64;
+        let _ = core.add_WebMessageReceived(&message_handler, &mut message_token);
+
+        let title_handler = DocumentTitleChangedEventHandler::create(Box::new(move |webview, _args| {
+            let Some(core) = webview else {
+                return Ok(());
+            };
+            let mut title = windows_core::PWSTR::null();
+            if core.DocumentTitle(&mut title).is_err() {
+                return Ok(());
+            }
+            let title = webview2_com::take_pwstr(title);
+            if let Some(token) = token_from_prefix(&title) {
+                spawn_deepseek_capture(app_for_webview.clone(), source_id, token);
+            }
+            Ok(())
+        }));
+        let mut title_token = 0i64;
+        let _ = core.add_DocumentTitleChanged(&title_handler, &mut title_token);
+    });
+    if result.is_err() {
+        unhook_native_capture(&label);
+        let _ = app.emit("source-login-status", "登录窗口暂不可直接读取会话，正在改用页面脚本重试…");
+    }
+}
+
+#[cfg(windows)]
+fn poll_deepseek_page_token_windows(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    source_id: &'static str,
+) {
+    let app_for_webview = app.clone();
+    let _ = window.with_webview(move |webview| unsafe {
+        use webview2_com::ExecuteScriptCompletedHandler;
+        use windows_core::HSTRING;
+
+        let controller = webview.controller();
+        let Ok(core) = controller.CoreWebView2() else {
+            return;
+        };
+        let mut title = windows_core::PWSTR::null();
+        if core.DocumentTitle(&mut title).is_ok() {
+            let title = webview2_com::take_pwstr(title);
+            if let Some(token) = token_from_prefix(&title) {
+                spawn_deepseek_capture(app_for_webview.clone(), source_id, token);
+            }
+        }
+        let handler = ExecuteScriptCompletedHandler::create(Box::new(move |error_code, result: String| {
+            if error_code.is_ok() {
+                if let Some(token) = parse_script_string(&result) {
+                    spawn_deepseek_capture(app_for_webview.clone(), source_id, token);
+                }
+            }
+            Ok(())
+        }));
+        let script = HSTRING::from(DEEPSEEK_POLL_SCRIPT);
+        let _ = core.ExecuteScript(&script, &handler);
+    });
+}
+
 fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64) {
     tauri::async_runtime::spawn(async move {
         let Some(template) = template_for(source_id) else {
             return;
         };
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
         let mut cache_scan_failed = false;
+        let mut usage_status_sent = false;
         for tick in 0..1200 {
             if current_watcher(template.source_id) != generation {
                 return;
@@ -536,13 +811,27 @@ fn start_watcher(app: tauri::AppHandle, source_id: &'static str, generation: u64
             if tick % 2 == 0 {
                 let _ = window.eval(template.init_script);
             }
-            if template.source_id == deepseek::WEB_SOURCE_ID && !cache_scan_failed && tick >= 4 && is_usage_page(&window)
-            {
-                if let Some(token) = find_webview_cached_usage_token() {
-                    match capture_and_finish(&app, &window, template.source_id, &token, true).await {
-                        CaptureOutcome::Success => return,
-                        CaptureOutcome::Retry => {}
-                        CaptureOutcome::Failed => cache_scan_failed = true,
+            if template.source_id == deepseek::WEB_SOURCE_ID {
+                if is_usage_page(&window) && !usage_status_sent {
+                    usage_status_sent = true;
+                    let _ = app.emit("source-login-status", "已打开用量页，正在读取登录会话…");
+                }
+                if let Some(token) = token_from_location(&window) {
+                    if matches!(
+                        capture_and_finish(&app, &window, template.source_id, &token, true).await,
+                        CaptureOutcome::Success
+                    ) {
+                        return;
+                    }
+                }
+                poll_deepseek_page_token(&app, &window, template.source_id);
+                if !cache_scan_failed && tick >= 2 {
+                    if let Some(token) = find_webview_cached_usage_token() {
+                        match capture_and_finish(&app, &window, template.source_id, &token, true).await {
+                            CaptureOutcome::Success => return,
+                            CaptureOutcome::Retry => {}
+                            CaptureOutcome::Failed => cache_scan_failed = true,
+                        }
                     }
                 }
             }
@@ -972,5 +1261,19 @@ mod tests {
             Some("km/example-token-value-12345")
         );
         assert!(take_captured_secret("deepseek-web-session").is_none());
+    }
+
+    #[test]
+    fn usage_token_accepts_deepseek_km_prefix() {
+        assert!(looks_like_usage_token("km/KD4EfN5tDqXoapbetnJGdB3abl8SAENjhgk"));
+        assert!(!looks_like_usage_token("short"));
+        assert_eq!(
+            token_from_prefix("AIQM_USAGE_TOKEN:km/KD4EfN5tDqXoapbetnJGdB3abl8SAENjhgk").as_deref(),
+            Some("km/KD4EfN5tDqXoapbetnJGdB3abl8SAENjhgk")
+        );
+        assert_eq!(
+            parse_script_string("\"km/KD4EfN5tDqXoapbetnJGdB3abl8SAENjhgk\"").as_deref(),
+            Some("km/KD4EfN5tDqXoapbetnJGdB3abl8SAENjhgk")
+        );
     }
 }
