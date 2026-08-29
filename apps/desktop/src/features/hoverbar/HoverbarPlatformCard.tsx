@@ -165,11 +165,19 @@ function MetricRows({ metrics }: { metrics: HoverbarMetric[] }) {
             data-missing={missing || undefined}
           >
             <span className="hb-row-label">{metric.label}</span>
-            <b className="hb-row-value">{missing ? "暂不可用" : metric.value}</b>
-            {metric.time && !missing ? <span className="hb-row-time">{metric.time}</span> : null}
-            {metric.freshness === "stale" && !missing ? (
-              <span className="hb-row-stale">可能过期</span>
-            ) : null}
+            <span className="hb-row-metrics">
+              <b className="hb-row-value" data-selectable="true">
+                {missing ? "暂不可用" : metric.value}
+              </b>
+              {metric.time && !missing ? (
+                <span className="hb-row-time" data-selectable="true">
+                  {metric.time}
+                </span>
+              ) : null}
+              {metric.freshness === "stale" && !missing ? (
+                <span className="hb-row-stale">可能过期</span>
+              ) : null}
+            </span>
           </div>
         );
       })}
@@ -232,7 +240,9 @@ function RadarStrip({
           </button>
         </div>
       </div>
-      <p className="hb-radar-strip-summary">{radarRefreshing ? "正在同步 CodexRadar…" : summary}</p>
+      <p className="hb-radar-strip-summary" data-selectable="true">
+        {radarRefreshing ? "正在同步 CodexRadar…" : summary}
+      </p>
       {analyzeError ? <p className="hb-radar-strip-error">{analyzeError}</p> : null}
       <p className="hb-radar-strip-note">{radarSourceLine(radar)} · 仅为推测，不代表官方结论</p>
     </footer>

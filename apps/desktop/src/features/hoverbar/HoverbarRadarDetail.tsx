@@ -88,7 +88,9 @@ export function HoverbarRadarDetail({
         {analysis?.conclusion ? (
           <>
             <h3 className="hb-radar-card-title">AI 辅助结论</h3>
-            <p className="hb-radar-text">{analysis.conclusion}</p>
+            <p className="hb-radar-text" data-selectable="true">
+              {analysis.conclusion}
+            </p>
             <p className="hb-radar-meta">
               把握度 {radarConfidenceLabel(analysis.confidence ?? "")} · 模型 {analysis.model ?? "—"}
             </p>
@@ -101,15 +103,23 @@ export function HoverbarRadarDetail({
             <h3 className="hb-radar-card-title">来源摘要</h3>
             {radar?.notice ? (
               <>
-                <p className="hb-radar-text">{radar.notice.headline}</p>
-                {radar.notice.lead ? <p className="hb-radar-meta">{radar.notice.lead}</p> : null}
+                <p className="hb-radar-text" data-selectable="true">
+                  {radar.notice.headline}
+                </p>
+                {radar.notice.lead ? (
+                  <p className="hb-radar-meta" data-selectable="true">
+                    {radar.notice.lead}
+                  </p>
+                ) : null}
                 <p className="hb-radar-meta">
                   {analyzeError ? "AI 辅助分析失败" : "CodexRadar 公告 · 未运行 AI 辅助分析"}
                 </p>
               </>
             ) : latest ? (
               <>
-                <p className="hb-radar-text">{latest.summary ?? latest.translatedText ?? latest.text}</p>
+                <p className="hb-radar-text" data-selectable="true">
+                  {latest.summary ?? latest.translatedText ?? latest.text}
+                </p>
                 <p className="hb-radar-meta">{formatHoverbarClock(latest.postedAt)} · 未运行 AI 辅助分析</p>
               </>
             ) : (
@@ -159,7 +169,9 @@ function RadarPostItem({
         <span className="hb-radar-post-badge">{POST_BADGE_LABEL[post.badge] ?? post.badge}</span>
         <span className="hb-radar-post-time">{formatHoverbarClock(post.postedAt)}</span>
       </div>
-      <p className="hb-radar-post-text">{post.summary ?? post.translatedText ?? post.text}</p>
+      <p className="hb-radar-post-text" data-selectable="true">
+        {post.summary ?? post.translatedText ?? post.text}
+      </p>
       <div className="hb-radar-post-actions">
         {post.translatedText ? (
           <span className="hb-radar-post-source" title={post.translatedAt ? formatHoverbarClock(post.translatedAt) : undefined}>

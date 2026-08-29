@@ -206,17 +206,25 @@ html.hoverbar-window #root {
 .hb-actions,
 .hb-action-button,
 .hb-provider-logo,
-.hb-radar-strip,
-.hb-radar-top {
+.hb-radar-strip-head,
+.hb-radar-strip-actions,
+.hb-radar-top,
+.hb-radar-post-actions {
   user-select: none;
 }
 
 .hb-service-card,
 .hb-refresh-status,
 .hb-empty,
+.hb-radar-strip-summary,
+.hb-radar-text,
 .hb-radar-post-text,
-.hb-radar-text {
+.hb-radar-meta,
+.hb-row-value,
+.hb-row-time {
   user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .hb-detail-root .hb-panel {
@@ -559,28 +567,40 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-/* 窗口 / 余额行：标签在左、数值紧随、时间为纯值。 */
+/* 窗口 / 余额行：标签在左，数值与时间靠右，拉开中间留白。 */
 .hb-rows {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .hb-row {
   display: flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 6px 16px;
 }
 
 .hb-row-label {
-  flex: none;
-  color: var(--q-hoverbar-muted);
+  flex: 0 1 auto;
+  color: var(--q-hoverbar-ink);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 720;
   line-height: 17px;
   white-space: nowrap;
+}
+
+.hb-row-metrics {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
 }
 
 .hb-row-value {
@@ -601,9 +621,9 @@ html.hoverbar-window #root {
 
 .hb-row-time {
   flex: none;
-  color: var(--q-hoverbar-muted);
+  color: var(--q-hoverbar-ink);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 680;
   line-height: 17px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -738,10 +758,10 @@ html.hoverbar-window #root {
 .hb-radar-strip-summary {
   margin: 0;
   min-width: 0;
-  color: var(--q-hoverbar-muted-strong);
+  color: var(--q-hoverbar-ink);
   font-size: 12px;
-  font-weight: 600;
-  line-height: 17px;
+  font-weight: 650;
+  line-height: 18px;
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -928,7 +948,7 @@ html.hoverbar-window #root {
 }
 
 .hb-radar-kv span {
-  color: var(--q-hoverbar-muted);
+  color: var(--q-hoverbar-ink);
   font-weight: 650;
 }
 
@@ -962,7 +982,7 @@ html.hoverbar-window #root {
 
 .hb-radar-meta {
   margin: 6px 0 0;
-  color: var(--q-hoverbar-muted);
+  color: var(--q-hoverbar-muted-strong);
   font-size: 11px;
   font-weight: 600;
   line-height: 16px;
@@ -1110,6 +1130,11 @@ html.hoverbar-window #root {
 
 .hb-detail-root[data-edge="left"] .hb-row,
 .hb-detail-root[data-edge="right"] .hb-row {
+  gap: 4px 12px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-row-metrics,
+.hb-detail-root[data-edge="right"] .hb-row-metrics {
   gap: 8px;
 }
 
