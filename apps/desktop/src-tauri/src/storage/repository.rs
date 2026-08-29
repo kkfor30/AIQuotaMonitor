@@ -595,6 +595,45 @@ impl Database {
             .map_err(|err| format!("读取能力快照失败: {err}"))
     }
 
+    pub fn latest_window_snapshots(&self, source_id: &str) -> Result<Vec<SnapshotRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT c.capability_id, c.display_name, c.value_kind, c.primary_value, c.secondary_value,
+                        c.progress, c.trend_json, c.captured_at
+                 FROM capability_snapshots c
+                 INNER JOIN (
+                     SELECT capability_id, MAX(id) AS max_id
+                     FROM capability_snapshots
+                     WHERE source_id = ?1 AND capability_id LIKE 'quota_window_%'
+                     GROUP BY capability_id
+                 ) latest ON c.id = latest.max_id",
+            )
+            .map_err(|err| format!("准备窗口快照查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![source_id], |row| {
+                let trend_json: String = row.get(6)?;
+                let trend = serde_json::from_str::<Vec<StoredTrendPointDto>>(&trend_json)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|point| StoredTrendPoint { label: point.label, value: point.value })
+                    .collect();
+                Ok(SnapshotRecord {
+                    capability_id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    value_kind: row.get(2)?,
+                    primary_value: row.get(3)?,
+                    secondary_value: row.get(4)?,
+                    progress: row.get(5)?,
+                    trend,
+                    captured_at: row.get(7)?,
+                })
+            })
+            .map_err(|err| format!("读取窗口快照失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取窗口快照失败: {err}"))
+    }
+
     pub fn refresh_history(&self, platform_id: &str, limit: usize) -> Result<Vec<RefreshHistoryRecord>, String> {
         let connection = self.connect()?;
         let mut statement = connection

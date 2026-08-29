@@ -71,7 +71,7 @@ export function OverviewPage({
     platform.capabilities
       .filter(
         (item) =>
-          (item.capabilityId === "quota_window_5h" || item.capabilityId === "quota_window_7d") &&
+          item.capabilityId.startsWith("quota_window_") &&
           item.trend.length > 0,
       )
       .map((item) => ({
@@ -420,22 +420,26 @@ function refreshDetail(platform: PlatformSummaryViewModel, source: SourceSummary
   const caps = platform.capabilities.filter(
     (capability) => capability.sourceId === source.sourceId && capability.value.primary !== null,
   );
-  const order = ["quota_window_30d", "quota_window_7d", "quota_window_5h", "balance", "month_spend", "cache_hit_rate"];
+  const windowCap = caps
+    .filter((item) => item.capabilityId.startsWith("quota_window_") && item.value.primary)
+    .sort((left, right) => left.capabilityId.localeCompare(right.capabilityId))[0];
+  if (windowCap?.value.primary) {
+    const label =
+      windowCap.capabilityId === "quota_window_30d"
+        ? "30天窗口"
+        : windowCap.capabilityId === "quota_window_7d"
+          ? "7天窗口"
+          : windowCap.capabilityId === "quota_window_5h"
+            ? "5小时窗口"
+            : windowCap.displayName.split("·").at(-1)?.trim() || "窗口";
+    return `${label}：${compactPercentText(windowCap.value.primary)}`;
+  }
+  const order = ["balance", "month_spend", "cache_hit_rate"];
   for (const id of order) {
     const capability = caps.find((item) => item.capabilityId === id);
     if (capability?.value.primary) {
       const label =
-        id === "quota_window_30d"
-          ? "30天窗口"
-          : id === "quota_window_7d"
-          ? "7天窗口"
-          : id === "quota_window_5h"
-            ? "5小时窗口"
-            : id === "balance"
-              ? "余额"
-              : id === "month_spend"
-                ? "本月消费"
-                : "缓存命中率";
+        id === "balance" ? "余额" : id === "month_spend" ? "本月消费" : "缓存命中率";
       return `${label}：${compactPercentText(capability.value.primary)}`;
     }
   }

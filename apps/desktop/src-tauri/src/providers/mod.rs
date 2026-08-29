@@ -37,8 +37,9 @@ fn template(id: &str, source_id: &str, display_name: &str, kind: &str) -> Capabi
 
 fn deepseek_templates() -> Vec<CapabilityTemplate> {
     vec![
-        template("balance", deepseek::BALANCE_SOURCE_ID, "账户余额", "money"),
+        template("balance", deepseek::BALANCE_SOURCE_ID, "充值余额", "money"),
         template("today_spend", deepseek::WEB_SOURCE_ID, "今日消费", "money"),
+        template("total_spend", deepseek::WEB_SOURCE_ID, "累计消费", "money"),
         template("month_spend", deepseek::WEB_SOURCE_ID, "本月消费", "money"),
         template("model_usage_v4_flash", deepseek::WEB_SOURCE_ID, "V4 Flash 用量", "tokens"),
         template("model_usage_v4_pro", deepseek::WEB_SOURCE_ID, "V4 Pro 用量", "tokens"),
@@ -92,7 +93,7 @@ fn balance_platform_templates(source_id: &str) -> Vec<CapabilityTemplate> {
     vec![template("balance", source_id, "账户余额", "money")]
 }
 
-fn openai_templates(sources: &[SourceRecord]) -> Vec<CapabilityTemplate> {
+fn openai_templates(database: &Database, sources: &[SourceRecord]) -> Result<Vec<CapabilityTemplate>, String> {
     let mut templates = Vec::new();
     for source in sources.iter().filter(|source| codex::is_codex_source(&source.id)) {
         let account = if source.id == codex::SOURCE_ID {
@@ -100,13 +101,18 @@ fn openai_templates(sources: &[SourceRecord]) -> Vec<CapabilityTemplate> {
         } else {
             source.display_name.clone()
         };
-        templates.push(template("quota_window_5h", &source.id, &format!("{account} · 5 小时窗口"), "percent"));
-        templates.push(template("quota_window_7d", &source.id, &format!("{account} · 7 天窗口"), "percent"));
-        templates.push(template("quota_window_30d", &source.id, &format!("{account} · 30 天窗口"), "percent"));
+        for snapshot in database.latest_window_snapshots(&source.id)? {
+            templates.push(template(
+                &snapshot.capability_id,
+                &source.id,
+                &snapshot.display_name,
+                "percent",
+            ));
+        }
         templates.push(template("credits", &source.id, &format!("{account} · Credits"), "credits"));
         templates.push(template("plan_level", &source.id, &format!("{account} · 订阅计划"), "text"));
     }
-    templates
+    Ok(templates)
 }
 
 pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryViewModel>, String> {
@@ -130,7 +136,7 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
                 &deepseek_templates(),
             )?),
             "openai" => {
-                let templates = openai_templates(&database.list_sources("openai")?);
+                let templates = openai_templates(database, &database.list_sources("openai")?)?;
                 platforms.push(real_platform(
                     database,
                     "openai",
@@ -437,25 +443,45 @@ fn real_platform(
                 if template.id != "credits"
                     || (source.state == "ready" && source.last_validated_at == Some(snapshot.captured_at)) =>
             {
-                let fresh = source.state == "ready" || source.last_validated_at == Some(snapshot.captured_at);
-                CapabilitySnapshotViewModel {
-                    capability_id: snapshot.capability_id,
-                    source_id: source.id.clone(),
-                    display_name: snapshot.display_name,
-                    freshness: if fresh { DataFreshness::Fresh } else { DataFreshness::Stale },
-                    captured_at: millis(Some(snapshot.captured_at)),
-                    last_good_at: if fresh { None } else { millis(Some(snapshot.captured_at)) },
-                    value: CapabilityDisplayValue {
-                        kind: snapshot.value_kind,
-                        primary: snapshot.primary_value,
-                        secondary: snapshot.secondary_value,
-                        progress: snapshot.progress,
-                    },
-                    trend: snapshot
-                        .trend
-                        .into_iter()
-                        .filter_map(|point| point.value.parse::<f64>().ok().map(|value| TrendPoint { label: point.label, value }))
-                        .collect(),
+                let current = source.last_validated_at == Some(snapshot.captured_at);
+                let quota_dropped = template.id.starts_with("quota_window_") && source.state == "ready" && !current;
+                if quota_dropped {
+                    CapabilitySnapshotViewModel {
+                        capability_id: template.id.clone(),
+                        source_id: template.source_id.clone(),
+                        display_name: template.display_name.clone(),
+                        freshness: DataFreshness::Missing,
+                        captured_at: None,
+                        last_good_at: None,
+                        value: CapabilityDisplayValue {
+                            kind: template.kind.clone(),
+                            primary: None,
+                            secondary: None,
+                            progress: None,
+                        },
+                        trend: vec![],
+                    }
+                } else {
+                    let fresh = current || source.state == "ready";
+                    CapabilitySnapshotViewModel {
+                        capability_id: snapshot.capability_id,
+                        source_id: source.id.clone(),
+                        display_name: snapshot.display_name,
+                        freshness: if fresh { DataFreshness::Fresh } else { DataFreshness::Stale },
+                        captured_at: millis(Some(snapshot.captured_at)),
+                        last_good_at: if fresh { None } else { millis(Some(snapshot.captured_at)) },
+                        value: CapabilityDisplayValue {
+                            kind: snapshot.value_kind,
+                            primary: snapshot.primary_value,
+                            secondary: snapshot.secondary_value,
+                            progress: snapshot.progress,
+                        },
+                        trend: snapshot
+                            .trend
+                            .into_iter()
+                            .filter_map(|point| point.value.parse::<f64>().ok().map(|value| TrendPoint { label: point.label, value }))
+                            .collect(),
+                    }
                 }
             }
             _ => CapabilitySnapshotViewModel {
@@ -585,29 +611,14 @@ fn aggregate_status(
 
 fn missing_capability_ok(
     capability: &CapabilitySnapshotViewModel,
-    capabilities: &[CapabilitySnapshotViewModel],
+    _capabilities: &[CapabilitySnapshotViewModel],
 ) -> bool {
     if capability.freshness != DataFreshness::Missing {
         return false;
     }
-    match capability.capability_id.as_str() {
-        "credits" | "plan_level" | "quota_window_7d" | "quota_window_30d" => true,
-        "quota_window_5h" => source_plan_is_free(&capability.source_id, capabilities),
-        _ => false,
-    }
-}
-
-fn source_plan_is_free(source_id: &str, capabilities: &[CapabilitySnapshotViewModel]) -> bool {
-    capabilities.iter().any(|capability| {
-        capability.source_id == source_id
-            && capability.capability_id == "plan_level"
-            && capability.freshness != DataFreshness::Missing
-            && capability
-                .value
-                .primary
-                .as_deref()
-                .is_some_and(|plan| plan.trim().eq_ignore_ascii_case("free"))
-    })
+    capability.capability_id == "credits"
+        || capability.capability_id == "plan_level"
+        || capability.capability_id.starts_with("quota_window_")
 }
 
 fn access_mode(source_id: &str, source_type: &str) -> String {
@@ -839,15 +850,15 @@ mod tests {
     }
 
     #[test]
-    fn plus_account_missing_5h_is_partial() {
+    fn plus_or_pro_without_5h_window_is_healthy() {
         let sources = vec![source("openai-codex-local", true, SourceState::Ready)];
         let mut plan = capability("plan_level", "openai-codex-local", DataFreshness::Fresh);
-        plan.value.primary = Some("Plus".into());
+        plan.value.primary = Some("Pro".into());
         let capabilities = vec![
             capability("quota_window_5h", "openai-codex-local", DataFreshness::Missing),
             capability("quota_window_7d", "openai-codex-local", DataFreshness::Fresh),
             plan,
         ];
-        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Partial);
+        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Healthy);
     }
 }

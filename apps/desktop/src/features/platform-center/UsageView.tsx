@@ -6,27 +6,9 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import type { CapabilitySnapshotViewModel, PlatformSummaryViewModel } from "@/lib/types";
 
 /** 能力语义分组：与呈现顺序无关的业务类别（纯展示层归类）。 */
-function sourcePlanIsFree(platform: PlatformSummaryViewModel, sourceId: string): boolean {
-  return platform.capabilities.some(
-    (capability) =>
-      capability.sourceId === sourceId &&
-      capability.capabilityId === "plan_level" &&
-      capability.freshness !== "missing" &&
-      capability.value.primary?.trim().toLowerCase() === "free",
-  );
-}
-
-function isVisibleQuotaCard(
-  capability: CapabilitySnapshotViewModel,
-  platform: PlatformSummaryViewModel,
-): boolean {
-  const missing = capability.freshness === "missing" || !capability.value.primary;
-  const free = sourcePlanIsFree(platform, capability.sourceId);
-  if (capability.capabilityId === "quota_window_30d") return !missing || free;
-  if (free && missing && (capability.capabilityId === "quota_window_5h" || capability.capabilityId === "quota_window_7d")) {
-    return false;
-  }
-  return true;
+function isVisibleQuotaCard(capability: CapabilitySnapshotViewModel): boolean {
+  if (!capability.capabilityId.startsWith("quota_window_")) return true;
+  return capability.freshness !== "missing" && Boolean(capability.value.primary);
 }
 
 function capabilitySection(capabilityId: string): { title: string; order: number } | null {
@@ -81,7 +63,7 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
     (capability) => capability.capabilityId === "usage_trend",
   );
   const cardCapabilities = platform.capabilities.filter(
-    (capability) => capability.capabilityId !== "usage_trend" && isVisibleQuotaCard(capability, platform),
+    (capability) => capability.capabilityId !== "usage_trend" && isVisibleQuotaCard(capability),
   );
 
   return (

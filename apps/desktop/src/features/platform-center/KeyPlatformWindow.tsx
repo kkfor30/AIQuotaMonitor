@@ -9,7 +9,7 @@ import { reorderPlatforms } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import { providerBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/cn";
-import type { PlatformSummaryViewModel } from "@/lib/types";
+import type { CapabilitySnapshotViewModel, PlatformSummaryViewModel } from "@/lib/types";
 
 const CARD_WIDTH = 258;
 const CARD_GAP = 14;
@@ -374,6 +374,21 @@ function CarouselArrow({
   );
 }
 
+const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
+
+function windowOrder(id: string): number {
+  const index = WINDOW_ORDER.indexOf(id);
+  return index >= 0 ? index : WINDOW_ORDER.length;
+}
+
+function windowShortLabel(capability: CapabilitySnapshotViewModel): string {
+  if (capability.capabilityId === "quota_window_5h") return "5小时";
+  if (capability.capabilityId === "quota_window_7d") return "7天";
+  if (capability.capabilityId === "quota_window_30d") return "30天";
+  const name = capability.displayName.split("·").at(-1)?.trim() || capability.displayName;
+  return name.replace(/窗口$/, "");
+}
+
 function PlatformStripCard({
   platform,
   dragging,
@@ -391,13 +406,12 @@ function PlatformStripCard({
   onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
-  const windows = platform.capabilities.filter(
-    (capability) =>
-      (capability.capabilityId === "quota_window_5h" ||
-        capability.capabilityId === "quota_window_7d" ||
-        capability.capabilityId === "quota_window_30d") &&
-      capability.value.primary !== null,
-  );
+  const windows = platform.capabilities
+    .filter(
+      (capability) =>
+        capability.capabilityId.startsWith("quota_window_") && capability.value.primary !== null,
+    )
+    .sort((left, right) => windowOrder(left.capabilityId) - windowOrder(right.capabilityId) || left.capabilityId.localeCompare(right.capabilityId));
   const balance = platform.capabilities.find(
     (capability) => capability.capabilityId === "balance" && capability.value.primary !== null,
   );
@@ -444,11 +458,7 @@ function PlatformStripCard({
               {windows.slice(0, 2).map((capability) => (
                 <div key={capability.capabilityId} className="flex min-w-0 flex-col gap-0.5">
                   <span className="text-[11px] text-q-text-muted">
-                    {capability.capabilityId === "quota_window_5h"
-                      ? "5小时"
-                      : capability.capabilityId === "quota_window_7d"
-                        ? "7天"
-                        : "30天"}
+                    {windowShortLabel(capability)}
                     {capability.freshness === "stale" ? " · 缓存" : ""}
                   </span>
                   <span

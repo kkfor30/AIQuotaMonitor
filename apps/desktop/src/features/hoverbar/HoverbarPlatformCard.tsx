@@ -18,9 +18,9 @@ import { RadarConfidenceBadge } from "@/features/radar/RadarConfidenceBadge";
 import { radarSourceLine } from "./hoverbar-state";
 import { hoverbarProviderVisual } from "./provider-visuals";
 
-const CORE_IDS = ["quota_window_5h", "quota_window_7d", "quota_window_30d", "balance"] as const;
 const DEEPSEEK_EXTRA_IDS = ["today_spend", "month_spend", "cache_hit_rate"] as const;
-const ALLOWED_IDS = new Set<string>([...CORE_IDS, "plan_level", ...DEEPSEEK_EXTRA_IDS]);
+const ALLOWED_IDS = new Set<string>(["balance", "plan_level", ...DEEPSEEK_EXTRA_IDS]);
+const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
 const ACCOUNT_PROVIDERS = new Set(["openai", "claude_code"]);
 
 type AccountStatus = "healthy" | "partial" | "error";
@@ -60,7 +60,20 @@ const METRIC_LABEL: Record<string, string> = {
 };
 
 function metricIdsFor(providerId: string): string[] {
-  return providerId === "deepseek" ? [...CORE_IDS, ...DEEPSEEK_EXTRA_IDS] : [...CORE_IDS];
+  return providerId === "deepseek" ? ["balance", ...DEEPSEEK_EXTRA_IDS] : ["balance"];
+}
+
+function isQuotaWindow(id: string): boolean {
+  return id.startsWith("quota_window_");
+}
+
+function compareWindowIds(left: string, right: string): number {
+  const leftIndex = WINDOW_ORDER.indexOf(left);
+  const rightIndex = WINDOW_ORDER.indexOf(right);
+  if (leftIndex >= 0 && rightIndex >= 0) return leftIndex - rightIndex;
+  if (leftIndex >= 0) return -1;
+  if (rightIndex >= 0) return 1;
+  return left.localeCompare(right);
 }
 
 export function HoverbarPlatformCard({
@@ -281,12 +294,14 @@ function groupFromSource(
   ids: string[],
 ): HoverbarGroup | null {
   const plan = planOf(capabilities);
-  const metrics = visibleWindowMetrics(
-    ids
-      .map((id) => toMetric(capabilities, id))
-      .filter((metric): metric is HoverbarMetric => metric !== null),
-    plan,
-  );
+  const windowMetrics = capabilities
+    .filter((item) => isQuotaWindow(item.capabilityId) && hasWindowValue(item))
+    .sort((left, right) => compareWindowIds(left.capabilityId, right.capabilityId))
+    .map(capabilityToMetric);
+  const extraMetrics = ids
+    .map((id) => toMetric(capabilities, id))
+    .filter((metric): metric is HoverbarMetric => metric !== null);
+  const metrics = [...windowMetrics, ...extraMetrics];
   if (metrics.length === 0 && !plan) return null;
   return {
     id: source.sourceId,
@@ -299,9 +314,14 @@ function groupFromSource(
 }
 
 function mergeGroups(groups: HoverbarGroup[], ids: string[]): HoverbarGroup {
-  const metrics = ids
+  const windows = groups
+    .flatMap((group) => group.metrics.filter((metric) => isQuotaWindow(metric.id)))
+    .filter((metric, index, list) => list.findIndex((item) => item.id === metric.id) === index)
+    .sort((left, right) => compareWindowIds(left.id, right.id));
+  const extras = ids
     .map((id) => groups.flatMap((group) => group.metrics).find((metric) => metric.id === id))
     .filter((metric): metric is HoverbarMetric => Boolean(metric));
+  const metrics = [...windows, ...extras];
   const plan = groups.map((group) => group.plan).find((value) => Boolean(value)) ?? null;
   const status = mergeStatus(groups.map((group) => group.status));
   return {
@@ -315,7 +335,25 @@ function mergeGroups(groups: HoverbarGroup[], ids: string[]): HoverbarGroup {
 }
 
 function capsFor(capabilities: CapabilitySnapshotViewModel[], sourceId: string) {
-  return capabilities.filter((item) => item.sourceId === sourceId && ALLOWED_IDS.has(item.capabilityId));
+  return capabilities.filter(
+    (item) =>
+      item.sourceId === sourceId && (ALLOWED_IDS.has(item.capabilityId) || isQuotaWindow(item.capabilityId)),
+  );
+}
+
+function hasWindowValue(capability: CapabilitySnapshotViewModel): boolean {
+  return capability.freshness !== "missing" && Boolean(capability.value.primary);
+}
+
+function capabilityToMetric(capability: CapabilitySnapshotViewModel): HoverbarMetric {
+  const value = compactPercentText(capability.value.primary ?? "");
+  return {
+    id: capability.capabilityId,
+    label: windowMetricLabel(capability),
+    value,
+    time: extractWindowTime(capability.value.secondary),
+    freshness: capability.freshness,
+  };
 }
 
 function toMetric(capabilities: CapabilitySnapshotViewModel[], id: string): HoverbarMetric | null {
@@ -333,15 +371,10 @@ function toMetric(capabilities: CapabilitySnapshotViewModel[], id: string): Hove
   };
 }
 
-function visibleWindowMetrics(metrics: HoverbarMetric[], plan: string | null): HoverbarMetric[] {
-  const free = plan?.trim().toLowerCase() === "free";
-  return metrics.filter((metric) => {
-    if (metric.id === "quota_window_30d") return free || metric.value !== null;
-    if (free && (metric.id === "quota_window_5h" || metric.id === "quota_window_7d") && metric.value === null) {
-      return false;
-    }
-    return true;
-  });
+function windowMetricLabel(capability: CapabilitySnapshotViewModel): string {
+  if (METRIC_LABEL[capability.capabilityId]) return METRIC_LABEL[capability.capabilityId];
+  const name = capability.displayName.split("·").at(-1)?.trim() || capability.displayName;
+  return name;
 }
 
 function planOf(capabilities: CapabilitySnapshotViewModel[]): string | null {
