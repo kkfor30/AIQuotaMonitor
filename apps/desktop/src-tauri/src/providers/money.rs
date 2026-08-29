@@ -37,6 +37,10 @@ pub fn format_cny(amount: Decimal) -> String {
     format!("¥{amount:.2}")
 }
 
+pub fn format_usd(amount: Decimal) -> String {
+    format!("${amount:.2}")
+}
+
 /// 百分比展示：整数值去掉 `.0`，保留一位有效小数。
 pub fn format_percent(value: f64) -> String {
     let text = format!("{value:.1}");

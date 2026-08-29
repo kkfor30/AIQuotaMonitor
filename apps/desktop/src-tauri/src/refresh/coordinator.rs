@@ -1,7 +1,7 @@
 //! Source 级刷新协调器：平台去重、并行 Source、generation 防覆盖与部分成功。
 
 use crate::domain::refresh::{RefreshError, SourceRefreshOutput};
-use crate::providers::{coding_plan, codex, deepseek, glm, kimi, mimo};
+use crate::providers::{balance, coding_plan, codex, deepseek, glm, kimi, mimo};
 use crate::storage::database::Database;
 use crate::storage::repository::SourceRecord;
 use crate::storage::vault;
@@ -171,6 +171,10 @@ async fn fetch_source(
         id if codex::is_extra_source(id) => codex::fetch_at(client, extra_home).await,
         id if coding_plan::is_coding_plan_source(id) => match secret {
             Some(secret) => coding_plan::fetch(client, id, secret, api_base_url).await,
+            None => missing_secret("API Key 未配置"),
+        },
+        id if balance::is_balance_source(id) => match secret {
+            Some(secret) => balance::fetch(client, id, secret, api_base_url).await,
             None => missing_secret("API Key 未配置"),
         },
         kimi::BALANCE_SOURCE_ID => match secret {

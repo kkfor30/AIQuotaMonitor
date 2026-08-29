@@ -60,21 +60,24 @@
 
 ### 填 API Key 即可（优先按 cc-switch 接入）
 
-| 平台 | 查询内容 | cc-switch 依据 |
-| --- | --- | --- |
-| DeepSeek | 账户余额 | `balance.rs` → `api.deepseek.com/user/balance` |
-| Kimi | Coding Plan 窗口 | `coding_plan.rs` → `api.kimi.com/coding` |
-| Kimi | 个人账户余额 | 官方 `api.moonshot.cn/v1/users/me/balance`，使用开放平台 API Key |
-| GLM 国内 | Coding Plan 窗口 | `coding_plan.rs` → `open.bigmodel.cn` quota |
-| GLM 国际 | Coding Plan 窗口 | `coding_plan.rs` → `api.z.ai` quota |
-| MiniMax 国内 | Token Plan | `coding_plan.rs` → `api.minimaxi.com` |
-| MiniMax 国际 | Token Plan | `coding_plan.rs` → `api.minimax.io` |
-| SiliconFlow 国内/国际 | 账户余额 | `balance.rs` |
-| StepFun | 账户余额 | `balance.rs` |
-| OpenRouter | Credits | `balance.rs` |
-| Novita | 账户余额 | `balance.rs` |
-| ZenMux | Token Plan | `coding_plan.rs` |
-| 火山方舟 Coding/Agent Plan | Token Plan | `coding_plan.rs` |
+| 平台 | 查询内容 | cc-switch 依据 | 状态 |
+| --- | --- | --- | --- |
+| DeepSeek | 账户余额 | `balance.rs` → `api.deepseek.com/user/balance` | ✅ 已实现 |
+| Kimi | Coding Plan 窗口 | `coding_plan.rs` → `api.kimi.com/coding` | ✅ 已实现 |
+| Kimi | 个人账户余额 | 官方 `api.moonshot.cn/v1/users/me/balance`，使用开放平台 API Key | ✅ 已实现 |
+| GLM 国内 | Coding Plan 窗口 | `coding_plan.rs` → `open.bigmodel.cn` quota | ✅ 已实现 |
+| GLM 国际 | Coding Plan 窗口 | `coding_plan.rs` → `api.z.ai` quota | ✅ 已实现 |
+| MiniMax 国内 | Token Plan | `coding_plan.rs` → `api.minimaxi.com` | ✅ 已实现 |
+| MiniMax 国际 | Token Plan | `coding_plan.rs` → `api.minimax.io` | ✅ 已实现 |
+| SiliconFlow 国内 | 账户余额 | `balance.rs` → `api.siliconflow.cn/v1/user/info` 取 `data.totalBalance`（CNY） | ✅ 已实现 |
+| SiliconFlow 国际 | 账户余额 | `balance.rs` → `api.siliconflow.com/v1/user/info` 取 `data.totalBalance`（USD，与国内 Key 不通用） | ✅ 已实现 |
+| StepFun | 账户余额 | `balance.rs` → `api.stepfun.com/v1/accounts` 取 `balance`（CNY） | ✅ 已实现 |
+| OpenRouter | Credits | `balance.rs` → `openrouter.ai/api/v1/credits` 取 `total_credits - total_usage`（USD，Decimal 减法） | ✅ 已实现 |
+| Novita | 账户余额 | `balance.rs` → `api.novita.ai/v3/user/balance` 取 `availableBalance`（单位 0.0001 USD，Decimal 除以 10000） | ✅ 已实现 |
+| ZenMux | Token Plan | `coding_plan.rs` | 未实现 |
+| 火山方舟 Coding/Agent Plan | Token Plan | `coding_plan.rs` | 不做（需要 AK/SK 两段凭据，当前 Source 编辑器只有一把 API Key） |
+
+已实现的 5 个纯余额平台（硅基流动国内/国际、StepFun、OpenRouter、Novita）共用 `providers/balance.rs` 的 Source adapter，各自独立 Source id（`siliconflow-balance-api` 等）；添加平台后只挂 `balance` capability，不复制 React 页面。
 
 首批要先做完、并出现在「添加平台」里的：DeepSeek、Kimi、GLM、MiniMax。其余按阶段 3 陆续加入同一注册表。
 

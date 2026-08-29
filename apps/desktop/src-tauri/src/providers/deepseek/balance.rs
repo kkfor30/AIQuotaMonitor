@@ -178,6 +178,7 @@ mod tests {
             }],
         })
         .expect("balance should parse");
-        assert_eq!(values[0].primary_value.as_deref(), Some("¥12.35"));
+        // Decimal 原文解析后按 half-even 显示为两位；f64 会先丢精度。
+        assert_eq!(values[0].primary_value.as_deref(), Some("¥12.34"));
     }
 }

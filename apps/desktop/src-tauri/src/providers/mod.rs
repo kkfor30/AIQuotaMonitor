@@ -1,5 +1,6 @@
 //! 平台模板注册、真实 ViewModel 聚合与 Source adapter 路由。
 
+pub mod balance;
 pub mod catalog;
 pub mod coding_plan;
 pub mod codex;
@@ -87,6 +88,10 @@ fn mimo_templates() -> Vec<CapabilityTemplate> {
     vec![template("balance", mimo::SOURCE_ID, "账户余额", "money")]
 }
 
+fn balance_platform_templates(source_id: &str) -> Vec<CapabilityTemplate> {
+    vec![template("balance", source_id, "账户余额", "money")]
+}
+
 fn openai_templates(sources: &[SourceRecord]) -> Vec<CapabilityTemplate> {
     let mut templates = Vec::new();
     for source in sources.iter().filter(|source| codex::is_codex_source(&source.id)) {
@@ -167,6 +172,17 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
                     official_url,
                     added.api_base_url.as_deref(),
                     &coding_plan_templates(&source_id),
+                )?)
+            }
+            id if balance::source_id_for_platform(id).is_some() => {
+                let source_id = balance::source_id_for_platform(id).unwrap_or("");
+                platforms.push(real_platform(
+                    database,
+                    id,
+                    display_name,
+                    official_url,
+                    added.api_base_url.as_deref(),
+                    &balance_platform_templates(source_id),
                 )?)
             }
             id => platforms.push(real_platform(
@@ -322,6 +338,46 @@ fn ensure_declared_sources(database: &Database, platform_id: &str) -> Result<(),
             "网页会话",
             "默认账户",
         ),
+        "siliconflow" => database.ensure_account_source(
+            "siliconflow-default",
+            "siliconflow",
+            balance::SILICONFLOW_SOURCE_ID,
+            "api_key",
+            "账户余额",
+            "默认账户",
+        ),
+        "siliconflow_intl" => database.ensure_account_source(
+            "siliconflow-intl-default",
+            "siliconflow_intl",
+            balance::SILICONFLOW_INTL_SOURCE_ID,
+            "api_key",
+            "账户余额",
+            "默认账户",
+        ),
+        "stepfun" => database.ensure_account_source(
+            "stepfun-default",
+            "stepfun",
+            balance::STEPFUN_SOURCE_ID,
+            "api_key",
+            "账户余额",
+            "默认账户",
+        ),
+        "openrouter" => database.ensure_account_source(
+            "openrouter-default",
+            "openrouter",
+            balance::OPENROUTER_SOURCE_ID,
+            "api_key",
+            "账户余额",
+            "默认账户",
+        ),
+        "novita" => database.ensure_account_source(
+            "novita-default",
+            "novita",
+            balance::NOVITA_SOURCE_ID,
+            "api_key",
+            "账户余额",
+            "默认账户",
+        ),
         _ => Err(format!("不支持添加平台：{platform_id}")),
     }
 }
@@ -438,6 +494,7 @@ fn real_platform(
         "glm" | "glm_intl" => glm_access_summary(&sources),
         "mimo" if configured_count > 0 => "网页会话".to_string(),
         "minimax" | "minimax_intl" if configured_count > 0 => "Token Plan".to_string(),
+        id if balance::source_id_for_platform(id).is_some() && configured_count > 0 => "API Key".to_string(),
         _ => "尚未接入".to_string(),
     };
     let refresh_history = database

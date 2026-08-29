@@ -36,6 +36,11 @@ export const DEFAULT_HOVERBAR_PROVIDER_ORDER = [
   "kimi",
   "mimo",
   "minimax",
+  "siliconflow",
+  "siliconflow_intl",
+  "stepfun",
+  "openrouter",
+  "novita",
 ] as const;
 
 /** 智能排序中优先展示的「套餐制」平台（与旧项目语义一致）。 */
