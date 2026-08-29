@@ -37,7 +37,6 @@ export function KeyPlatformWindow({
   // 拖拽滚动状态（非受控，避免重渲染打断惯性）
   const dragScroll = useRef<{ startX: number; startScroll: number; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
-  const [armedId, setArmedId] = useState<string | null>(null);
   const orderRef = useRef(order);
   const initialOrderRef = useRef(order);
 
@@ -216,13 +215,10 @@ export function KeyPlatformWindow({
             <PlatformStripCard
               key={platform.providerId}
               platform={platform}
-              armed={armedId === platform.providerId}
               dragging={draggingId === platform.providerId}
-              onArmDrag={(id) => setArmedId(id)}
               onDragStarted={(id) => setDraggingId(id)}
               onDragFinished={() => {
                 setDraggingId(null);
-                setArmedId(null);
                 persistIfChanged();
               }}
               onDropOn={(dragged, target) => moveDraggedTo(dragged, target)}
@@ -297,23 +293,20 @@ function CarouselArrow({
 
 function PlatformStripCard({
   platform,
-  armed,
   dragging,
-  onArmDrag,
   onDragStarted,
   onDragFinished,
   onDropOn,
   onOpen,
 }: {
   platform: PlatformSummaryViewModel;
-  armed: boolean;
   dragging: boolean;
-  onArmDrag: (id: string) => void;
   onDragStarted: (id: string) => void;
   onDragFinished: () => void;
   onDropOn: (draggedId: string, targetId: string) => void;
   onOpen: () => void;
 }) {
+  const cardRef = useRef<HTMLButtonElement>(null);
   const windows = platform.capabilities.filter(
     (capability) =>
       (capability.capabilityId === "quota_window_5h" || capability.capabilityId === "quota_window_7d") &&
@@ -327,15 +320,12 @@ function PlatformStripCard({
 
   return (
     <button
+      ref={cardRef}
       type="button"
-      draggable={armed}
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", platform.providerId);
-        onDragStarted(platform.providerId);
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
       }}
-      onDragEnd={() => onDragFinished()}
-      onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
         const dragged = event.dataTransfer.getData("text/plain");
@@ -348,18 +338,25 @@ function PlatformStripCard({
       )}
       style={{ borderRadius: 16 }}
     >
-      {/* 拖拽把手：按下后才允许整卡 HTML5 拖拽排序 */}
+      {/* 拖拽把手：自身作为 HTML5 拖拽源，拖拽幽灵替换为整卡 */}
       <span
         role="button"
         aria-label={`拖拽排序 ${platform.displayName}`}
         title="拖拽排序"
+        draggable
         data-no-strip-drag
-        onPointerDown={(event) => {
-          event.stopPropagation();
-          event.preventDefault();
-          onArmDrag(platform.providerId);
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", platform.providerId);
+          if (cardRef.current) {
+            event.dataTransfer.setDragImage(cardRef.current, 129, 20);
+          }
+          onDragStarted(platform.providerId);
         }}
-        className="absolute right-2 top-2 inline-flex h-6 w-6 cursor-grab items-center justify-center rounded-[7px] text-q-text-muted opacity-0 transition-opacity duration-150 hover:bg-q-primary-softer hover:text-q-primary group-hover:opacity-100 active:cursor-grabbing"
+        onDragEnd={() => onDragFinished()}
+        className="absolute right-2 top-2 inline-flex h-6 w-6 cursor-grab items-center justify-center rounded-[7px] text-q-text-muted opacity-40 transition-opacity duration-150 hover:bg-q-primary-softer hover:text-q-primary group-hover:opacity-100 active:cursor-grabbing"
       >
         <GripVertical size={14} aria-hidden />
       </span>

@@ -6,7 +6,7 @@ import { ipcErrorMessage, openExternalUrl } from "@/lib/ipc";
 import type { PlatformSummaryViewModel } from "@/lib/types";
 
 /**
- * 页面头部：当前平台、接入方式摘要、聚合状态与操作区。
+ * 页面头部（Apple Glass V6）：当前平台、接入方式摘要、聚合状态与操作区。
  */
 export function ProviderHeader({
   platform,
@@ -20,12 +20,12 @@ export function ProviderHeader({
   onRemove: () => void;
 }) {
   return (
-    <header className="flex items-start justify-between gap-4">
+    <header className="flex items-start justify-between gap-4 px-1">
       <div className="flex items-center gap-4">
-        <PlatformMark providerId={platform.providerId} size={44} />
+        <PlatformMark providerId={platform.providerId} size={56} />
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold tracking-tight text-q-text-primary">
+            <h1 className="text-[24px] font-bold tracking-tight text-q-text-primary">
               {platform.displayName}
             </h1>
             <AggregateStatusBadge status={platform.aggregateStatus} />

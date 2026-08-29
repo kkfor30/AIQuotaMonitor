@@ -3,7 +3,7 @@ import { formatTime } from "@/lib/format";
 import type { PlatformSummaryViewModel } from "@/lib/types";
 
 /**
- * 刷新记录：直接展示后端 RefreshRun ViewModel。
+ * 最近刷新记录（Apple Glass V6）：直接展示后端 RefreshRun ViewModel。
  */
 export function RefreshHistory({ platform }: { platform: PlatformSummaryViewModel }) {
   const entries = platform.refreshHistory ?? [];
@@ -27,13 +27,33 @@ export function RefreshHistory({ platform }: { platform: PlatformSummaryViewMode
                 aria-hidden
               />
             )}
-            <div className="min-w-0">
-              <p className="text-[13px] text-q-text-primary">
-                {entry.sourceName}
-                <span className="ml-2 text-xs text-q-text-muted">{entry.finishedAt ? formatTime(entry.finishedAt) : "进行中"}</span>
-              </p>
-              <p className={`text-xs ${entry.status === "success" ? "text-q-text-muted" : entry.status === "partial" ? "text-q-warning" : entry.status === "running" ? "text-q-primary" : "text-q-danger"}`}>
-                {entry.status === "success" ? "刷新成功" : entry.status === "partial" ? "部分完成" : entry.status === "running" ? "刷新中" : (entry.errorMessage ?? "刷新失败")}
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="min-w-0 truncate text-[13px] font-medium text-q-text-primary">
+                  {entry.sourceName}
+                </p>
+                <span className="shrink-0 text-[11px] tabular-nums text-q-text-muted">
+                  {entry.finishedAt ? formatTime(entry.finishedAt) : "进行中"}
+                </span>
+              </div>
+              <p
+                className={`text-[11px] leading-4 ${
+                  entry.status === "success"
+                    ? "text-q-text-muted"
+                    : entry.status === "partial"
+                      ? "text-q-warning"
+                      : entry.status === "running"
+                        ? "text-q-primary"
+                        : "text-q-danger"
+                }`}
+              >
+                {entry.status === "success"
+                  ? "刷新成功"
+                  : entry.status === "partial"
+                    ? "部分完成"
+                    : entry.status === "running"
+                      ? "刷新中"
+                      : (entry.errorMessage ?? "刷新失败")}
               </p>
             </div>
           </li>

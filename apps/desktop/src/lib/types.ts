@@ -161,9 +161,9 @@ export const AGGREGATE_STATUS_META: Record<
 /** 数据新鲜度展示元数据 */
 export const FRESHNESS_META: Record<
   DataFreshness,
-  { label: string; tone: "success" | "warning" | "neutral" }
+  { label: string; tone: "primary" | "warning" | "neutral" }
 > = {
-  fresh: { label: "实时", tone: "success" },
+  fresh: { label: "实时", tone: "primary" },
   stale: { label: "缓存 · 可能过期", tone: "warning" },
   missing: { label: "暂无数据", tone: "neutral" },
 };

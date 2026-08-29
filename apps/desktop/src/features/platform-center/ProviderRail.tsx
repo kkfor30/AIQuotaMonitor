@@ -63,12 +63,18 @@ export function ProviderRail({
             <div
               key={platform.providerId}
               className={cn(
-                "group flex items-center gap-1 rounded-q-control border transition-colors duration-150",
+                "group relative flex items-center gap-1 rounded-q-control border transition-colors duration-150",
                 selected
                   ? "border-q-border-selected bg-q-surface-solid shadow-q-sm"
                   : "border-transparent hover:bg-q-surface-hover",
               )}
             >
+              {selected && (
+                <span
+                  aria-hidden
+                  className="absolute left-0 top-1/2 h-[22px] w-[3px] -translate-y-1/2 rounded-full bg-q-primary"
+                />
+              )}
               <button
                 type="button"
                 onClick={() => onSelect(platform.providerId)}

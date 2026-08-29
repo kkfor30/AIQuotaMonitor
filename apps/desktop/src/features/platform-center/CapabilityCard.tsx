@@ -23,21 +23,26 @@ const CAPABILITY_ICON: Record<string, LucideIcon> = {
 };
 
 /**
- * 单个能力快照卡片。
- * 状态表达规则：freshness 标签 + 文字；stale 必须显示最后成功时间；
- * missing 显示空态文案，禁止补零。
+ * 单个能力快照卡片（Apple Glass V6 平台中心）：
+ * 图标 + 名称 + 新鲜度徽章 → 大号数值 → 次要说明与采集时间 → 用量进度条。
+ * stale 显式标橙并给出最后成功时间；missing 显示空态文案，禁止补零。
  */
 export function CapabilityCard({ capability }: { capability: CapabilitySnapshotViewModel }) {
   const Icon = CAPABILITY_ICON[capability.capabilityId] ?? Gauge;
   const isTrend = capability.value.kind === "trend";
+  const progress = Math.min(1, Math.max(0, capability.value.progress ?? 0));
+  const barColor =
+    capability.freshness === "stale"
+      ? "bg-q-warning"
+      : progress >= 0.85
+        ? "bg-q-danger"
+        : "bg-q-primary";
 
   return (
-    <div className="glass-panel flex flex-col gap-3 p-4">
+    <div className="glass-panel flex flex-col gap-2.5 p-4">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm">
-            <Icon size={16} aria-hidden />
-          </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <Icon size={16} aria-hidden className="shrink-0 text-q-text-muted" />
           <span className="truncate text-[13px] font-medium text-q-text-secondary">
             {capability.displayName}
           </span>
@@ -46,42 +51,45 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
       </div>
 
       {capability.value.primary !== null ? (
-        <div>
-          <p
-            className="text-[26px] font-semibold leading-none tracking-tight tabular-nums text-q-text-primary"
-            data-selectable="true"
-          >
-            {compactPercentText(capability.value.primary)}
-          </p>
-          {capability.value.secondary && (
-            <p className="mt-1.5 text-xs text-q-text-muted">{compactPercentText(capability.value.secondary)}</p>
-          )}
-        </div>
+        <p
+          className="text-[28px] font-bold leading-9 tracking-tight tabular-nums text-q-text-primary"
+          data-selectable="true"
+        >
+          {compactPercentText(capability.value.primary)}
+        </p>
       ) : isTrend ? (
-        <p className="text-xs text-q-text-muted">趋势见下方图表</p>
+        <p className="text-[13px] text-q-text-muted">趋势见下方图表</p>
       ) : capability.value.secondary ? (
         <div>
           <p className="text-[13px] text-q-text-muted">暂无统计值</p>
-          <p className="mt-1.5 text-xs text-q-text-muted">{compactPercentText(capability.value.secondary)}</p>
+          <p className="mt-1 text-xs text-q-text-muted">{compactPercentText(capability.value.secondary)}</p>
         </div>
       ) : (
         <p className="text-[13px] text-q-text-muted">暂无数据，待接入后展示</p>
+      )}
+
+      {capability.value.primary !== null && (capability.value.secondary || capability.capturedAt !== null) && (
+        <div className="flex flex-col gap-0.5">
+          {capability.value.secondary && (
+            <p className="truncate text-[11px] text-q-text-muted" title={capability.value.secondary}>
+              {compactPercentText(capability.value.secondary)}
+            </p>
+          )}
+          {capability.capturedAt !== null && (
+            <p className="text-[11px] text-q-text-muted">{formatTime(capability.capturedAt)}</p>
+          )}
+        </div>
       )}
 
       {capability.value.progress !== null && (
         <div
           className="h-1.5 overflow-hidden rounded-full bg-q-primary-softer"
           role="progressbar"
-          aria-valuenow={Math.round((capability.value.progress ?? 0) * 100)}
+          aria-valuenow={Math.round(progress * 100)}
           aria-valuemin={0}
           aria-valuemax={100}
         >
-          <div
-            className={`h-full rounded-full ${
-              capability.freshness === "stale" ? "bg-q-warning" : "bg-q-primary"
-            }`}
-            style={{ width: `${Math.min(100, Math.max(0, (capability.value.progress ?? 0) * 100))}%` }}
-          />
+          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${progress * 100}%` }} />
         </div>
       )}
 

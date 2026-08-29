@@ -5,28 +5,44 @@ import { UsageTrend } from "./UsageTrend";
 import { EmptyState } from "@/components/ui/EmptyState";
 import type { CapabilitySnapshotViewModel, PlatformSummaryViewModel } from "@/lib/types";
 
-function groupedCapabilitySections(
-  platform: PlatformSummaryViewModel,
-  capabilities: CapabilitySnapshotViewModel[],
-): Array<{ sourceId: string; title: string | null; capabilities: CapabilitySnapshotViewModel[] }> {
-  const sourceIds = [...new Set(capabilities.map((capability) => capability.sourceId))];
-  if (sourceIds.length <= 1) {
-    return [{ sourceId: sourceIds[0] ?? "default", title: null, capabilities }];
+/** 能力语义分组：与呈现顺序无关的业务类别（纯展示层归类）。 */
+function capabilitySection(capabilityId: string): { title: string; order: number } | null {
+  if (capabilityId === "usage_trend") return null;
+  if (capabilityId.startsWith("quota_window")) return { title: "窗口额度", order: 0 };
+  if (capabilityId === "credits" || capabilityId === "plan_level") return { title: "订阅信息", order: 1 };
+  if (capabilityId === "balance" || capabilityId === "month_spend" || capabilityId === "today_spend") {
+    return { title: "余额与消费", order: 2 };
   }
-  return sourceIds.map((sourceId) => {
-    const source = platform.sources.find((item) => item.sourceId === sourceId);
-    return {
-      sourceId,
-      title: source?.displayName ?? "数据来源",
-      capabilities: capabilities.filter((capability) => capability.sourceId === sourceId),
-    };
-  });
+  return { title: "用量统计", order: 3 };
+}
+
+function groupedCapabilitySections(
+  capabilities: CapabilitySnapshotViewModel[],
+): Array<{ title: string; capabilityNames: string[]; capabilities: CapabilitySnapshotViewModel[] }> {
+  const sections = new Map<string, { order: number; capabilities: CapabilitySnapshotViewModel[] }>();
+  for (const capability of capabilities) {
+    const section = capabilitySection(capability.capabilityId);
+    if (!section) continue;
+    const existing = sections.get(section.title);
+    if (existing) {
+      existing.capabilities.push(capability);
+    } else {
+      sections.set(section.title, { order: section.order, capabilities: [capability] });
+    }
+  }
+  return [...sections.entries()]
+    .sort((left, right) => left[1].order - right[1].order)
+    .map(([title, { capabilities }]) => ({
+      title,
+      capabilityNames: capabilities.map((capability) => capability.displayName),
+      capabilities,
+    }));
 }
 
 /**
- * 平台中心 / 额度与用量：
- * 来源健康摘要 + 能力卡片网格 + 趋势 + 刷新记录。
- * 未配置平台显示接入引导，不显示任何示例数值。
+ * 平台中心 / 额度与用量（Apple Glass V6）：
+ * 来源健康摘要 → 语义分组能力卡（窗口额度 / 订阅信息 / 余额与消费 / 用量统计）→
+ * 消费趋势图 → 右侧最近刷新记录。未配置平台显示接入引导，不显示任何示例数值。
  */
 export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) {
   if (platform.aggregateStatus === "setup_required") {
@@ -46,14 +62,19 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
   );
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] gap-4 overflow-y-auto pr-1">
+    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] gap-4 overflow-y-auto pr-1">
       <div className="flex min-w-0 flex-col gap-4">
         <SourceHealthSummary platform={platform} />
-        {groupedCapabilitySections(platform, cardCapabilities).map((section) => (
-          <section key={section.sourceId} className="flex min-w-0 flex-col gap-3">
-            {section.title ? (
-              <h3 className="text-sm font-medium text-q-text-primary">{section.title}</h3>
-            ) : null}
+        {groupedCapabilitySections(cardCapabilities).map((section) => (
+          <section key={section.title} className="flex min-w-0 flex-col gap-3">
+            <div className="flex items-baseline gap-2.5 px-1">
+              <h3 className="text-[14px] font-semibold tracking-tight text-q-text-primary">
+                {section.title}
+              </h3>
+              <span className="truncate text-xs text-q-text-muted">
+                {section.capabilityNames.join(" / ")}
+              </span>
+            </div>
             <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
               {section.capabilities.map((capability) => (
                 <CapabilityCard
