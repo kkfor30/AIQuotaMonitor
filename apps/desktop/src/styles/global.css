@@ -815,9 +815,9 @@ html.hoverbar-window #root {
 
 .hb-radar-strip-note {
   margin: 0;
-  color: var(--q-hoverbar-muted);
+  color: var(--q-hoverbar-ink);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 650;
   line-height: 15px;
 }
 
@@ -982,9 +982,9 @@ html.hoverbar-window #root {
 
 .hb-radar-meta {
   margin: 6px 0 0;
-  color: var(--q-hoverbar-muted-strong);
+  color: var(--q-hoverbar-ink);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 650;
   line-height: 16px;
 }
 
@@ -1030,9 +1030,9 @@ html.hoverbar-window #root {
 
 .hb-radar-post-time {
   margin-left: auto;
-  color: var(--q-hoverbar-muted);
+  color: var(--q-hoverbar-ink);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 680;
   font-variant-numeric: tabular-nums;
   line-height: 15px;
   white-space: nowrap;
@@ -1082,9 +1082,9 @@ html.hoverbar-window #root {
 .hb-radar-post-source {
   min-width: 0;
   overflow: hidden;
-  color: var(--q-hoverbar-muted);
+  color: var(--q-hoverbar-ink);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 650;
   line-height: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1093,9 +1093,9 @@ html.hoverbar-window #root {
 .hb-radar-footnote {
   margin: 0;
   padding: 2px 0 4px;
-  color: var(--q-hoverbar-muted);
+  color: var(--q-hoverbar-ink);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 650;
   line-height: 15px;
   text-align: center;
 }
