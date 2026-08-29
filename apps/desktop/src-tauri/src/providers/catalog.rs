@@ -180,7 +180,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         display_name: "Novita",
         official_url: "https://novita.ai",
         api_base_url: Some("https://api.novita.ai"),
-        api_key_url: Some("https://novita.ai/dashboard/keys"),
+        api_key_url: Some("https://novita.ai/settings/key-management"),
         api_endpoint_hint: "默认预填官方端点，用于查询账户余额。请填写完整 URL，不要以斜杠结尾。",
         access_hint: "API Key 查账户余额（USD）",
         needs_api_key: true,
