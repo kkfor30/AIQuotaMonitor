@@ -3,24 +3,38 @@ import { flushSync } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
 import { PlatformMark } from "./ProviderRail";
-import { AggregateStatusBadge } from "@/components/ui/StatusBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { compactPercentText } from "@/lib/format";
+import { QuotaProgress } from "@/components/ui/QuotaProgress";
+import { compactPercentText, formatTime } from "@/lib/format";
 import { reorderPlatforms } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
-import { providerBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/cn";
-import type { CapabilitySnapshotViewModel, PlatformSummaryViewModel } from "@/lib/types";
+import { sortWindowCapabilities, windowShortLabel } from "./quota-windows";
+import type {
+  AccountKind,
+  AccountSummaryViewModel,
+  CapabilitySnapshotViewModel,
+  PlatformSummaryViewModel,
+} from "@/lib/types";
 
 const CARD_WIDTH = 258;
+const CARD_HEIGHT = 296;
 const CARD_GAP = 14;
-const CARD_STEP = CARD_WIDTH + CARD_GAP;
+/** 前卡右侧叠缘区：2 + 16 + 2 + 14，最多露出两层后卡边缘 */
+const DECK_EXTRA = 34;
+const CARD_STEP = CARD_WIDTH + DECK_EXTRA + CARD_GAP;
+/** 账号类型徽章（本机/默认/额外），V7 中所有账号别名可见 */
+const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
+  local: "本机",
+  default: "默认",
+  additional: "额外",
+};
 
 type CardDragState = {
   id: string;
   /** 拖拽开始时该卡所在槽位（锚点，拖拽期间不随实时换位变化） */
   startIndex: number;
-  /** 拖拽开始时被拖卡的视觉左缘（指针锚定基准） */
+  /** 拖拽开始时该卡的视觉左缘（指针锚定基准） */
   anchorLeft: number;
   startX: number;
   startY: number;
@@ -28,15 +42,18 @@ type CardDragState = {
 };
 
 /**
- * 关键平台横向窗口（Apple Glass V6 总览）：
- * - 拖动卡身即可排序：拖动中指针越过相邻卡中心即实时换位（其余卡 FLIP 滑动让位），松手只做落位收尾
- * - 滚轮/触控板、空白处鼠标拖拽、头部两侧箭头与下方位置圆点浏览
- * - 排序复用 reorder_platforms 持久化，不建第二套排序；平台增多只横向滚动
+ * 关键平台横向窗口（V7 总览设计稿 01）：
+ * - 一个 Platform 永远占一个排序槽位；槽位内部按 platform.accounts 构建账号卡组，
+ *   前卡显示当前账号，右侧最多露出两层后卡边缘（竖排账号别名，点击即切换）。
+ * - 拖拽从卡头手柄发起，移动整个账号卡组；账号箭头、后卡边缘、查看全部账户均不触发排序。
+ * - 排序复用 reorder_platforms，只提交 platform ids；滚轮/触控板/空白拖拽/边缘自动滚动/FLIP 落位保留。
  */
 export function KeyPlatformWindow({
   platforms,
+  onOpenPlatform,
 }: {
   platforms: PlatformSummaryViewModel[];
+  onOpenPlatform: (providerId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const stripRef = useRef<HTMLDivElement>(null);
@@ -44,6 +61,8 @@ export function KeyPlatformWindow({
   const [order, setOrder] = useState<string[]>(() => platforms.map((p) => p.providerId));
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [scrollState, setScrollState] = useState({ atStart: true, atEnd: true, index: 0 });
+  /** 每个平台独立维护当前展示的账号；刷新时保留，账号被删才回退第一个 */
+  const [currentAccountId, setCurrentAccountId] = useState<Record<string, string>>({});
 
   const cardDrag = useRef<CardDragState | null>(null);
   // 空白处拖拽滚动状态（非受控，避免重渲染打断惯性）
@@ -117,7 +136,7 @@ export function KeyPlatformWindow({
     el.scrollBy({ left: direction * CARD_STEP * 2, behavior: "smooth" });
   };
 
-  // —— 卡片指针拖拽排序（拖动中实时换位，松手仅落位收尾）——
+  // —— 卡头手柄拖拽排序（拖动中实时换位，松手仅落位收尾）——
   const clearCardTransforms = () => {
     for (const el of cardRefs.current.values()) {
       el.style.transform = "";
@@ -133,7 +152,7 @@ export function KeyPlatformWindow({
     return strip.getBoundingClientRect().left + 2 + index * CARD_STEP - strip.scrollLeft;
   };
 
-  const onCardPointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
+  const onHandlePointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
     if (event.button !== 0) return;
     const index = connected.findIndex((p) => p.providerId === id);
     const draggedEl = cardRefs.current.get(id);
@@ -149,7 +168,7 @@ export function KeyPlatformWindow({
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const onCardPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+  const onHandlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const state = cardDrag.current;
     if (!state) return;
     const strip = stripRef.current;
@@ -247,12 +266,12 @@ export function KeyPlatformWindow({
     }
   };
 
-  const onCardPointerCancel = () => {
+  const onHandlePointerCancel = () => {
     // 取消与松手同路径：顺序已实时生效，保持并落位，避免与已持久化顺序不一致
     settleCardDrag();
   };
 
-  // —— 空白处拖拽滚动（卡片自身处理排序，互不干扰）——
+  // —— 空白处拖拽滚动（卡内交互不触发排序，互不干扰）——
   const onStripPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const el = stripRef.current;
@@ -287,7 +306,7 @@ export function KeyPlatformWindow({
         <SectionHeader />
         <EmptyState
           title="暂无已接入平台"
-          description="接入平台后此处展示余额、消费与窗口压力摘要。"
+          description="接入平台后此处展示各账号的剩余额度与余额摘要。"
         />
       </section>
     );
@@ -300,7 +319,7 @@ export function KeyPlatformWindow({
         <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">关键平台</h2>
         <span className="inline-flex items-center gap-1 text-[11px] text-q-text-muted">
           <GripVertical size={12} aria-hidden />
-          拖动卡片排序
+          拖动手柄排序
         </span>
         <div className="ml-auto flex items-center gap-1.5">
           <CarouselArrow
@@ -328,18 +347,23 @@ export function KeyPlatformWindow({
         className="no-scrollbar flex items-stretch gap-[14px] overflow-x-auto py-1 pl-0.5 pr-0.5"
       >
         {connected.map((platform) => (
-          <PlatformStripCard
+          <PlatformDeckCard
             key={platform.providerId}
             platform={platform}
+            currentAccountId={currentAccountId[platform.providerId]}
             dragging={draggingId === platform.providerId}
             registerRef={(el) => {
               if (el) cardRefs.current.set(platform.providerId, el);
               else cardRefs.current.delete(platform.providerId);
             }}
-            onPointerDown={(event) => onCardPointerDown(event, platform.providerId)}
-            onPointerMove={onCardPointerMove}
-            onPointerUp={settleCardDrag}
-            onPointerCancel={onCardPointerCancel}
+            onHandlePointerDown={(event) => onHandlePointerDown(event, platform.providerId)}
+            onHandlePointerMove={onHandlePointerMove}
+            onHandlePointerUp={settleCardDrag}
+            onHandlePointerCancel={onHandlePointerCancel}
+            onSelectAccount={(accountId) =>
+              setCurrentAccountId((prev) => ({ ...prev, [platform.providerId]: accountId }))
+            }
+            onOpenAll={() => onOpenPlatform(platform.providerId)}
           />
         ))}
       </div>
@@ -366,7 +390,7 @@ function SectionHeader() {
       <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">关键平台</h2>
       <span className="inline-flex items-center gap-1 text-[11px] text-q-text-muted">
         <GripVertical size={12} aria-hidden />
-        拖动卡片排序
+        拖动手柄排序
       </span>
     </div>
   );
@@ -403,214 +427,303 @@ function CarouselArrow({
   );
 }
 
-const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
-
-function windowOrder(id: string): number {
-  const index = WINDOW_ORDER.indexOf(id);
-  return index >= 0 ? index : WINDOW_ORDER.length;
+function accountWindows(platform: PlatformSummaryViewModel, accountId: string): CapabilitySnapshotViewModel[] {
+  return sortWindowCapabilities(
+    platform.capabilities.filter(
+      (capability) => capability.accountId === accountId && capability.capabilityId.startsWith("quota_window_"),
+    ),
+  );
 }
 
-function windowShortLabel(capability: CapabilitySnapshotViewModel): string {
-  if (capability.capabilityId === "quota_window_5h") return "5小时";
-  if (capability.capabilityId === "quota_window_7d") return "7天";
-  if (capability.capabilityId === "quota_window_30d") return "30天";
-  const name = capability.displayName.split("·").at(-1)?.trim() || capability.displayName;
-  return name.replace(/窗口$/, "");
+function accountCapability(
+  platform: PlatformSummaryViewModel,
+  accountId: string,
+  capabilityId: string,
+): CapabilitySnapshotViewModel | null {
+  return (
+    platform.capabilities.find(
+      (capability) =>
+        capability.accountId === accountId && capability.capabilityId === capabilityId && capability.value.primary !== null,
+    ) ?? null
+  );
 }
 
-function PlatformStripCard({
+/**
+ * 一个平台的账号卡组槽位：前卡（当前账号）+ 右侧最多两层后卡边缘（竖排别名，点击切换）。
+ * 拖拽仅从卡头手柄发起；箭头/叠缘/查看全部账户与拖拽互不影响。
+ */
+function PlatformDeckCard({
   platform,
+  currentAccountId,
   dragging,
   registerRef,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-  onPointerCancel,
+  onHandlePointerDown,
+  onHandlePointerMove,
+  onHandlePointerUp,
+  onHandlePointerCancel,
+  onSelectAccount,
+  onOpenAll,
 }: {
   platform: PlatformSummaryViewModel;
+  currentAccountId: string | undefined;
   dragging: boolean;
   registerRef: (el: HTMLDivElement | null) => void;
-  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onHandlePointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onHandlePointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onHandlePointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onHandlePointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onSelectAccount: (accountId: string) => void;
+  onOpenAll: () => void;
 }) {
-  const windows = platform.capabilities
-    .filter(
-      (capability) =>
-        capability.capabilityId.startsWith("quota_window_") && capability.value.primary !== null,
-    )
-    .sort((left, right) => windowOrder(left.capabilityId) - windowOrder(right.capabilityId) || left.capabilityId.localeCompare(right.capabilityId));
-  // 多账号平台按账号分行展示窗口额度（Capability 用 accountId 归属，不合并同名窗口）
-  const accountWindowRows = platform.accounts
-    .map((account) => ({
-      account,
-      windows: windows.filter((capability) => capability.accountId === account.accountId),
-    }))
-    .filter((row) => row.windows.length > 0);
-  const multiAccountRows = platform.accounts.length > 1 && accountWindowRows.length > 1 ? accountWindowRows : null;
-  const balance = platform.capabilities.find(
-    (capability) => capability.capabilityId === "balance" && capability.value.primary !== null,
+  const accounts = platform.accounts;
+  const currentIndex = Math.max(
+    0,
+    accounts.findIndex((account) => account.accountId === currentAccountId),
   );
-  // 多账号平台余额行标注所属账号，避免多个余额来源时含义不清
-  const balanceAccountName = balance && multiAccountRows
-    ? (platform.accounts.find((account) => account.accountId === balance.accountId)?.displayName ?? null)
-    : null;
-  const totalSpend = platform.capabilities.find(
-    (capability) => capability.capabilityId === "total_spend" && capability.value.primary !== null,
-  );
-  // 余额卡下的小字：优先展示真实累计消费；无累计消费时退回能力自带的次要说明。
-  const balanceFootnote = totalSpend
-    ? `累计消费 ${compactPercentText(totalSpend.value.primary ?? "")}`
-    : (balance?.value.secondary ?? null);
-  const tone = providerBrand(platform.providerId).color;
-  const stale = windows.some((capability) => capability.freshness === "stale");
+  const current = accounts[currentIndex] ?? null;
+  const multiAccount = accounts.length > 1 && current !== null;
 
   return (
     <div
       ref={registerRef}
       data-strip-card
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
       className={cn(
-        "glass-panel group relative flex h-[186px] w-[258px] shrink-0 cursor-grab select-none flex-col p-4",
-        dragging
-          ? "z-30 scale-[1.03] opacity-90 shadow-q-lg ring-2 ring-q-primary/50"
-          : "transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-q-md",
+        "relative shrink-0 select-none",
+        dragging && "z-30",
       )}
-      style={{ borderRadius: 16, touchAction: "none" }}
+      style={{ width: CARD_WIDTH + DECK_EXTRA, height: CARD_HEIGHT }}
     >
-      {/* 拖拽提示（纯装饰，整卡可拖） */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-[7px] text-q-text-muted opacity-0 transition-opacity duration-150 group-hover:opacity-60"
-      >
-        <GripVertical size={14} />
-      </span>
+      {/* 后卡边缘：点击直接切换到该账号（V7 账号卡组） */}
+      {multiAccount &&
+        [1, 2].map((offset) => {
+          const account = accounts[currentIndex + offset];
+          if (!account) return null;
+          const width = offset === 1 ? 16 : 14;
+          const left = CARD_WIDTH + 2 + (offset === 1 ? 0 : 18);
+          return (
+            <button
+              key={account.accountId}
+              type="button"
+              title={`切换到 ${account.displayName}`}
+              onClick={() => onSelectAccount(account.accountId)}
+              className="absolute flex cursor-pointer items-center justify-center overflow-hidden rounded-[12px] border border-q-border bg-q-surface shadow-q-sm transition-colors duration-150 hover:border-q-border-selected"
+              style={{
+                left,
+                top: 10 + (offset - 1) * 10,
+                width,
+                height: CARD_HEIGHT - 20 - (offset - 1) * 20,
+                zIndex: 30 - offset * 10,
+              }}
+            >
+              <span
+                className="truncate text-[11px] text-q-text-muted"
+                style={{ writingMode: "vertical-rl" }}
+              >
+                {account.displayName}
+              </span>
+            </button>
+          );
+        })}
 
-      <div className="flex items-center gap-2.5 pr-7">
-        <PlatformMark providerId={platform.providerId} size={34} />
+      {/* 前卡：当前账号 */}
+      {current && (
+        <div
+          className={cn(
+            "glass-panel absolute flex flex-col p-4",
+            dragging
+              ? "scale-[1.02] opacity-95 shadow-q-lg ring-2 ring-q-primary/50"
+              : "transition-[transform,box-shadow] duration-150",
+          )}
+          style={{ left: 0, top: 0, width: CARD_WIDTH, height: CARD_HEIGHT, zIndex: 40, borderRadius: 16 }}
+        >
+          <AccountCardBody
+            platform={platform}
+            account={current}
+            index={currentIndex}
+            total={accounts.length}
+            multiAccount={multiAccount}
+            onHandlePointerDown={onHandlePointerDown}
+            onHandlePointerMove={onHandlePointerMove}
+            onHandlePointerUp={onHandlePointerUp}
+            onHandlePointerCancel={onHandlePointerCancel}
+            onSelectAccount={onSelectAccount}
+            onOpenAll={onOpenAll}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 账户卡内容：卡头（手柄 + 账号切换）→ 账号别名 → 窗口剩余额度 → 余额块 → 查看全部账户 */
+function AccountCardBody({
+  platform,
+  account,
+  index,
+  total,
+  multiAccount,
+  onHandlePointerDown,
+  onHandlePointerMove,
+  onHandlePointerUp,
+  onHandlePointerCancel,
+  onSelectAccount,
+  onOpenAll,
+}: {
+  platform: PlatformSummaryViewModel;
+  account: AccountSummaryViewModel;
+  index: number;
+  total: number;
+  multiAccount: boolean;
+  onHandlePointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onHandlePointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onHandlePointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onHandlePointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onSelectAccount: (accountId: string) => void;
+  onOpenAll: () => void;
+}) {
+  const windows = accountWindows(platform, account.accountId);
+  const balance = accountCapability(platform, account.accountId, "balance");
+  const totalSpend = accountCapability(platform, account.accountId, "total_spend");
+
+  return (
+    <>
+      {/* 卡头：手柄发起整组拖拽；多账号时箭头到端禁用 */}
+      <div className="flex items-center gap-2">
+        <PlatformMark providerId={platform.providerId} size={30} />
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-q-text-primary">
           {platform.displayName}
         </span>
-        <AggregateStatusBadge status={platform.aggregateStatus} />
-      </div>
-
-      {/* 卡身：单账号窗口平台展示 5 小时 / 7 天大号百分比；多账号平台按账号分行，避免同名窗口并列混淆 */}
-      <div className="mt-3 flex min-h-0 flex-1 flex-col">
-        {multiAccountRows ? (
-          <>
-            <div className="flex min-h-0 flex-1 flex-col justify-center gap-2.5">
-              {multiAccountRows.map((row) => (
-                <div key={row.account.accountId} className="flex min-w-0 items-baseline justify-between gap-2">
-                  <span className="min-w-0 truncate text-[11px] font-medium text-q-text-muted">
-                    {row.account.displayName}
-                  </span>
-                  <span className="flex shrink-0 flex-wrap items-baseline justify-end gap-x-3 gap-y-0.5">
-                    {row.windows.map((capability) => (
-                      <span
-                        key={capability.capabilityId}
-                        className="text-[11px] text-q-text-muted"
-                        data-selectable="true"
-                      >
-                        {windowShortLabel(capability)}
-                        <b
-                          className={cn(
-                            "ml-1 text-[15px] font-bold leading-5 tabular-nums",
-                            stale ? "text-q-warning" : "",
-                          )}
-                          style={stale ? undefined : { color: tone }}
-                        >
-                          {compactPercentText(capability.value.primary ?? "")}
-                        </b>
-                        {capability.freshness === "stale" ? " · 缓存" : ""}
-                      </span>
-                    ))}
-                  </span>
-                </div>
-              ))}
-            </div>
-            {balance && (
-              <div className="mt-auto flex items-baseline justify-between border-t border-q-border pt-2">
-                <span className="min-w-0 truncate text-[11px] text-q-text-muted">
-                  {balance.displayName}
-                  {balanceAccountName ? ` · ${balanceAccountName}` : ""}
-                </span>
-                <span
-                  className="text-[13px] font-bold tabular-nums text-q-text-primary"
-                  data-selectable="true"
-                >
-                  {compactPercentText(balance.value.primary ?? "")}
-                </span>
-              </div>
-            )}
-          </>
-        ) : windows.length > 0 ? (
-          <>
-            <div className="grid flex-1 grid-cols-2 gap-2">
-              {windows.slice(0, 2).map((capability) => (
-                <div key={capability.capabilityId} className="flex min-w-0 flex-col gap-0.5">
-                  <span className="text-[11px] text-q-text-muted">
-                    {windowShortLabel(capability)}
-                    {capability.freshness === "stale" ? " · 缓存" : ""}
-                  </span>
-                  <span
-                    className={cn(
-                      "truncate text-[24px] font-bold leading-8 tracking-tight tabular-nums",
-                      stale ? "text-q-warning" : "",
-                    )}
-                    style={stale ? undefined : { color: tone }}
-                    data-selectable="true"
-                  >
-                    {capability.value.primary !== null
-                      ? compactPercentText(capability.value.primary)
-                      : "—"}
-                  </span>
-                </div>
-              ))}
-            </div>
-            {balance && (
-              <div className="mt-auto flex items-baseline justify-between border-t border-q-border pt-2">
-                <span className="text-[11px] text-q-text-muted">{balance.displayName}</span>
-                <span
-                  className="text-[13px] font-bold tabular-nums text-q-text-primary"
-                  data-selectable="true"
-                >
-                  {compactPercentText(balance.value.primary ?? "")}
-                </span>
-              </div>
-            )}
-          </>
-        ) : balance ? (
-          <div className="flex flex-1 flex-col gap-0.5">
-            <span className="text-[11px] text-q-text-muted">{balance.displayName}</span>
-            <span
-              className="mt-1 truncate text-[26px] font-bold leading-8 tracking-tight tabular-nums text-q-text-primary"
-              data-selectable="true"
+        <div
+          role="button"
+          aria-label={`拖动排序 ${platform.displayName}`}
+          title="拖动排序"
+          onPointerDown={onHandlePointerDown}
+          onPointerMove={onHandlePointerMove}
+          onPointerUp={onHandlePointerUp}
+          onPointerCancel={onHandlePointerCancel}
+          className="flex h-6 w-6 cursor-grab touch-none items-center justify-center rounded-[7px] text-q-text-muted transition-colors hover:bg-q-primary-softer hover:text-q-text-secondary active:cursor-grabbing"
+        >
+          <GripVertical size={14} aria-hidden />
+        </div>
+        {multiAccount && (
+          <span className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              aria-label="上一个账号"
+              disabled={index === 0}
+              onClick={() => onSelectAccount(platform.accounts[index - 1].accountId)}
+              className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
             >
-              {compactPercentText(balance.value.primary ?? "")}
+              <ChevronLeft size={13} aria-hidden />
+            </button>
+            <span className="min-w-[24px] text-center text-[11px] tabular-nums text-q-text-muted">
+              {index + 1}/{total}
             </span>
-            {balanceFootnote && (
-              <span
-                className="mt-auto truncate text-[11px] font-semibold tabular-nums text-q-text-primary"
-                data-selectable="true"
-              >
-                {compactPercentText(balanceFootnote)}
-              </span>
-            )}
-          </div>
-        ) : (
-          <p className="flex flex-1 items-center text-[11px] leading-relaxed text-q-text-muted">
-            {platform.aggregateStatus === "setup_required"
-              ? "配置来源后展示额度"
-              : platform.aggregateStatus === "error"
-                ? "刷新失败，暂无可用数据"
-                : "暂无窗口用量数据"}
-          </p>
+            <button
+              type="button"
+              aria-label="下一个账号"
+              disabled={index >= total - 1}
+              onClick={() => onSelectAccount(platform.accounts[index + 1].accountId)}
+              className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronRight size={13} aria-hidden />
+            </button>
+          </span>
         )}
       </div>
+
+      {/* 账号别名 + 不可变类型标签 */}
+      <div className="mt-2 flex min-w-0 items-center gap-1.5">
+        <span className="min-w-0 truncate text-[12px] font-medium text-q-text-primary" title={account.displayName}>
+          {account.displayName}
+        </span>
+        <span className="shrink-0 rounded-q-pill bg-q-neutral-soft px-1.5 py-px text-[10px] font-medium text-q-text-secondary">
+          {ACCOUNT_KIND_LABEL[account.kind]}
+        </span>
+      </div>
+
+      {/* 卡身：窗口剩余额度（5h/7d/30d/其他），missing 灰轨道「未获取」；纯余额账号不制造比例 */}
+      <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+        {windows.length > 0 ? (
+          windows.map((capability) => (
+            <div key={capability.capabilityId} className="flex min-w-0 flex-col gap-1">
+              <QuotaProgress capability={capability} label={windowShortLabel(capability)} />
+              <WindowFootnote capability={capability} />
+            </div>
+          ))
+        ) : balance ? (
+          <BalanceBlock balance={balance} totalSpend={totalSpend} large />
+        ) : (
+          <p className="flex flex-1 items-center text-[11px] leading-relaxed text-q-text-muted">
+            暂无该账号的额度数据，刷新后展示。
+          </p>
+        )}
+        {windows.length > 0 && balance && (
+          <div className="mt-auto">
+            <BalanceBlock balance={balance} totalSpend={totalSpend} />
+          </div>
+        )}
+      </div>
+
+      {/* 卡底：进入平台中心额度与用量并定位该平台 */}
+      <button
+        type="button"
+        onClick={onOpenAll}
+        className="mt-2 shrink-0 cursor-pointer text-center text-[11px] font-medium text-q-primary transition-colors hover:text-q-primary-hover"
+      >
+        查看全部账户
+      </button>
+    </>
+  );
+}
+
+/** 窗口行的辅助小字：stale 显示「缓存 · 上次成功」，其余展示后端重置说明；missing 不显示。 */
+function WindowFootnote({ capability }: { capability: CapabilitySnapshotViewModel }) {
+  if (capability.freshness === "missing") return null;
+  if (capability.freshness === "stale") {
+    return (
+      <p className="truncate pl-[52px] text-[10px] leading-3.5 text-q-warning">
+        缓存 · 上次成功 {formatTime(capability.lastGoodAt ?? capability.capturedAt)}
+      </p>
+    );
+  }
+  if (capability.value.secondary) {
+    return (
+      <p className="truncate pl-[52px] text-[10px] leading-3.5 text-q-text-muted" title={capability.value.secondary}>
+        {capability.value.secondary}
+      </p>
+    );
+  }
+  return null;
+}
+
+/** 余额块：有窗口账号的紧凑版 / 纯余额账号的大号版；只展示后端金额文本，不画比例。 */
+function BalanceBlock({
+  balance,
+  totalSpend,
+  large = false,
+}: {
+  balance: CapabilitySnapshotViewModel;
+  totalSpend: CapabilitySnapshotViewModel | null;
+  large?: boolean;
+}) {
+  return (
+    <div className="rounded-[10px] border border-q-border bg-q-surface-muted/60 px-3 py-2">
+      <p className="text-[11px] text-q-text-muted">{balance.displayName}</p>
+      <p
+        className={cn(
+          "truncate font-bold leading-7 tabular-nums text-q-text-primary",
+          large ? "text-[24px]" : "text-[16px]",
+        )}
+        data-selectable="true"
+      >
+        {compactPercentText(balance.value.primary ?? "")}
+      </p>
+      {totalSpend && (
+        <p className="truncate text-[11px] font-semibold tabular-nums text-q-text-primary" data-selectable="true">
+          {totalSpend.displayName} {compactPercentText(totalSpend.value.primary ?? "")}
+        </p>
+      )}
     </div>
   );
 }

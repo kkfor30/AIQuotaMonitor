@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Boxes,
@@ -12,6 +12,11 @@ import {
 import { TrendLineChart, type TrendSeries } from "@/components/ui/TrendLineChart";
 import { PlatformMark } from "@/features/platform-center/ProviderRail";
 import { KeyPlatformWindow } from "@/features/platform-center/KeyPlatformWindow";
+import {
+  sortWindowCapabilities,
+  windowShortLabel,
+  windowTrendColor,
+} from "@/features/platform-center/quota-windows";
 import { compactPercentText, formatDateTime } from "@/lib/format";
 import { fetchPlatformSummaries, refreshAllPlatforms } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
@@ -19,14 +24,15 @@ import { providerBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/cn";
 import type { PlatformCenterTarget } from "@/app/navigation";
 import type {
+  AccountSummaryViewModel,
   PlatformSummaryViewModel,
   SourceSummaryViewModel,
 } from "@/lib/types";
 
 /**
- * 总览（Apple Glass V6 设计稿 01）：
- * 页头（总览 + 全局刷新 + 最后更新）→ 四段状态条 → 关键平台横向窗口 →
- * 需要关注 / 窗口压力趋势 / 消费趋势 三卡行 → 最近刷新记录表格。
+ * 总览（Apple Glass V6/V7 设计稿 01）：
+ * 页头（总览 + 全局刷新 + 最后更新）→ 四段状态条 → 关键平台账号卡组 →
+ * 需要关注 / 额度使用趋势 / 消费趋势 三卡行 → 最近刷新记录表格。
  * 全部数字来自真实 ViewModel；趋势缺序列显示空状态，不造数。
  */
 export function OverviewPage({
@@ -66,21 +72,54 @@ export function OverviewPage({
     ];
   });
 
-  // 窗口压力趋势：只纳入 5 小时 / 7 天 Token Plan 窗口能力的真实历史
-  const pressureSeries: TrendSeries[] = platforms.flatMap((platform) =>
-    platform.capabilities
-      .filter(
-        (item) =>
-          item.capabilityId.startsWith("quota_window_") &&
-          item.trend.length > 0,
-      )
-      .map((item) => ({
-        id: `${platform.providerId}:${item.capabilityId}`,
-        name: platform.displayName,
-        color: providerBrand(platform.providerId).color,
-        points: item.trend.map((point) => ({ label: point.label, value: point.value })),
-      })),
+  // 额度使用趋势（V7）：进度条看剩余，趋势图看已使用（used = 100 - remaining，Rust 层已换算）。
+  // 平台选择器只列存在真实窗口能力的平台；默认选第一个有真实窗口历史的平台。
+  const windowPlatforms = useMemo(
+    () =>
+      platforms.filter((platform) =>
+        platform.capabilities.some((capability) => capability.capabilityId.startsWith("quota_window_")),
+      ),
+    [platforms],
   );
+  const [trendPlatformId, setTrendPlatformId] = useState<string | null>(null);
+  const [trendAccountId, setTrendAccountId] = useState<string | null>(null);
+  const trendPlatform =
+    windowPlatforms.find((platform) => platform.providerId === trendPlatformId)
+      ?? windowPlatforms.find((platform) =>
+        platform.capabilities.some((capability) => capability.trend.length > 0),
+      )
+      ?? windowPlatforms[0]
+      ?? null;
+  const trendAccounts = useMemo(() => {
+    if (!trendPlatform) return [] as AccountSummaryViewModel[];
+    return trendPlatform.accounts.filter((account) =>
+      trendPlatform.capabilities.some(
+        (capability) =>
+          capability.accountId === account.accountId
+          && capability.capabilityId.startsWith("quota_window_"),
+      ),
+    );
+  }, [trendPlatform]);
+  const trendAccount =
+    trendAccounts.find((account) => account.accountId === trendAccountId) ?? trendAccounts[0] ?? null;
+  const usageSeries: TrendSeries[] =
+    trendPlatform && trendAccount
+      ? sortWindowCapabilities(
+          trendPlatform.capabilities.filter(
+            (capability) =>
+              capability.accountId === trendAccount.accountId
+              && capability.capabilityId.startsWith("quota_window_")
+              && capability.trend.length > 0,
+          ),
+        )
+          .slice(0, 4)
+          .map((capability) => ({
+            id: capability.capabilityId,
+            name: `${windowShortLabel(capability)}已使用`,
+            color: windowTrendColor(capability.capabilityId),
+            points: capability.trend.map((point) => ({ label: point.label, value: point.value })),
+          }))
+      : [];
 
   const lastUpdatedAt = connected.reduce<number | null>((latest, platform) => {
     const sourceTime = platform.sources.reduce<number | null>((max, source) => {
@@ -145,28 +184,46 @@ export function OverviewPage({
         />
       </section>
 
-      {/* 关键平台：固定高度横向窗口（卡片仅展示与拖拽排序，详情从平台中心进入） */}
-      <KeyPlatformWindow platforms={platforms} />
+      {/* 关键平台：V7 账号卡组（叠卡/切换/手柄拖拽），「查看全部账户」进平台中心额度与用量 */}
+      <KeyPlatformWindow platforms={platforms} onOpenPlatform={(providerId) => onOpenPlatform({ providerId, tab: "usage" })} />
 
       {/* 需要关注 + 窗口压力趋势 + 消费趋势 */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(280px,0.95fr)_minmax(0,1.25fr)_minmax(0,1fr)]">
         <AttentionCard platforms={platforms} onOpenPlatform={onOpenPlatform} />
 
         <section className="glass-panel flex flex-col gap-2.5 p-4">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">
-              窗口压力趋势
+              额度使用趋势
               <span className="ml-1.5 text-[11px] font-normal text-q-text-muted">（最近 7 天）</span>
             </h2>
-            <span title="仅纳入 5 小时 / 7 天 Token Plan 窗口平台的真实历史序列">
-              <Info size={14} aria-hidden className="cursor-help text-q-text-muted" />
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <TrendSelect
+                label="平台"
+                value={trendPlatform?.providerId ?? ""}
+                onChange={setTrendPlatformId}
+                options={windowPlatforms.map((platform) => ({
+                  value: platform.providerId,
+                  label: platform.displayName,
+                }))}
+              />
+              <TrendSelect
+                label="账户"
+                value={trendAccount?.accountId ?? ""}
+                onChange={setTrendAccountId}
+                options={trendAccounts.map((account) => ({
+                  value: account.accountId,
+                  label: account.displayName,
+                }))}
+              />
+            </div>
           </div>
           <TrendLineChart
-            series={pressureSeries}
-            valueKind="percent"
-            emptyTitle="暂无窗口压力历史序列"
-            emptyDescription="接入 5 小时 / 7 天 Token Plan 平台并产生历史快照后，此处展示各窗口的用量变化。"
+            series={usageSeries}
+            valueKind="used_percent"
+            yAxisLabel="已使用比例"
+            emptyTitle="暂无额度使用历史"
+            emptyDescription="刷新并积累真实窗口快照后，此处展示当前账号各窗口的已使用比例变化。"
           />
         </section>
 
@@ -284,6 +341,37 @@ function StatusSegment({
   );
 }
 
+/** 趋势卡筛选下拉：紧凑行内样式，选项全部来自真实 ViewModel。 */
+function TrendSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  if (options.length === 0) return null;
+  return (
+    <label className="inline-flex items-center gap-1.5 text-[11px] text-q-text-muted">
+      {label}
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-7 max-w-[130px] cursor-pointer rounded-q-control border border-q-border bg-q-surface px-2 text-[12px] font-medium text-q-text-primary outline-none focus:border-q-primary"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 type AttentionRow = {
   key: string;
   providerId: string;
@@ -309,7 +397,7 @@ function AttentionCard({
             key: `${platform.providerId}-${source.sourceId}`,
             providerId: platform.providerId,
             platform: platform.displayName,
-            title: source.displayName,
+            title: source.accountName,
             detail:
               source.errorMessage ??
               (source.state === "auth_required" ? "凭据待配置，刷新暂停" : "刷新失败"),
@@ -329,6 +417,28 @@ function AttentionCard({
         title: "未接入",
         detail: "配置数据来源后纳入监控",
         target: { providerId: platform.providerId, tab: "sources" },
+      });
+    }
+    // 低额度窗口只陈述中性事实（V7）：「平台 · 账号 · 7天剩余 0%」，不附加任何指令文案
+    for (const capability of sortWindowCapabilities(
+      platform.capabilities.filter(
+        (item) =>
+          item.capabilityId.startsWith("quota_window_")
+          && item.value.primary !== null
+          && item.freshness !== "missing",
+      ),
+    )) {
+      const remaining = Number.parseFloat(capability.value.primary!.replace("%", ""));
+      if (!Number.isFinite(remaining) || remaining >= 20) continue;
+      const accountName =
+        platform.accounts.find((account) => account.accountId === capability.accountId)?.displayName ?? "";
+      rows.push({
+        key: `${platform.providerId}-${capability.accountId}-${capability.capabilityId}`,
+        providerId: platform.providerId,
+        platform: platform.displayName,
+        title: accountName,
+        detail: `${windowShortLabel(capability)}剩余 ${compactPercentText(capability.value.primary!)}`,
+        target: { providerId: platform.providerId, tab: "usage" },
       });
     }
   }

@@ -1,5 +1,6 @@
 import { Banknote, Coins, Flame, Gauge, TrendingUp, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { QuotaProgress } from "@/components/ui/QuotaProgress";
 import { FreshnessTag } from "@/components/ui/StatusBadge";
 import { compactPercentText, formatTime } from "@/lib/format";
 import type { CapabilitySnapshotViewModel } from "@/lib/types";
@@ -25,22 +26,18 @@ const CAPABILITY_ICON: Record<string, LucideIcon> = {
 
 /**
  * 单个能力快照卡片（Apple Glass V6 平台中心）：
- * 图标 + 名称 + 新鲜度徽章 → 大号数值 → 次要说明与采集时间 → 用量进度条。
- * 进度条按剩余量口径配色：>50% 绿、10%~50% 蓝、<10% 红；stale 恒橙并标注最后成功时间。
+ * 图标 + 名称 + 新鲜度徽章 → 大号数值 → 次要说明与采集时间 → 剩余额度进度条。
+ * 进度条使用全局 V7 色阶（≥80 绿 / 20~80 蓝 / <20 红，80 归绿 20 归蓝）；
+ * stale 按真实剩余值着色并标注最后成功时间；missing 窗口显示灰色空轨道「未获取」。
  */
 export function CapabilityCard({ capability }: { capability: CapabilitySnapshotViewModel }) {
   const Icon = CAPABILITY_ICON[capability.capabilityId] ?? Gauge;
   const isTrend = capability.value.kind === "trend";
-  const progress = Math.min(1, Math.max(0, capability.value.progress ?? 0));
-  const barColor =
-    capability.freshness === "stale"
-      ? "bg-q-warning"
-      : progress > 0.5
-        ? "bg-q-success"
-        : progress >= 0.1
-          ? "bg-q-primary"
-          : "bg-q-danger";
-
+  const hasProgressBar =
+    capability.value.progress !== null
+    || (capability.capabilityId.startsWith("quota_window_") && capability.value.primary !== null);
+  const showMissingTrack =
+    !hasProgressBar && capability.freshness === "missing" && capability.capabilityId.startsWith("quota_window_");
   return (
     <div className="glass-panel flex flex-col gap-2.5 p-4">
       <div className="flex items-start justify-between gap-2">
@@ -84,17 +81,7 @@ export function CapabilityCard({ capability }: { capability: CapabilitySnapshotV
         </div>
       )}
 
-      {capability.value.progress !== null && (
-        <div
-          className="h-1.5 overflow-hidden rounded-full bg-q-primary-softer"
-          role="progressbar"
-          aria-valuenow={Math.round(progress * 100)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${progress * 100}%` }} />
-        </div>
-      )}
+      {(hasProgressBar || showMissingTrack) && <QuotaProgress capability={capability} />}
 
       {capability.freshness === "stale" && capability.lastGoodAt !== null && (
         <p className="text-[11px] text-q-warning">上次成功：{formatTime(capability.lastGoodAt)}</p>

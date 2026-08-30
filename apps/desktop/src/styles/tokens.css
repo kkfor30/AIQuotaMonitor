@@ -53,6 +53,11 @@
   --q-neutral: #64748b;
   --q-neutral-soft: rgba(100, 116, 139, 0.1);
 
+  /* 额度剩余三段色阶（V7 固定阈值：80 归绿、20 归蓝；主题间保持同一组色值） */
+  --q-quota-good: #00a67d;
+  --q-quota-mid: #0a66ff;
+  --q-quota-low: #e5484d;
+
   /* 悬浮球：独立透明窗口内的玻璃表面与状态色 */
   --q-hoverbar-panel-bg:
     radial-gradient(110% 74% at 50% -22%, rgba(178, 226, 246, 0.9), transparent 59%),
