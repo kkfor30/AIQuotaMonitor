@@ -559,7 +559,11 @@ html.hoverbar-window #root {
   background: var(--q-hoverbar-plan-lite-bg);
 }
 
-.hb-plan-chip[data-plan="free"],
+.hb-plan-chip[data-plan="free"] {
+  color: var(--q-hoverbar-plan-free);
+  background: var(--q-hoverbar-plan-free-bg);
+}
+
 .hb-plan-chip[data-plan="other"] {
   color: var(--q-hoverbar-muted-strong);
   background: var(--q-hoverbar-empty-bg);
