@@ -16,28 +16,31 @@ export type TrendSeries = {
   points: Array<{ label: string; value: number }>;
 };
 
-export type TrendValueKind = "money" | "percent" | "plain";
+export type TrendValueKind = "money" | "percent" | "used_percent" | "plain";
 
 function formatValue(value: number, kind: TrendValueKind): string {
   if (kind === "money") return `¥${value}`;
-  if (kind === "percent") return `${value}%`;
+  if (kind === "percent" || kind === "used_percent") return `${value}%`;
   return `${value}`;
 }
 
 /**
  * 多平台折线图（Apple Glass V6 总览趋势卡）。
  * 只渲染传入的真实序列；序列为空时显示空状态，不生成演示曲线。
+ * `used_percent` 为额度使用口径：纵轴固定 0-100，Tooltip 同时给出已使用与剩余。
  */
 export function TrendLineChart({
   series,
   valueKind = "money",
   height = 200,
+  yAxisLabel,
   emptyTitle,
   emptyDescription,
 }: {
   series: TrendSeries[];
   valueKind?: TrendValueKind;
   height?: number;
+  yAxisLabel?: string;
   emptyTitle: string;
   emptyDescription: string;
 }) {
@@ -88,6 +91,9 @@ export function TrendLineChart({
           </span>
         ))}
       </div>
+      {yAxisLabel && (
+        <p className="text-[11px] text-q-text-muted">{yAxisLabel}</p>
+      )}
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -14 }}>
@@ -104,8 +110,8 @@ export function TrendLineChart({
               axisLine={false}
               tick={{ fill: "var(--q-text-muted)", fontSize: 11 }}
               width={46}
-              domain={valueKind === "percent" ? [0, 100] : ["auto", "auto"]}
-              ticks={valueKind === "percent" ? [0, 25, 50, 75, 100] : undefined}
+              domain={valueKind === "percent" || valueKind === "used_percent" ? [0, 100] : ["auto", "auto"]}
+              ticks={valueKind === "percent" || valueKind === "used_percent" ? [0, 25, 50, 75, 100] : undefined}
               tickFormatter={(value: number) => formatValue(value, valueKind)}
             />
             <Tooltip
@@ -120,6 +126,11 @@ export function TrendLineChart({
               }}
               formatter={(value, name) => {
                 const item = series.find((entry) => entry.name === name);
+                if (valueKind === "used_percent") {
+                  const used = Number(value);
+                  const remaining = Math.round((100 - used) * 10) / 10;
+                  return [`已使用 ${formatValue(used, "percent")} · 剩余 ${remaining}%`, item?.name ?? String(name)];
+                }
                 return [formatValue(Number(value), valueKind), item?.name ?? String(name)];
               }}
             />
