@@ -109,13 +109,17 @@ export function HoverbarRadarDetail({
         </div>
         {event ? (
           <>
+            <p className="hb-radar-field-label">结论</p>
             <p className="hb-radar-text" data-selectable="true">
               {event.title}
             </p>
             {event.summary ? (
-              <p className="hb-radar-meta" data-selectable="true">
-                {event.summary}
-              </p>
+              <>
+                <p className="hb-radar-field-label">分析依据</p>
+                <p className="hb-radar-meta" data-selectable="true">
+                  {event.summary}
+                </p>
+              </>
             ) : null}
             <p className="hb-radar-meta">
               {formatHoverbarClock(event.firstSignalAt)} → {formatHoverbarClock(event.latestEvidenceAt)}
@@ -302,7 +306,9 @@ function RadarPostItem({
   return (
     <article className="hb-radar-post">
       <div className="hb-radar-post-head">
-        <span className="hb-radar-post-badge">{POST_BADGE_LABEL[post.badge] ?? post.badge}</span>
+        <span className="hb-radar-post-badge" data-signal={post.explicitReset ? "reset" : post.filter}>
+          {POST_BADGE_LABEL[post.badge] ?? post.badge}
+        </span>
         <span className="hb-radar-post-time">{formatHoverbarClock(post.postedAt)}</span>
       </div>
       <p className="hb-radar-post-text" data-selectable="true">

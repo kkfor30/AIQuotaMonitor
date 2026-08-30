@@ -216,7 +216,8 @@ function quotaTone(status: string): "success" | "warning" | "neutral" | "primary
 /** 帖子信号徽章色调：显式重置 → 红；信号/相关 → 橙；无信号 → 灰 */
 function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "primary" {
   if (post.explicitReset) return "danger";
-  if (post.filter === "signal" || post.filter === "related") return "warning";
+  if (post.filter === "signal") return "warning";
+  if (post.filter === "related") return "primary";
   if (post.filter === "none") return "neutral";
   return "primary";
 }
@@ -366,13 +367,17 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
           </div>
           {event ? (
             <div className="flex min-h-0 flex-col gap-2">
+              <p className="text-[11px] font-medium text-q-text-muted">结论</p>
               <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
                 {event.title}
               </p>
               {event.summary && (
-                <p className="text-xs leading-relaxed text-q-text-secondary" data-selectable="true">
-                  {event.summary}
-                </p>
+                <div className="flex flex-col gap-1">
+                  <p className="text-[11px] font-medium text-q-text-muted">分析依据</p>
+                  <p className="text-xs leading-relaxed text-q-text-secondary" data-selectable="true">
+                    {event.summary}
+                  </p>
+                </div>
               )}
               <p className="text-[11px] text-q-text-muted">
                 首次信号 {formatTime(event.firstSignalAt)} · 最新证据 {formatTime(event.latestEvidenceAt)}

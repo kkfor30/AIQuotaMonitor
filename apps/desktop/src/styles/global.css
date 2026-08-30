@@ -1393,6 +1393,27 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+/* 信号类型分色：显式重置红 / 直接信号琥珀 / 间接相关蓝 / 无信号灰 */
+.hb-radar-post-badge[data-signal="reset"] {
+  color: var(--q-hoverbar-danger);
+  background: color-mix(in srgb, var(--q-hoverbar-danger) 12%, transparent);
+}
+
+.hb-radar-post-badge[data-signal="signal"] {
+  color: var(--q-hoverbar-warning);
+  background: color-mix(in srgb, var(--q-hoverbar-warning) 14%, transparent);
+}
+
+.hb-radar-post-badge[data-signal="related"] {
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 10%, transparent);
+}
+
+.hb-radar-post-badge[data-signal="none"] {
+  color: var(--q-hoverbar-muted);
+  background: var(--q-hoverbar-empty-bg);
+}
+
 .hb-radar-post-time {
   margin-left: auto;
   color: var(--q-hoverbar-ink);
