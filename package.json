@@ -1,6 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @ai-quota-monitor/desktop tauri dev"
+    "dev": "pnpm --filter @ai-quota-monitor/desktop tauri dev",
+    "package": "pnpm --filter @ai-quota-monitor/desktop tauri build"
   }
 }
