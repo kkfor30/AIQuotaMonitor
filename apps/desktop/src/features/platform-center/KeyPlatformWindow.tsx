@@ -18,19 +18,19 @@ const CARD_STEP = CARD_WIDTH + CARD_GAP;
 
 type CardDragState = {
   id: string;
-  index: number;
-  connectedIds: string[];
+  /** 拖拽开始时该卡所在槽位（锚点，拖拽期间不随实时换位变化） */
+  startIndex: number;
+  /** 拖拽开始时被拖卡的视觉左缘（指针锚定基准） */
+  anchorLeft: number;
   startX: number;
   startY: number;
   moved: boolean;
-  /** 各卡在内容坐标系的中心点（拖拽期间顺序不变，基点恒定） */
-  centers: Map<string, number>;
 };
 
 /**
  * 关键平台横向窗口（Apple Glass V6 总览）：
- * - 拖动卡身即可排序（指针事件自绘拖拽）；卡片不可点击进入详情，详情从平台中心查看
- * - 滚轮/触控板、空白处鼠标拖拽、两侧悬浮圆形箭头与下方位置圆点浏览
+ * - 拖动卡身即可排序：拖动中指针越过相邻卡中心即实时换位（其余卡 FLIP 滑动让位），松手只做落位收尾
+ * - 滚轮/触控板、空白处鼠标拖拽、头部两侧箭头与下方位置圆点浏览
  * - 排序复用 reorder_platforms 持久化，不建第二套排序；平台增多只横向滚动
  */
 export function KeyPlatformWindow({
@@ -52,6 +52,8 @@ export function KeyPlatformWindow({
   const initialOrderRef = useRef(order);
 
   useEffect(() => {
+    // 拖拽进行中不重置顺序：排序持久化后的数据回流不允许打断动画
+    if (cardDrag.current) return;
     const next = platforms.map((p) => p.providerId);
     setOrder(next);
     orderRef.current = next;
@@ -115,14 +117,7 @@ export function KeyPlatformWindow({
     el.scrollBy({ left: direction * CARD_STEP * 2, behavior: "smooth" });
   };
 
-  // —— 卡片指针拖拽排序 ——
-  const contentX = (clientX: number) => {
-    const strip = stripRef.current;
-    if (!strip) return clientX;
-    const rect = strip.getBoundingClientRect();
-    return clientX - rect.left + strip.scrollLeft;
-  };
-
+  // —— 卡片指针拖拽排序（拖动中实时换位，松手仅落位收尾）——
   const clearCardTransforms = () => {
     for (const el of cardRefs.current.values()) {
       el.style.transform = "";
@@ -131,25 +126,25 @@ export function KeyPlatformWindow({
     }
   };
 
+  /** 槽位 i 的视觉左缘：strip 左内边距(2px) + i*步长 - 滚动量。等宽卡片，纯几何计算不依赖 DOM 顺序。 */
+  const slotLeft = (index: number) => {
+    const strip = stripRef.current;
+    if (!strip) return 0;
+    return strip.getBoundingClientRect().left + 2 + index * CARD_STEP - strip.scrollLeft;
+  };
+
   const onCardPointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
     if (event.button !== 0) return;
     const index = connected.findIndex((p) => p.providerId === id);
-    if (index < 0) return;
-    const centers = new Map<string, number>();
-    for (const platform of connected) {
-      const el = cardRefs.current.get(platform.providerId);
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      centers.set(platform.providerId, rect.left + rect.width / 2 - stripRef.current!.scrollLeft);
-    }
+    const draggedEl = cardRefs.current.get(id);
+    if (index < 0 || !draggedEl) return;
     cardDrag.current = {
       id,
-      index,
-      connectedIds: connected.map((p) => p.providerId),
+      startIndex: index,
+      anchorLeft: draggedEl.getBoundingClientRect().left,
       startX: event.clientX,
       startY: event.clientY,
       moved: false,
-      centers,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -157,6 +152,9 @@ export function KeyPlatformWindow({
   const onCardPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const state = cardDrag.current;
     if (!state) return;
+    const strip = stripRef.current;
+    const draggedEl = cardRefs.current.get(state.id);
+    if (!strip || !draggedEl) return;
     const dx = event.clientX - state.startX;
     const dy = event.clientY - state.startY;
     if (!state.moved) {
@@ -164,101 +162,94 @@ export function KeyPlatformWindow({
       state.moved = true;
       setDraggingId(state.id);
     }
-    const px = contentX(event.clientX);
-    for (const [id, el] of cardRefs.current) {
-      if (id === state.id) continue;
-      const center = state.centers.get(id);
-      if (center === undefined) continue;
-      const idx = state.connectedIds.indexOf(id);
-      let push = 0;
-      if (idx > state.index && px > center) push = -1;
-      else if (idx < state.index && px < center) push = 1;
-      const base = el.style.transition;
-      if (!base) el.style.transition = "transform 160ms ease";
-      el.style.transform = push !== 0 ? `translate(${push * CARD_STEP}px, 0)` : "";
-    }
-    const draggedEl = cardRefs.current.get(state.id);
-    if (draggedEl) {
-      const clampedDy = Math.max(-10, Math.min(10, dy));
-      draggedEl.style.transform = `translate(${dx}px, ${clampedDy}px)`;
-    }
-    // 拖近窗口边缘时自动滚动
-    const strip = stripRef.current;
-    if (strip) {
-      const rect = strip.getBoundingClientRect();
-      if (event.clientX < rect.left + 80) strip.scrollLeft -= 16;
-      else if (event.clientX > rect.right - 80) strip.scrollLeft += 16;
-    }
-  };
 
-  const onCardPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    const state = cardDrag.current;
-    cardDrag.current = null;
-    if (!state || !state.moved) return;
+    const connectedIds = orderRef.current.filter(
+      (pid) => byId.get(pid)?.aggregateStatus !== "setup_required",
+    );
+    const curIdx = connectedIds.indexOf(state.id);
+    if (curIdx < 0) return;
 
-    // 计算目标下标：later 卡中心在指针左侧 → 后移；earlier 卡中心在指针右侧 → 前移
-    const px = contentX(event.clientX);
-    let target = state.index;
-    for (const [id, center] of state.centers) {
-      if (id === state.id) continue;
-      const idx = state.connectedIds.indexOf(id);
-      if (idx > state.index && px > center) target += 1;
-      else if (idx < state.index && px < center) target -= 1;
+    // 实时换位：指针带动的卡片中心越过相邻卡中心即更新顺序
+    const draggedCenter = state.anchorLeft + dx + CARD_WIDTH / 2;
+    let target = curIdx;
+    for (let i = 0; i < connectedIds.length; i++) {
+      if (i === curIdx) continue;
+      const center = slotLeft(i) + CARD_WIDTH / 2;
+      if (i > curIdx && draggedCenter > center) target = Math.max(target, i);
+      else if (i < curIdx && draggedCenter < center) target = Math.min(target, i);
     }
-    let nextFull = orderRef.current;
-    if (target !== state.index) {
-      const nextConnected = state.connectedIds.filter((id) => id !== state.id);
-      nextConnected.splice(Math.max(0, Math.min(nextConnected.length, target)), 0, state.id);
-      // 以新连接顺序回填完整排序（未接入平台保持原位）
+    if (target !== curIdx) {
+      const nextConnected = connectedIds.filter((pid) => pid !== state.id);
+      nextConnected.splice(target, 0, state.id);
+      // FLIP：记录其余卡当前视觉位置（含让位过渡中的偏移），重排后反向补偿滑动到新槽位
+      const before = new Map<string, number>();
+      for (const [pid, el] of cardRefs.current) {
+        if (pid === state.id) continue;
+        before.set(pid, el.getBoundingClientRect().left);
+      }
       let cursor = 0;
-      nextFull = orderRef.current.map((id) =>
-        state.connectedIds.includes(id) ? nextConnected[cursor++] ?? id : id,
+      const nextFull = orderRef.current.map((pid) =>
+        byId.get(pid)?.aggregateStatus !== "setup_required" ? nextConnected[cursor++] ?? pid : pid,
       );
-    }
-
-    // FLIP：先记录各卡当前视觉位置（加 scrollLeft 消除窗口滚动影响），再重排 DOM
-    const strip = stripRef.current;
-    const before = new Map<string, number>();
-    for (const [id, el] of cardRefs.current) {
-      before.set(id, el.getBoundingClientRect().left + (strip?.scrollLeft ?? 0));
-    }
-    flushSync(() => {
-      setDraggingId(null);
-      if (target !== state.index) setOrder(nextFull);
-    });
-    if (target !== state.index) {
+      flushSync(() => setOrder(nextFull));
       orderRef.current = nextFull;
-      if (nextFull.join("\n") !== initialOrderRef.current.join("\n")) {
-        reorderMutation.mutate(nextFull);
-        initialOrderRef.current = nextFull;
+      for (const [pid, el] of cardRefs.current) {
+        const old = before.get(pid);
+        if (old === undefined || pid === state.id) continue;
+        const shift = Math.round(old - el.getBoundingClientRect().left);
+        if (Math.abs(shift) < 1) continue;
+        el.style.transition = "none";
+        el.style.transform = `translate(${shift}px, 0)`;
+        void el.offsetWidth;
+        el.style.transition = "transform 200ms cubic-bezier(0.2, 0.78, 0.24, 1)";
+        el.style.transform = "";
       }
     }
 
-    // 清掉拖拽期间的推挤/跟手 transform：DOM 重排后的无 transform 位置才是各卡的新基准，
-    // 否则残留偏移会让 FLIP 补偿量算错（表现为松手后卡片位置错乱）
-    clearCardTransforms();
-    for (const [id, el] of cardRefs.current) {
-      const old = before.get(id);
-      if (old === undefined) continue;
-      const dx0 = Math.round(old - (el.getBoundingClientRect().left + (strip?.scrollLeft ?? 0)));
-      if (Math.abs(dx0) < 1) continue;
-      el.style.transition = "none";
-      el.style.transform = `translate(${dx0}px, 0)`;
-      el.style.zIndex = id === state.id ? "30" : "";
+    // 被拖卡即时跟随指针：以拖拽开始的视觉位置为锚，槽位变化量直接折进 transform，不跳
+    const liveIdx = target !== curIdx ? target : curIdx;
+    draggedEl.style.transition = "none";
+    draggedEl.style.transform = `translate(${Math.round(state.anchorLeft + dx - slotLeft(liveIdx))}px, ${Math.max(-10, Math.min(10, dy))}px)`;
+    draggedEl.style.zIndex = "30";
+
+    // 拖近窗口边缘时自动滚动；滚动量会在下一次 move 的槽位计算中自动吸收
+    const rect = strip.getBoundingClientRect();
+    if (event.clientX < rect.left + 80) strip.scrollLeft -= 16;
+    else if (event.clientX > rect.right - 80) strip.scrollLeft += 16;
+  };
+
+  const settleCardDrag = () => {
+    const state = cardDrag.current;
+    cardDrag.current = null;
+    setDraggingId(null);
+    if (!state || !state.moved) return;
+    const strip = stripRef.current;
+    const draggedEl = cardRefs.current.get(state.id);
+    if (strip && draggedEl) {
+      // 被拖卡从当前视觉位置平滑滑入所属槽位
+      const from = draggedEl.getBoundingClientRect();
+      draggedEl.style.transition = "none";
+      draggedEl.style.transform = "";
+      draggedEl.style.zIndex = "";
+      const dx0 = Math.round(from.left - draggedEl.getBoundingClientRect().left);
+      const dy0 = Math.round(from.top - draggedEl.getBoundingClientRect().top);
+      if (dx0 !== 0 || dy0 !== 0) {
+        draggedEl.style.transform = `translate(${dx0}px, ${dy0}px)`;
+        void strip.offsetWidth;
+        draggedEl.style.transition = "transform 220ms cubic-bezier(0.2, 0.78, 0.24, 1)";
+        draggedEl.style.transform = "";
+        window.setTimeout(() => clearCardTransforms(), 230);
+      }
     }
-    // 强制提交起始态后开启过渡
-    void strip?.offsetWidth;
-    for (const el of cardRefs.current.values()) {
-      el.style.transition = "transform 220ms cubic-bezier(0.2, 0.78, 0.24, 1)";
-      el.style.transform = "";
+    if (orderRef.current.join("\n") !== initialOrderRef.current.join("\n")) {
+      reorderMutation.mutate(orderRef.current);
+      initialOrderRef.current = orderRef.current;
     }
-    window.setTimeout(() => clearCardTransforms(), 230);
   };
 
   const onCardPointerCancel = () => {
-    cardDrag.current = null;
-    clearCardTransforms();
-    setDraggingId(null);
+    // 取消与松手同路径：顺序已实时生效，保持并落位，避免与已持久化顺序不一致
+    settleCardDrag();
   };
 
   // —— 空白处拖拽滚动（卡片自身处理排序，互不干扰）——
@@ -304,60 +295,66 @@ export function KeyPlatformWindow({
 
   return (
     <section className="flex flex-col gap-2.5">
-      <SectionHeader />
-
-      <div className="relative">
-        <CarouselArrow
-          label="向前浏览"
-          direction="prev"
-          disabled={scrollState.atStart}
-          onClick={() => scrollByCards(-1)}
-        />
-        <CarouselArrow
-          label="向后浏览"
-          direction="next"
-          disabled={scrollState.atEnd}
-          onClick={() => scrollByCards(1)}
-        />
-
-        <div
-          ref={stripRef}
-          onScroll={updateScrollState}
-          onPointerDown={onStripPointerDown}
-          onPointerMove={onStripPointerMove}
-          onPointerUp={onStripPointerUp}
-          onPointerLeave={onStripPointerUp}
-          className="no-scrollbar flex items-stretch gap-[14px] overflow-x-auto py-1 pl-0.5 pr-0.5"
-        >
-          {connected.map((platform) => (
-            <PlatformStripCard
-              key={platform.providerId}
-              platform={platform}
-              dragging={draggingId === platform.providerId}
-              registerRef={(el) => {
-                if (el) cardRefs.current.set(platform.providerId, el);
-                else cardRefs.current.delete(platform.providerId);
-              }}
-              onPointerDown={(event) => onCardPointerDown(event, platform.providerId)}
-              onPointerMove={onCardPointerMove}
-              onPointerUp={onCardPointerUp}
-              onPointerCancel={onCardPointerCancel}
-            />
-          ))}
+      {/* 标题行：箭头放在标题右侧，避免悬浮按钮压住边缘卡片、挡住拖拽起手 */}
+      <div className="flex items-center gap-2.5 px-1">
+        <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">关键平台</h2>
+        <span className="inline-flex items-center gap-1 text-[11px] text-q-text-muted">
+          <GripVertical size={12} aria-hidden />
+          拖动卡片排序
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <CarouselArrow
+            label="向前浏览"
+            direction="prev"
+            disabled={scrollState.atStart}
+            onClick={() => scrollByCards(-1)}
+          />
+          <CarouselArrow
+            label="向后浏览"
+            direction="next"
+            disabled={scrollState.atEnd}
+            onClick={() => scrollByCards(1)}
+          />
         </div>
+      </div>
 
-        {/* 位置圆点：一卡一点，随滚动高亮 */}
-        <div className="mt-2 flex items-center justify-center gap-1.5" aria-hidden>
-          {connected.map((platform, index) => (
-            <span
-              key={platform.providerId}
-              className={cn(
-                "h-1.5 rounded-full transition-all duration-200",
-                index === scrollState.index ? "w-4 bg-q-primary" : "w-1.5 bg-q-border-strong",
-              )}
-            />
-          ))}
-        </div>
+      <div
+        ref={stripRef}
+        onScroll={updateScrollState}
+        onPointerDown={onStripPointerDown}
+        onPointerMove={onStripPointerMove}
+        onPointerUp={onStripPointerUp}
+        onPointerLeave={onStripPointerUp}
+        className="no-scrollbar flex items-stretch gap-[14px] overflow-x-auto py-1 pl-0.5 pr-0.5"
+      >
+        {connected.map((platform) => (
+          <PlatformStripCard
+            key={platform.providerId}
+            platform={platform}
+            dragging={draggingId === platform.providerId}
+            registerRef={(el) => {
+              if (el) cardRefs.current.set(platform.providerId, el);
+              else cardRefs.current.delete(platform.providerId);
+            }}
+            onPointerDown={(event) => onCardPointerDown(event, platform.providerId)}
+            onPointerMove={onCardPointerMove}
+            onPointerUp={settleCardDrag}
+            onPointerCancel={onCardPointerCancel}
+          />
+        ))}
+      </div>
+
+      {/* 位置圆点：一卡一点，随滚动高亮 */}
+      <div className="flex items-center justify-center gap-1.5" aria-hidden>
+        {connected.map((platform, index) => (
+          <span
+            key={platform.providerId}
+            className={cn(
+              "h-1.5 rounded-full transition-all duration-200",
+              index === scrollState.index ? "w-4 bg-q-primary" : "w-1.5 bg-q-border-strong",
+            )}
+          />
+        ))}
       </div>
     </section>
   );
@@ -396,8 +393,7 @@ function CarouselArrow({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "absolute top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-q-border bg-white/95 text-q-text-secondary shadow-[0_4px_14px_rgba(16,34,64,0.16)] backdrop-blur transition-all duration-150",
-        direction === "prev" ? "-left-2" : "-right-2",
+        "flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-q-border bg-white/95 text-q-text-secondary shadow-[0_4px_14px_rgba(16,34,64,0.16)] backdrop-blur transition-all duration-150",
         "hover:border-q-border-selected hover:text-q-primary active:scale-95",
         disabled && "pointer-events-none opacity-0",
       )}
