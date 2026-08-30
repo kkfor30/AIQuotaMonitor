@@ -585,6 +585,15 @@ html.hoverbar-window #root {
   background: var(--q-hoverbar-empty-bg);
 }
 
+/* 设置页悬浮球排序：拖拽中的行 */
+.sort-row-dragging {
+  z-index: 20;
+  cursor: grabbing;
+  box-shadow: var(--q-shadow-lg);
+  outline: 1px solid var(--q-border-selected);
+  background: var(--q-surface-solid);
+}
+
 /* 主窗口版套餐徽章（平台中心账户标题旁）：与悬浮球同一套语义配色。 */
 .plan-chip {
   display: inline-flex;

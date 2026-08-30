@@ -816,10 +816,18 @@ function AiAnalysisView({
     models.find((item) => item.sourceId === sourceId && item.model === modelChoice) ??
     models.find((item) => item.sourceId === sourceId) ??
     null;
+  // 记住最近一次自定义区间：切到快捷档再切回「自定义」时恢复，而不是重置成默认 30 天
+  const lastCustomRangeRef = useRef<string | null>(
+    customRange ? `range:${customRange.start}:${customRange.end}` : null,
+  );
   const applyCustomRange = (start: string, end: string) => {
     if (!start || !end || start.length !== 10 || end.length !== 10) return;
     const [from, to] = start <= end ? [start, end] : [end, start];
+    lastCustomRangeRef.current = `range:${from}:${to}`;
     onRangeChange(`range:${from}:${to}`);
+  };
+  const switchToCustom = () => {
+    onRangeChange(lastCustomRangeRef.current ?? defaultCustomRangeKey());
   };
   const dateInputClass =
     "h-9 rounded-md border border-q-border bg-q-surface px-2.5 text-xs text-q-text-primary outline-none focus:border-q-primary";
@@ -857,7 +865,7 @@ function AiAnalysisView({
                 type="button"
                 aria-pressed={customActive}
                 onClick={() => {
-                  if (!customActive) onRangeChange(defaultCustomRangeKey());
+                  if (!customActive) switchToCustom();
                 }}
                 className={rangeChipClass(customActive)}
               >

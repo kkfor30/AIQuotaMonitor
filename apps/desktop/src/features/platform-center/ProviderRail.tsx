@@ -78,7 +78,12 @@ export function ProviderRail({
           <Plus size={17} aria-hidden />
         </button>
       ) : (
-        <p className="px-2 pb-1 pt-1 text-xs font-medium tracking-wide text-q-text-muted">平台目录</p>
+        <>
+          <p className="px-2 pb-1 pt-1 text-xs font-medium tracking-wide text-q-text-muted">平台目录</p>
+          <Button variant="secondary" onClick={onAdd}>
+            + 添加平台
+          </Button>
+        </>
       )}
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
         {platforms.map((platform) => {
@@ -174,11 +179,7 @@ export function ProviderRail({
           );
         })}
       </div>
-      {icons ? null : (
-        <Button variant="secondary" className="mt-auto" onClick={onAdd}>
-          + 添加平台
-        </Button>
-      )}
+      {icons ? null : <span className="mt-auto" aria-hidden />}
     </aside>
   );
 }

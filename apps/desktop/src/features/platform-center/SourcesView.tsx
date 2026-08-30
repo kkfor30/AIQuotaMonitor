@@ -482,8 +482,11 @@ function SourceRow({
   }, [focused]);
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const action = sourceAction(source);
-  // 仅额外 Codex 账号可重触发官方登录（中断补救 / 更换登录）；本机账号只检测，避免覆盖本机 CLI 登录
-  const canRelogin = source.supportsCliLogin && source.accountKind !== "local";
+  // 仅额外 Codex 账号与本机 Grok 可重触发官方登录（本机 Codex 只检测，避免覆盖本机 CLI 登录；
+  // Grok token 失效后平台内「重新登录」即新终端 grok login，完成后自动校验并刷新）
+  const canRelogin =
+    source.supportsCliLogin
+    && (source.accountKind !== "local" || source.adapterId === "grok-cli-local");
 
   return (
     <div

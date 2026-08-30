@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, Info, Monitor, Palette, RefreshCw, ShieldAlert } from "lucide-react";
+import { GripVertical, Info, Monitor, Palette, RefreshCw, ShieldAlert } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
 import {
@@ -240,19 +240,87 @@ function HoverbarSettingsSection() {
   const mode = settings?.hoverbarSortMode === "smart" ? "smart" : "manual";
   const byId = new Map(platforms.map((platform) => [platform.providerId, platform]));
 
-  const move = (id: string, direction: -1 | 1) => {
-    const index = order.indexOf(id);
-    const nextIndex = index + direction;
-    if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
-    const next = [...order];
-    const current = next[index];
-    const swap = next[nextIndex];
-    if (!current || !swap) return;
-    next[index] = swap;
-    next[nextIndex] = current;
-    setOrder(next);
-    reorderMutation.mutate(next);
+  // 垂直列表拖拽排序：被拖行跟随指针，其余行按目标位让位；松手一次性提交顺序。
+  // 与主窗口卡组同款思路：拖拽期间零渲染（样式命令式写入），capture 丢失也不会挂起。
+  type RowDrag = { id: string; startIndex: number; startY: number; target: number; step: number };
+  const rowDrag = useRef<RowDrag | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const commitRef = useRef<(next: string[]) => void>(() => {});
+
+  const applyRowShifts = (state: RowDrag, nextTarget: number) => {
+    if (nextTarget === state.target) return;
+    state.target = nextTarget;
+    for (let i = 0; i < order.length; i++) {
+      const oid = order[i];
+      if (oid === state.id) continue;
+      const el = rowRefs.current.get(oid);
+      if (!el) continue;
+      const shift =
+        nextTarget > state.startIndex && i > state.startIndex && i <= nextTarget
+          ? -state.step
+          : nextTarget < state.startIndex && i >= nextTarget && i < state.startIndex
+            ? state.step
+            : 0;
+      el.style.transition = "transform 160ms cubic-bezier(0.2, 0.78, 0.24, 1)";
+      el.style.transform = shift !== 0 ? `translateY(${shift}px, 0)` : "translateY(0px, 0)";
+    }
   };
+
+  const onRowPointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
+    if (event.button !== 0) return;
+    const row = rowRefs.current.get(id);
+    const index = order.indexOf(id);
+    if (!row || index < 0 || rowDrag.current) return;
+    const rowH = row.getBoundingClientRect().height;
+    const nextRow = rowRefs.current.get(order[index + 1] ?? "") ?? rowRefs.current.get(order[index - 1] ?? "");
+    const step = Math.max(
+      rowH + 4,
+      nextRow ? Math.abs(nextRow.getBoundingClientRect().top - row.getBoundingClientRect().top) : rowH + 8,
+    );
+    rowDrag.current = { id, startIndex: index, startY: event.clientY, target: index, step };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onRowPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = rowDrag.current;
+    const row = state ? rowRefs.current.get(state.id) : null;
+    if (!state || !row) return;
+    const dy = event.clientY - state.startY;
+    if (Math.abs(dy) < 4 && state.target === state.startIndex) return;
+    row.classList.add("sort-row-dragging");
+    row.style.transition = "none";
+    row.style.transform = "translateY(" + dy + "px, 0)";
+    row.style.zIndex = "20";
+    const rawTarget = Math.max(0, Math.min(order.length - 1, state.startIndex + Math.round(dy / state.step)));
+    applyRowShifts(state, rawTarget);
+  };
+
+  const settleRowDrag = (commit: boolean) => {
+    const state = rowDrag.current;
+    rowDrag.current = null;
+    if (!state) return;
+    const row = rowRefs.current.get(state.id);
+    if (row) {
+      row.style.transition = "";
+      row.style.transform = "";
+      row.style.zIndex = "";
+      row.classList.remove("sort-row-dragging");
+    }
+    for (const el of rowRefs.current.values()) {
+      el.style.transition = "";
+      el.style.transform = "";
+      el.style.zIndex = "";
+    }
+    if (!commit || state.target === state.startIndex) return;
+    const next = [...order];
+    const moved = next.splice(state.startIndex, 1)[0];
+    if (!moved) return;
+    next.splice(state.target, 0, moved);
+    setOrder(next);
+    commitRef.current(next);
+  };
+
+  commitRef.current = (next: string[]) => reorderMutation.mutate(next);
 
   return (
     <>
@@ -289,46 +357,36 @@ function HoverbarSettingsSection() {
         <div>
           <p className="text-sm font-medium text-q-text-primary">平台顺序</p>
           <p className="mt-0.5 text-xs leading-relaxed text-q-text-secondary">
-            用上下箭头调整。未接入的平台也会参与排序，但不会出现在悬浮详情里。
+            按住平台行拖动调整顺序。未接入的平台也会参与排序，但不会出现在悬浮详情里。
           </p>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-2" data-sort-rows>
             {order.length === 0 && (
               <p className="text-xs text-q-text-muted">请先在平台中心添加平台。</p>
             )}
-            {order.map((id, index) => {
+            {order.map((id) => {
               const platform = byId.get(id);
               if (!platform) return null;
               return (
                 <div
                   key={id}
-                  className="flex items-center justify-between gap-3 rounded-q-control border border-q-border bg-q-surface-muted px-3 py-2"
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(id, el);
+                    else rowRefs.current.delete(id);
+                  }}
+                  onPointerDown={(event) => onRowPointerDown(event, id)}
+                  onPointerMove={onRowPointerMove}
+                  onPointerUp={() => settleRowDrag(true)}
+                  onPointerCancel={() => settleRowDrag(false)}
+                  className="flex cursor-grab select-none items-center gap-3 rounded-q-control border border-q-border bg-q-surface-muted px-3 py-2"
+                  title="拖动调整顺序"
                 >
-                  <div className="flex min-w-0 items-center gap-2.5">
+                  <GripVertical size={15} aria-hidden className="shrink-0 text-q-text-muted" />
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <PlatformMark providerId={id} size={30} />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-q-text-primary">{platform.displayName}</p>
                       <p className="truncate text-[11px] text-q-text-muted">{platform.accessSummary}</p>
                     </div>
-                  </div>
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      aria-label={`上移 ${platform.displayName}`}
-                      disabled={index === 0 || reorderMutation.isPending}
-                      onClick={() => move(id, -1)}
-                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-q-control border border-q-border bg-q-surface-strong text-q-text-secondary shadow-q-sm hover:border-q-border-selected hover:text-q-primary disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <ChevronUp size={16} aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`下移 ${platform.displayName}`}
-                      disabled={index === order.length - 1 || reorderMutation.isPending}
-                      onClick={() => move(id, 1)}
-                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-q-control border border-q-border bg-q-surface-strong text-q-text-secondary shadow-q-sm hover:border-q-border-selected hover:text-q-primary disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <ChevronDown size={16} aria-hidden />
-                    </button>
                   </div>
                 </div>
               );
@@ -376,9 +434,11 @@ function RefreshSection() {
 function DataSection() {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const clearMutation = useMutation({
     mutationFn: clearLocalCache,
     onSuccess: () => {
+      setConfirmClear(false);
       setMessage("已清除额度快照和刷新记录。凭据与平台配置仍保留。");
       void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
     },
@@ -401,9 +461,8 @@ function DataSection() {
           <Button
             variant="secondary"
             onClick={() => {
-              if (!window.confirm("清除本地额度缓存？凭据和平台配置会保留。")) return;
               setMessage(null);
-              clearMutation.mutate();
+              setConfirmClear(true);
             }}
             disabled={clearMutation.isPending}
           >
@@ -412,6 +471,36 @@ function DataSection() {
         </SettingRow>
         {message ? <p className="text-xs text-q-text-secondary">{message}</p> : null}
       </div>
+      {confirmClear && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={() => {
+            if (!clearMutation.isPending) setConfirmClear(false);
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-[18px] border border-q-border bg-q-surface-solid p-5 shadow-q-lg"
+            role="dialog"
+            aria-modal="true"
+            aria-label="清除本地缓存"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <p className="text-sm font-semibold text-q-text-primary">清除本地额度缓存？</p>
+            <p className="mt-2 text-xs leading-relaxed text-q-text-secondary">
+              将删除额度快照与刷新历史；凭据和平台配置会保留，下次刷新会重新拉取真实值。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)} disabled={clearMutation.isPending}>
+                取消
+              </Button>
+              <Button size="sm" onClick={() => clearMutation.mutate()} disabled={clearMutation.isPending}>
+                {clearMutation.isPending ? "清除中…" : "确认清除"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="glass-panel flex flex-col gap-3 p-5">
         <div className="flex items-center gap-2 text-sm font-medium text-q-text-primary">
           <Info size={16} aria-hidden />

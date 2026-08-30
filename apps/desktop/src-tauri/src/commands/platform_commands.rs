@@ -377,6 +377,8 @@ pub async fn start_source_login(
             let home = extra_codex_home(&database, &source).ok_or_else(|| "无法定位额外账号目录".to_string())?;
             crate::providers::codex::login_cli_at(Some(&home)).await
         }
+        // Grok 本机账号：token 失效后允许在应用内重新登录（新终端跑 grok login，完成后校验 auth）
+        id if id == crate::providers::grok::SOURCE_ID => crate::providers::grok::login_via_cli().await,
         _ => Err("此来源不支持登录".into()),
     }
 }

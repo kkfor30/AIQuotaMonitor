@@ -26,7 +26,7 @@ pub const SOURCE_ID: &str = "grok-cli-local";
 const BILLING_ENDPOINT: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 /// SuperGrok（OIDC）条目的 scope 前缀。
 const OIDC_SCOPE_PREFIX: &str = "https://auth.x.ai::";
-const RELOGIN_HINT: &str = "请在终端运行 grok login 重新登录";
+const RELOGIN_HINT: &str = "可在来源行点「重新登录」，或在终端运行 grok login";
 
 pub fn local_auth_available() -> bool {
     read_access_token().is_some()
@@ -64,6 +64,55 @@ fn select_access_token(root: &serde_json::Map<String, Value>) -> Option<String> 
         }
     }
     oidc.or(legacy)
+}
+
+/// 在新的终端窗口运行 `grok login`（浏览器 OAuth 由 CLI 自行处理），
+/// 命令退出后校验本机 auth.json 已恢复可用。本应用不代填凭据。
+pub async fn login_via_cli() -> Result<(), String> {
+    let program = resolve_grok_program().map_err(|message| message)?;
+    let mut command = tokio::process::Command::new(program);
+    command.arg("login").kill_on_drop(false);
+    #[cfg(windows)]
+    {
+        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+        command.creation_flags(CREATE_NEW_CONSOLE);
+    }
+    let status = command
+        .status()
+        .await
+        .map_err(|error| format!("无法启动 Grok 登录：{error}。请确认终端里可以运行 `grok`"))?;
+    if !status.success() {
+        return Err("Grok 登录未完成或已取消".into());
+    }
+    if !local_auth_available() {
+        return Err("登录窗口已关闭，但仍未检测到 Grok 登录".into());
+    }
+    Ok(())
+}
+
+fn resolve_grok_program() -> Result<std::path::PathBuf, String> {
+    if let Some(explicit) = std::env::var_os("GROK_BIN") {
+        let path = std::path::PathBuf::from(explicit);
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+    let names: &[&str] = if cfg!(windows) {
+        &["grok.cmd", "grok.exe", "grok.bat"]
+    } else {
+        &["grok"]
+    };
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            for name in names {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    return Ok(candidate);
+                }
+            }
+        }
+    }
+    Err("未找到 Grok CLI。请确认终端里可以运行 `grok`，或设置 GROK_BIN 指向可执行文件。".into())
 }
 
 pub async fn fetch(client: &Client) -> SourceRefreshOutput {
