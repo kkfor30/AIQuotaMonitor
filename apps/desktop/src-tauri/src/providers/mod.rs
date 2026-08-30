@@ -585,7 +585,8 @@ fn real_platform(
             kind: record.account_kind.clone(),
             status: aggregate_status(&account_sources, &account_capabilities),
             source_ids: account_sources.into_iter().map(|source| source.source_id).collect(),
-            can_rename: record.account_kind == "additional",
+            // V7：本机/默认/额外账号都可改显示别名；移除仍仅限额外账号
+            can_rename: true,
             can_remove: record.account_kind == "additional",
         });
     }

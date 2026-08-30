@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AddPlatformDialog } from "./AddPlatformDialog";
-import { PlatformSetupForm } from "./PlatformSetupForm";
 import { PlatformTabs, type PlatformTabId } from "./PlatformTabs";
 import { ProviderHeader } from "./ProviderHeader";
 import { ProviderRail } from "./ProviderRail";
@@ -160,8 +159,7 @@ export function PlatformCenterPage({
         {tab === "usage" ? (
           <UsageView key={`${platform.providerId}-usage`} platform={platform} />
         ) : (
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
-            <PlatformSetupForm key={`${platform.providerId}-setup`} platformId={platform.providerId} />
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <SourcesView
               key={`${platform.providerId}-sources`}
               platform={platform}

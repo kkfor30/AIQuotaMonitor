@@ -407,7 +407,7 @@ pub fn rename_codex_account(
     if source.adapter_id != crate::providers::codex::SOURCE_ID || source.account_kind != "additional" {
         return Err("只能重命名额外 ChatGPT 账号".into());
     }
-    let name = normalize_extra_account_name(&display_name)?;
+    let name = normalize_account_name(&display_name)?;
     database.rename_account(&source.account_id, &name)?;
     let _ = app.emit("platform-data-changed", ());
     providers::platform_summaries(&database)
@@ -432,7 +432,7 @@ pub fn remove_codex_account(
     providers::platform_summaries(&database)
 }
 
-fn normalize_extra_account_name(display_name: &str) -> Result<String, String> {
+fn normalize_account_name(display_name: &str) -> Result<String, String> {
     let name = display_name.trim();
     if name.is_empty() {
         return Err("账号名称不能为空".into());
@@ -462,10 +462,9 @@ pub fn rename_platform_account(
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     require_label(&window, &["main"])?;
     let account = database.account(&account_id)?;
-    if account.kind != "additional" {
-        return Err("只能重命名额外账号".into());
-    }
-    let name = normalize_extra_account_name(&display_name)?;
+    // V7：本机/默认/额外账号都允许改显示别名；只更新 accounts.display_name，
+    // 不改变 id、kind、Source、凭据目录或默认身份。
+    let name = normalize_account_name(&display_name)?;
     database.rename_account(&account.id, &name)?;
     let _ = app.emit("platform-data-changed", ());
     providers::platform_summaries(&database)

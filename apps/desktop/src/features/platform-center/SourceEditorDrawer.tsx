@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Link2, LoaderCircle, X, Zap } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Globe,
+  KeyRound,
+  Link2,
+  LoaderCircle,
+  X,
+  Zap,
+} from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/Button";
@@ -12,23 +21,54 @@ import {
   ipcErrorMessage,
   openExternalUrl,
   refreshPlatform,
-  removePlatformAccount,
-  renamePlatformAccount,
   revealSourceSecret,
   saveSourceCredential,
   startSourceLogin,
   takeCapturedSourceSecret,
-  validateSourceCredential,
 } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
+import { formatDateTime } from "@/lib/format";
 import type { SourceSummaryViewModel } from "@/lib/types";
 
-/** 额外账号的重命名作用于账号名；其余来源继续展示来源名。 */
-function editableAccountName(source: SourceSummaryViewModel): string {
-  return source.accountKind === "additional" ? source.accountName : source.displayName;
+/** DeepSeek 网页来源捕获后需显式「验证并保存」；GLM/MiMo 由后端自动验证保存。 */
+const DEEPSEEK_WEB_ADAPTER = "deepseek-web-session";
+
+type LoginStage = "idle" | "opening" | "waiting" | "verifying";
+
+/** 网页登录阶段文案（阶段来自真实事件，不做假进度）。 */
+function loginStages(source: SourceSummaryViewModel): string[] {
+  return [
+    "打开登录页",
+    "等待登录",
+    "验证会话",
+    source.adapterId === DEEPSEEK_WEB_ADAPTER ? "验证并保存" : "自动保存",
+  ];
 }
 
-/** 右侧覆盖式来源配置抽屉；秘密仅在该组件的瞬时内存中存在。 */
+const STAGE_INDEX: Record<LoginStage, number> = {
+  idle: -1,
+  opening: 0,
+  waiting: 1,
+  verifying: 2,
+};
+
+function webLoginCopy(adapterId: string): string {
+  if (adapterId === "glm-web-balance") {
+    return "AIQuotaMonitor 将打开一个独立的官方 GLM 登录窗口。在该窗口完成登录，看到财务总览后系统会自动验证会话并保存，无需手动复制或粘贴任何信息。";
+  }
+  if (adapterId === "mimo-web-session") {
+    return "将打开隔离的 MiMo 登录窗口并读取含 httpOnly 的 Cookie。登录成功后自动验证并保存，清除凭据会退出该平台网页登录态。";
+  }
+  return "将打开独立的 DeepSeek 用量页登录窗口。登录成功后自动捕获会话，请再点「验证并保存」完成保存；清除凭据会退出网页登录态。";
+}
+
+/**
+ * 右侧覆盖式来源编辑抽屉（V7 设计稿 03）：
+ * - 标题统一「编辑」，副标题为 账号别名 · 来源名。
+ * - API Key：Key + 获取链接 + 高级请求地址，主按钮「验证并保存」（后端先验证再落库，失败保留输入）。
+ * - Web Session：状态 + 登录阶段步进（来自真实事件）+ 高级手动粘贴；底部只有「关闭」。
+ * - 本地 CLI 不打开本抽屉（来源行直接「检测并刷新」）。秘密仅在本组件瞬时内存中存在。
+ */
 export function SourceEditorDrawer({
   source,
   platformId,
@@ -39,22 +79,24 @@ export function SourceEditorDrawer({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const isApiKeySource = source?.sourceType === "api_key" && Boolean(source?.credentialInput);
+  const isWebSource = source?.supportsInteractiveLogin === true;
   const setupQuery = useQuery({
     queryKey: ["platform-setup", platformId],
     queryFn: () => fetchPlatformSetup(platformId),
-    enabled: Boolean(source),
+    enabled: Boolean(source) && isApiKeySource,
   });
+
   const [secret, setSecret] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loginStatus, setLoginStatus] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const [displayName, setDisplayName] = useState("");
-  const [loginOpened, setLoginOpened] = useState(false);
-  const [verifiedSecret, setVerifiedSecret] = useState<string | null>(null);
-  const [verifyMessage, setVerifyMessage] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [speedOpen, setSpeedOpen] = useState(false);
+  const [loginStage, setLoginStage] = useState<LoginStage>("idle");
+  const [loginOpened, setLoginOpened] = useState(false);
+  const [captured, setCaptured] = useState(false);
 
   useEffect(() => {
     setSecret("");
@@ -62,52 +104,55 @@ export function SourceEditorDrawer({
     setError(null);
     setLoginStatus(null);
     setConfirmClear(false);
-    setConfirmRemove(false);
-    setDisplayName(source ? editableAccountName(source) : "");
-    setLoginOpened(false);
-    setVerifiedSecret(null);
-    setVerifyMessage(null);
+    setAdvancedOpen(false);
     setSpeedOpen(false);
+    setLoginStage("idle");
+    setLoginOpened(false);
+    setCaptured(false);
   }, [source?.sourceId, setupQuery.data?.apiBaseUrl]);
 
-  useEffect(() => {
-    setDisplayName(source ? editableAccountName(source) : "");
-  }, [source?.accountName, source?.accountKind, source?.displayName]);
-
+  // 网页登录阶段全部来自真实事件：打开/等待由命令结果驱动，验证会话来自 captured，自动保存来自 credential-updated
   useEffect(() => {
     if (!source?.supportsInteractiveLogin) return;
+    const currentSourceId = source.sourceId;
     let disposed = false;
     const unlisteners: Array<() => void> = [];
     void listen<string>("source-login-error", (event) => {
       setError(event.payload);
+      setLoginStage("idle");
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen<string>("source-login-status", (event) => {
       setLoginStatus(event.payload);
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen<string>("source-login-closed", (event) => {
-      if (!event.payload || event.payload === source.sourceId) {
+      if (!event.payload || event.payload === currentSourceId) {
         setLoginOpened(false);
+        setLoginStage("idle");
       }
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen<string>("source-login-captured", (event) => {
-      if (event.payload !== source.sourceId) return;
-      void takeCapturedSourceSecret(source.sourceId)
-        .then((captured) => {
-          setSecret(captured);
-          setVerifiedSecret(null);
-          setVerifyMessage(null);
-          setLoginOpened(false);
-          setError(null);
-          setLoginStatus("已捕获网页会话。请点击「验证连接」，通过后再保存。");
+      if (event.payload !== currentSourceId) return;
+      setLoginStage("verifying");
+      setLoginOpened(false);
+      setError(null);
+      void takeCapturedSourceSecret(currentSourceId)
+        .then((capturedSecret) => {
+          setSecret(capturedSecret);
+          setCaptured(true);
+          setLoginStatus(
+            source.adapterId === DEEPSEEK_WEB_ADAPTER
+              ? "已捕获网页会话，请点「验证并保存」。"
+              : "已捕获网页会话，正在自动验证并保存…",
+          );
         })
         .catch((cause) => {
-          setLoginOpened(false);
           setError(ipcErrorMessage(cause, "已捕获登录态，但读取会话失败，请重新登录。"));
         });
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen<string>("source-credential-updated", (event) => {
-      if (event.payload === source.sourceId) {
-        setLoginOpened(false);
+      if (event.payload === currentSourceId) {
+        // 自动保存型登录完成（后端已验证并写入），关闭抽屉并刷新平台数据
+        setLoginStage("idle");
         onClose();
       }
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
@@ -115,297 +160,354 @@ export function SourceEditorDrawer({
       disposed = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, [source?.sourceId, source?.supportsInteractiveLogin, onClose]);
+  }, [source?.sourceId, source?.supportsInteractiveLogin, source?.adapterId, onClose]);
 
   const close = () => {
     setSecret("");
     setError(null);
     setLoginStatus(null);
     setLoginOpened(false);
-    setVerifiedSecret(null);
-    setVerifyMessage(null);
+    setLoginStage("idle");
+    setCaptured(false);
     onClose();
   };
-  const updatePlatforms = (platforms: Awaited<ReturnType<typeof saveSourceCredential>>) => {
+  const applyPlatforms = (platforms: Awaited<ReturnType<typeof saveSourceCredential>>) => {
     queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
   };
-  const verifyMutation = useMutation({
-    mutationFn: () => validateSourceCredential(source!.sourceId, secret, apiBaseUrl || undefined),
-    onSuccess: (message) => {
-      setError(null);
-      setVerifiedSecret(secret);
-      setVerifyMessage(message);
-    },
-    onError: (cause) => {
-      setVerifiedSecret(null);
-      setVerifyMessage(null);
-      setError(ipcErrorMessage(cause, "连接验证失败，请检查凭据后重试。"));
-    },
-  });
+
+  // 验证并保存：save_source_credential 后端先验证再写入 Vault，失败整体报错且不落库
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const sourceId = source!.sourceId;
-      return { sourceId, platforms: await saveSourceCredential(sourceId, secret, apiBaseUrl || undefined) };
+      const saved = await saveSourceCredential(
+        source!.sourceId,
+        secret,
+        isApiKeySource ? apiBaseUrl || undefined : undefined,
+      );
+      try {
+        return await refreshPlatform(platformId);
+      } catch {
+        return saved;
+      }
     },
-    onSuccess: (result) => {
-      updatePlatforms(result.platforms);
-      if (source?.sourceId === result.sourceId) close();
+    onSuccess: (platforms) => {
+      applyPlatforms(platforms);
+      close();
     },
-    onError: (cause) => setError(ipcErrorMessage(cause, "保存失败，请检查凭据后重试。")),
+    onError: (cause) => setError(ipcErrorMessage(cause, "验证或保存失败，请检查凭据后重试。")),
   });
   const clearMutation = useMutation({
     mutationFn: () => clearSourceCredential(source!.sourceId),
-    onSuccess: (platforms) => { updatePlatforms(platforms); close(); },
+    onSuccess: (platforms) => {
+      applyPlatforms(platforms);
+      close();
+    },
     onError: (cause) => setError(ipcErrorMessage(cause, "清除凭据失败，请稍后重试。")),
   });
   const loginMutation = useMutation({
     mutationFn: () => startSourceLogin(source!.sourceId),
-    onSuccess: async () => {
-      if (source?.supportsCliLogin) {
-        setLoginStatus("Codex 登录完成，正在检测额度…");
-        try {
-          updatePlatforms(await refreshPlatform(platformId));
-          setLoginStatus(source.accountKind === "additional" ? "已登录额外 ChatGPT 账号。" : "已重新连接本机 Codex 登录。");
-        } catch (cause) {
-          setError(ipcErrorMessage(cause, "登录已完成，但刷新额度失败。"));
-        }
-        return;
-      }
+    onSuccess: () => {
       setLoginOpened(true);
+      setLoginStage("waiting");
     },
-    onError: (cause) => setError(ipcErrorMessage(cause, source?.supportsCliLogin ? "无法启动 Codex 登录。" : "无法启动网页登录。")),
-  });
-  const renameMutation = useMutation({
-    mutationFn: () => renamePlatformAccount(source!.accountId, displayName),
-    onSuccess: (platforms) => {
-      updatePlatforms(platforms);
-      setError(null);
+    onError: (cause) => {
+      setLoginStage("idle");
+      setError(ipcErrorMessage(cause, "无法启动网页登录。"));
     },
-    onError: (cause) => setError(ipcErrorMessage(cause, "重命名失败，请稍后重试。")),
-  });
-  const removeExtraMutation = useMutation({
-    mutationFn: () => removePlatformAccount(source!.accountId),
-    onSuccess: (platforms) => { updatePlatforms(platforms); close(); },
-    onError: (cause) => setError(ipcErrorMessage(cause, "移除额外账号失败。")),
   });
   const closeLoginMutation = useMutation({
     mutationFn: () => closeSourceLogin(source!.sourceId),
-    onSuccess: () => setLoginOpened(false),
+    onSuccess: () => {
+      setLoginOpened(false);
+      setLoginStage("idle");
+    },
     onError: (cause) => setError(ipcErrorMessage(cause, "无法关闭网页登录页。")),
   });
 
   if (!source) return null;
+  // 本地 CLI 不进入抽屉：来源行直接「检测并刷新」，不制造空抽屉
+  if (source.supportsCliLogin && !source.credentialInput && !source.supportsInteractiveLogin) return null;
+
   const input = source.credentialInput ?? null;
-  const isCli = source.supportsCliLogin === true;
-  const isExtraAccount = source.accountKind === "additional";
-  const isCodexAdapter = source.adapterId === "openai-codex-local";
-  const busy = verifyMutation.isPending || saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending || renameMutation.isPending || removeExtraMutation.isPending;
-  const nameChanged = displayName.trim() !== editableAccountName(source) && displayName.trim().length > 0;
-  const setup = setupQuery.data;
-  const showApiUrl = source.sourceType === "api_key" && source.adapterId !== "kimi-balance-api";
-  const webLoginHint = webLoginCopy(source.adapterId);
-  const canSave = Boolean(input && secret.trim() && verifiedSecret === secret && (!showApiUrl || apiBaseUrl.trim()) && !busy);
+  const busy = saveMutation.isPending || clearMutation.isPending || loginMutation.isPending || closeLoginMutation.isPending;
+  const showApiUrl = isApiKeySource && source.adapterId !== "kimi-balance-api";
+  const isDeepSeekWeb = source.adapterId === DEEPSEEK_WEB_ADAPTER;
+  const canSave = Boolean(input && secret.trim() && (!showApiUrl || apiBaseUrl.trim()) && !busy);
+  const stages = loginStages(source);
+  const activeStage = STAGE_INDEX[loginStage];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-sm" role="presentation" onMouseDown={close}>
-      <aside className="flex h-full w-full max-w-md flex-col border-l border-q-border bg-q-surface-solid p-5 shadow-xl" role="dialog" aria-modal="true" aria-label={`编辑 ${source.displayName}`} onMouseDown={(event) => event.stopPropagation()}>
+      <aside
+        className="flex h-full w-full max-w-md flex-col border-l border-q-border bg-q-surface-solid p-5 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="编辑来源"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-lg font-semibold text-q-text-primary">编辑来源</p>
-            <p className="mt-1 text-sm text-q-text-secondary">
-              {source.accountKind === "additional" ? `${source.accountName} · ` : ""}
-              {source.displayName}
+          <div className="min-w-0">
+            <p className="text-lg font-semibold text-q-text-primary">编辑</p>
+            <p className="mt-1 truncate text-sm text-q-text-secondary">
+              {source.accountName} · {source.displayName}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={close} aria-label="关闭编辑来源"><X size={16} /></Button>
+          <Button variant="ghost" size="sm" onClick={close} aria-label="关闭">
+            <X size={16} />
+          </Button>
         </div>
-        <div className="mt-6 flex flex-1 flex-col gap-4">
-          {isExtraAccount && (
-            <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
-              账号名称
-              <div className="flex gap-2">
-                <input
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                  maxLength={40}
-                  disabled={busy}
-                  placeholder="给这个额外账号起个名字"
-                  className="h-10 min-w-0 flex-1 rounded-q-control border border-q-border bg-q-surface px-3 text-sm font-normal text-q-text-primary outline-none focus:border-q-primary"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => { setError(null); renameMutation.mutate(); }}
-                  disabled={busy || !nameChanged}
-                >
-                  {renameMutation.isPending ? "保存中…" : "保存名称"}
-                </Button>
-              </div>
-            </label>
-          )}
-          {setup?.officialUrl && (
-            <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
-              官网链接
-              <div className="flex gap-2">
-                <input readOnly value={setup.officialUrl} className="h-10 min-w-0 flex-1 rounded-q-control border border-q-border bg-q-neutral-soft px-3 text-sm font-normal text-q-text-primary" />
-                <Button type="button" variant="secondary" size="sm" onClick={() => void openExternalUrl(setup.officialUrl).catch((cause) => setError(ipcErrorMessage(cause, "无法打开外部链接。")))}>
-                  <ExternalLink size={14} aria-hidden />
-                  打开
-                </Button>
-              </div>
-            </label>
-          )}
-          {input ? <>
-            <SecretField
-              label={input.label}
-              value={secret}
-              onChange={(next) => { setSecret(next); setVerifiedSecret(null); setVerifyMessage(null); }}
-              placeholder={source.credentialConfigured ? "已保存，点击眼睛查看或重新输入以更换" : input.placeholder}
-              helpText={input.helpText}
-              configured={source.credentialConfigured}
-              onReveal={() => revealSourceSecret(source.sourceId)}
-              disabled={busy}
-            />
-            {setup?.apiKeyUrl && source.sourceType === "api_key" && (
-              <button type="button" className="self-start text-xs text-q-primary" onClick={() => void openExternalUrl(setup.apiKeyUrl!).catch((cause) => setError(ipcErrorMessage(cause, "无法打开外部链接。")))}>
-                获取 API Key
-              </button>
-            )}
-          </> : isCli ? (
-            <div className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2">
-              <p className="text-sm text-q-text-secondary">
-                {isExtraAccount
-                  ? "额外账号使用独立的 Codex 登录目录，不会覆盖本机当前 CLI 登录。"
-                  : "默认直接检测本机 Codex CLI 的 ChatGPT 登录，不必先开网页。"}
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-q-text-muted">
-                {isExtraAccount
-                  ? "点「登录另一个账号」会弹出官方 Codex 登录。额度与本机账号分开刷新、分开展示。"
-                  : "点「检测并刷新」即可读取窗口额度。只有要更换本机 CLI 当前账号时，才需要重新登录。"}
-              </p>
-            </div>
-          ) : (
-            <p className="rounded-q-control border border-q-border bg-q-neutral-soft px-3 py-2 text-sm text-q-text-secondary">此本地来源由应用自动检测，无需输入凭据。</p>
-          )}
-          {showApiUrl && (
-            <label className="flex flex-col gap-2 text-sm font-medium text-q-text-primary">
-              <span className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2">
-                  API 请求地址
-                  <span className="inline-flex items-center gap-1 rounded-full border border-q-border bg-q-neutral-soft px-2 py-0.5 text-[11px] font-medium text-q-text-secondary">
-                    <Link2 size={12} aria-hidden />
-                    完整 URL
-                  </span>
-                </span>
+
+        <div className="mt-5 flex flex-1 flex-col gap-4 overflow-y-auto pr-0.5">
+          {isApiKeySource && input && (
+            <>
+              <SecretField
+                label={input.label}
+                value={secret}
+                onChange={(next) => setSecret(next)}
+                placeholder={source.credentialConfigured ? "已保存，点击眼睛查看或重新输入以更换" : input.placeholder}
+                helpText={input.helpText}
+                configured={source.credentialConfigured}
+                onReveal={() => revealSourceSecret(source.sourceId)}
+                disabled={busy}
+              />
+              {setupQuery.data?.apiKeyUrl && (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 text-xs font-normal text-q-text-muted hover:text-q-text-primary"
-                  onClick={() => setSpeedOpen(true)}
+                  className="self-start text-xs text-q-primary"
+                  onClick={() =>
+                    void openExternalUrl(setupQuery.data!.apiKeyUrl!).catch((cause) =>
+                      setError(ipcErrorMessage(cause, "无法打开外部链接。")),
+                    )
+                  }
                 >
-                  <Zap size={12} aria-hidden />
-                  管理与测速
+                  获取 API Key
                 </button>
-              </span>
-              <input
-                value={apiBaseUrl}
-                onChange={(event) => { setApiBaseUrl(event.target.value); setVerifiedSecret(null); setVerifyMessage(null); }}
-                placeholder={setup?.officialApiBaseUrl || "https://api.deepseek.com"}
-                className="h-10 rounded-q-control border border-q-border bg-q-surface px-3 text-sm font-normal text-q-text-primary outline-none focus:border-q-primary"
-              />
-              <span className="text-xs font-normal leading-relaxed text-q-text-muted">
-                {setup?.apiEndpointHint || "默认预填官方端点，用于查询余额或 Token Plan。"}
-              </span>
-            </label>
-          )}
-          {isCli && (
-            <div className="flex flex-col gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setError(null);
-                  setLoginStatus(
-                    isExtraAccount
-                      ? "请在弹出的 Codex 登录窗口登录另一个 ChatGPT 账号。不会改写本机 ~/.codex。"
-                      : "这会更换本机 Codex CLI 当前登录。若只想读取现有凭证，请关闭后点「检测并刷新」。",
-                  );
-                  loginMutation.mutate();
-                }}
-                disabled={busy}
+              )}
+              <details
+                open={advancedOpen}
+                onToggle={(event) => setAdvancedOpen((event.target as HTMLDetailsElement).open)}
+                className="rounded-q-control border border-q-border bg-q-surface px-3 py-2"
               >
-                {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
-                {loginMutation.isPending ? "等待 Codex 登录…" : isExtraAccount ? "登录另一个账号" : "更换本机 Codex 登录"}
-              </Button>
+                <summary className="flex cursor-pointer list-none items-center justify-between text-[13px] font-medium text-q-text-primary">
+                  高级设置
+                  <ChevronDown size={14} aria-hidden className={advancedOpen ? "rotate-180 transition-transform" : "transition-transform"} />
+                </summary>
+                {showApiUrl && (
+                  <div className="mt-3 flex flex-col gap-1.5">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2 text-xs font-medium text-q-text-secondary">
+                        API 请求地址
+                        <span className="inline-flex items-center gap-1 rounded-full border border-q-border bg-q-neutral-soft px-2 py-0.5 text-[10px] text-q-text-muted">
+                          <Link2 size={11} aria-hidden />
+                          完整 URL
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-q-text-muted hover:text-q-text-primary"
+                        onClick={() => setSpeedOpen(true)}
+                      >
+                        <Zap size={12} aria-hidden />
+                        管理与测速
+                      </button>
+                    </span>
+                    <input
+                      value={apiBaseUrl}
+                      onChange={(event) => setApiBaseUrl(event.target.value)}
+                      placeholder={setupQuery.data?.officialApiBaseUrl || "https://api.deepseek.com"}
+                      className="h-9 rounded-q-control border border-q-border bg-q-surface px-3 text-sm text-q-text-primary outline-none focus:border-q-primary"
+                    />
+                    <span className="text-[11px] leading-relaxed text-q-text-muted">
+                      {setupQuery.data?.apiEndpointHint || "默认预填官方端点，用于查询余额或 Token Plan。"}
+                    </span>
+                  </div>
+                )}
+              </details>
+            </>
+          )}
+
+          {isWebSource && (
+            <>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-q-control border border-q-border bg-q-surface px-3.5 py-3 text-xs">
+                <div className="flex items-start gap-2">
+                  <Globe size={14} aria-hidden className="mt-0.5 shrink-0 text-q-text-muted" />
+                  <div>
+                    <dt className="text-[11px] text-q-text-muted">接入方式</dt>
+                    <dd className="mt-0.5 font-medium text-q-text-primary">网页登录</dd>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <KeyRound size={14} aria-hidden className="mt-0.5 shrink-0 text-q-text-muted" />
+                  <div>
+                    <dt className="text-[11px] text-q-text-muted">凭据状态</dt>
+                    <dd className="mt-0.5 font-medium text-q-text-primary">
+                      {source.credentialConfigured ? "已配置" : "未配置"}
+                    </dd>
+                  </div>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-q-text-muted">能力覆盖</dt>
+                  <dd className="mt-0.5 font-medium text-q-text-primary">
+                    {source.capabilityIds.length > 0 ? `${source.capabilityIds.length} 项能力` : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-q-text-muted">最后验证</dt>
+                  <dd className="mt-0.5 font-medium tabular-nums text-q-text-primary">{formatDateTime(source.lastValidatedAt)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-q-text-muted">最后成功</dt>
+                  <dd className="mt-0.5 font-medium tabular-nums text-q-text-primary">{formatDateTime(source.lastSuccessAt)}</dd>
+                </div>
+              </dl>
+
+              <p className="rounded-q-control border border-q-primary/20 bg-q-primary-softer px-3 py-2.5 text-xs leading-relaxed text-q-text-secondary">
+                {webLoginCopy(source.adapterId)}
+              </p>
+
+              <div className="flex flex-col gap-2">
+                <Button onClick={() => { setError(null); setLoginStage("opening"); loginMutation.mutate(); }} disabled={busy}>
+                  {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
+                  <Globe size={15} aria-hidden />
+                  {loginOpened ? "重新网页登录" : source.credentialConfigured ? "重新网页登录" : "网页登录"}
+                </Button>
+                {loginOpened && (
+                  <button
+                    type="button"
+                    className="self-center text-[11px] text-q-text-muted hover:text-q-text-primary"
+                    onClick={() => closeLoginMutation.mutate()}
+                    disabled={busy}
+                  >
+                    关闭登录页
+                  </button>
+                )}
+              </div>
+
+              {/* 登录阶段：来自真实事件，不假推进 */}
+              <div className="flex items-start px-1" aria-label="登录阶段">
+                {stages.map((label, index) => (
+                  <div key={label} className="flex min-w-0 flex-1 flex-col items-center gap-1.5 last:flex-none">
+                    <div className="flex w-full items-center">
+                      <span className={`h-px flex-1 ${index === 0 ? "invisible" : activeStage >= index ? "bg-q-primary/50" : "bg-q-border"}`} />
+                      <span
+                        className={`mx-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                          activeStage > index
+                            ? "border-q-success bg-q-success text-white"
+                            : activeStage === index
+                              ? "border-q-primary bg-q-primary text-white"
+                              : "border-q-border-strong bg-q-surface"
+                        }`}
+                      >
+                        {activeStage > index && <Check size={10} aria-hidden />}
+                        {activeStage === index && loginMutation.isPending && <LoaderCircle size={10} className="animate-spin" />}
+                      </span>
+                      <span className={`h-px flex-1 ${index === stages.length - 1 ? "invisible" : activeStage >= index ? "bg-q-primary/50" : "bg-q-border"}`} />
+                    </div>
+                    <span className={`whitespace-nowrap text-[10px] ${activeStage >= index ? "font-medium text-q-text-primary" : "text-q-text-muted"}`}>
+                      {label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {isDeepSeekWeb && captured && (
+                <Button onClick={() => { setError(null); saveMutation.mutate(); }} disabled={!canSave}>
+                  {saveMutation.isPending ? "验证并保存中…" : "验证并保存"}
+                </Button>
+              )}
+
+              {input && (
+                <details
+                  open={advancedOpen}
+                  onToggle={(event) => setAdvancedOpen((event.target as HTMLDetailsElement).open)}
+                  className="rounded-q-control border border-q-border bg-q-surface px-3 py-2"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between text-[13px] font-medium text-q-text-primary">
+                    手动粘贴（高级）
+                    <ChevronDown size={14} aria-hidden className={advancedOpen ? "rotate-180 transition-transform" : "transition-transform"} />
+                  </summary>
+                  <div className="mt-3">
+                    <SecretField
+                      label={input.label}
+                      value={secret}
+                      onChange={(next) => { setSecret(next); setCaptured(false); }}
+                      placeholder={input.placeholder}
+                      helpText={input.helpText}
+                      configured={source.credentialConfigured}
+                      onReveal={() => revealSourceSecret(source.sourceId)}
+                      disabled={busy}
+                    />
+                    {/* 手动粘贴与捕获会话共用同一条「验证并保存」路径（自动保存型也可手动兜底） */}
+                    <button
+                      type="button"
+                      className="mt-2 text-xs font-medium text-q-primary disabled:opacity-60"
+                      onClick={() => { setError(null); saveMutation.mutate(); }}
+                      disabled={!canSave}
+                    >
+                      {saveMutation.isPending ? "验证并保存中…" : "验证并保存"}
+                    </button>
+                  </div>
+                </details>
+              )}
+            </>
+          )}
+
+          {loginStatus && (
+            <p className="rounded-q-control border border-q-warning/30 bg-q-warning-soft px-3 py-2 text-xs leading-relaxed text-q-text-secondary">
+              {loginStatus}
+            </p>
+          )}
+          {error && (
+            <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">{error}</p>
+          )}
+
+          {/* 危险区：清除凭据需二次确认，并说明会失去的能力 */}
+          {source.credentialConfigured && (
+            <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft/60 px-3 py-2.5">
+              {confirmClear ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs leading-relaxed text-q-danger">
+                    清除后将删除已保存的{source.sourceType === "web_session" ? "网页登录会话" : "API Key"}，
+                    该来源的 {source.capabilityIds.length} 项能力会暂停更新，下次使用需重新配置。确定继续？
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => clearMutation.mutate()} disabled={busy}>
+                      {clearMutation.isPending ? "清除中…" : "确认清除"}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)} disabled={busy}>
+                      取消
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="cursor-pointer text-xs font-medium text-q-danger hover:underline"
+                  onClick={() => setConfirmClear(true)}
+                  disabled={busy}
+                >
+                  {source.sourceType === "web_session" ? "清除登录状态" : "清除凭据"}
+                </button>
+              )}
             </div>
           )}
-          {source.supportsInteractiveLogin === true && <div className="flex flex-col gap-2">
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => { setError(null); setLoginStatus(loginOpened ? webLoginHint.reload : webLoginHint.start); loginMutation.mutate(); }} disabled={busy}>
-                {loginMutation.isPending && <LoaderCircle size={15} className="animate-spin" />}
-                {loginOpened ? "重新加载登录页" : "网页登录"}
-              </Button>
-              {loginOpened && <Button variant="ghost" size="sm" onClick={() => closeLoginMutation.mutate()} disabled={busy}>关闭登录页</Button>}
-            </div>
-            <p className="text-xs leading-relaxed text-q-text-muted">{webLoginHint.help}</p>
-          </div>}
-          {verifyMessage && <p className="rounded-q-control border border-q-success/25 bg-q-success-soft px-3 py-2 text-xs text-q-success">{verifyMessage}</p>}
-          {loginStatus && <p className="rounded-q-control border border-q-warning/30 bg-q-warning-soft px-3 py-2 text-xs leading-relaxed text-q-text-secondary">{loginStatus}</p>}
-          {error && <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">{error}</p>}
-          {!isExtraAccount && (source.credentialConfigured || isCli) && (confirmClear ? (
-            <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3">
-              <p className="text-xs leading-relaxed text-q-danger">
-                {source.sourceType === "local_cli"
-                  ? "将退出本机 Codex CLI 的 ChatGPT 登录。Codex 命令行也需要重新登录，确定继续？"
-                  : "清除后将无法通过此来源获取对应额度，确定继续？"}
-              </p>
-              <div className="mt-3 flex gap-2">
-                <Button size="sm" onClick={() => clearMutation.mutate()} disabled={busy}>
-                  {clearMutation.isPending ? "清除中…" : "确认清除"}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)} disabled={busy}>
-                  取消
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)} disabled={busy}>
-              {source.sourceType === "local_cli" ? "清除本机登录" : "清除凭据"}
-            </Button>
-          ))}
-          {isExtraAccount && (confirmRemove ? (
-            <div className="rounded-q-control border border-q-danger/25 bg-q-danger-soft p-3">
-              <p className="text-xs leading-relaxed text-q-danger">
-                {isCodexAdapter
-                  ? "将删除这个额外账号、独立登录目录和已缓存额度。本机 Codex 不受影响。确定继续？"
-                  : "将删除这个额外账号的来源、凭据和已缓存额度。其他账号不受影响。确定继续？"}
-              </p>
-              <div className="mt-3 flex gap-2">
-                <Button size="sm" onClick={() => removeExtraMutation.mutate()} disabled={busy}>
-                  {removeExtraMutation.isPending ? "移除中…" : "确认移除"}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setConfirmRemove(false)} disabled={busy}>
-                  取消
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button variant="ghost" size="sm" className="text-q-danger hover:text-q-danger" onClick={() => setConfirmRemove(true)} disabled={busy}>
-              移除这个账号
-            </Button>
-          ))}
         </div>
-        <div className="flex justify-end gap-2 border-t border-q-border pt-4">
-          <Button variant="ghost" onClick={close}>取消</Button>
-          {input && (
-            <>
-              <Button variant="secondary" onClick={() => { setError(null); verifyMutation.mutate(); }} disabled={!secret.trim() || (showApiUrl && !apiBaseUrl.trim()) || busy}>
-                {verifyMutation.isPending ? "验证中…" : "验证连接"}
-              </Button>
-              <Button onClick={() => { setError(null); saveMutation.mutate(); }} disabled={!canSave}>
-                {saveMutation.isPending ? "保存中…" : "保存"}
-              </Button>
-            </>
+
+        {/* 底部：API Key 抽屉有主按钮；网页抽屉自动保存型只有「关闭」 */}
+        <div className="mt-4 flex justify-end gap-2 border-t border-q-border pt-4">
+          <Button variant="ghost" onClick={close} disabled={saveMutation.isPending || clearMutation.isPending}>
+            关闭
+          </Button>
+          {isApiKeySource && input && (
+            <Button onClick={() => { setError(null); saveMutation.mutate(); }} disabled={!canSave}>
+              {saveMutation.isPending ? (
+                <>
+                  <LoaderCircle size={14} className="animate-spin" />
+                  验证并保存中…
+                </>
+              ) : (
+                "验证并保存"
+              )}
+            </Button>
           )}
         </div>
       </aside>
@@ -413,37 +515,11 @@ export function SourceEditorDrawer({
         <EndpointSpeedPanel
           open
           currentUrl={apiBaseUrl}
-          officialUrl={setup?.officialApiBaseUrl || ""}
-          onApply={(url) => {
-            setApiBaseUrl(url);
-            setVerifiedSecret(null);
-            setVerifyMessage(null);
-          }}
+          officialUrl={setupQuery.data?.officialApiBaseUrl || ""}
+          onApply={(url) => setApiBaseUrl(url)}
           onClose={() => setSpeedOpen(false)}
         />
       )}
     </div>
   );
-}
-
-function webLoginCopy(sourceId: string): { start: string; reload: string; help: string } {
-  if (sourceId === "glm-web-balance") {
-    return {
-      start: "请在登录窗口完成 GLM 登录。看到财务总览后稍等，成功后会自动保存，不必把 Cookie 粘贴到输入框。",
-      reload: "正在打开 GLM 财务页并同步…",
-      help: "网页登录成功后会自动验证并保存会话。输入框只用于手动粘贴，登录成功时不会回填 Cookie。",
-    };
-  }
-  if (sourceId === "mimo-web-session") {
-    return {
-      start: "请在登录窗口完成 MiMo 登录。同步成功后会验证并保存网页余额会话。",
-      reload: "正在打开 MiMo 平台并同步…",
-      help: "会打开隔离登录窗口并读取含 httpOnly 的 Cookie。清除凭据会退出该平台网页登录态。",
-    };
-  }
-  return {
-    start: "请在登录窗口完成登录。捕获到会话后会自动关闭登录页并填入 Token。",
-    reload: "正在打开 DeepSeek 用量页并捕获会话…",
-    help: "登录成功后会自动填入 Token 并关闭登录页。请再点「验证连接」，通过后再保存。清除凭据会退出网页登录态。",
-  };
 }
