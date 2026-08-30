@@ -1167,16 +1167,13 @@ html.hoverbar-window #root {
   display: inline-flex;
   flex: none;
   align-items: center;
-  justify-content: center;
-  /* 等宽标签列：CodexRadar(69px) 为基准，AI 辅助/本机额度与它共用同一正文起点 */
+  /* 无底色纯文字标签（对齐设计稿）：等宽列保证三行正文同一左起点 */
   min-width: 70px;
-  padding: 1px 6px;
-  border-radius: 6px;
   color: var(--q-hoverbar-ink);
-  background: color-mix(in srgb, var(--q-hoverbar-muted) 13%, transparent);
   font-size: 10px;
   font-weight: 800;
   line-height: 14px;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
