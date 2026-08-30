@@ -488,4 +488,19 @@ mod tests {
         drop(connection);
         let _ = fs::remove_file(path);
     }
+
+    #[test]
+    fn openai_quota_sources_read_platform_from_accounts() {
+        let path = std::env::temp_dir().join(format!(
+            "ai-quota-monitor-quota-{}-{}.db",
+            std::process::id(),
+            epoch_ms()
+        ));
+        let database = Database::initialize_at(path.clone()).expect("db");
+        let sources = database.openai_quota_sources().expect("query should not fail");
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].id, "openai-codex-local");
+        assert_eq!(sources[0].platform_id, "openai");
+        let _ = fs::remove_file(path);
+    }
 }

@@ -1131,10 +1131,10 @@ impl Database {
         let connection = self.connect()?;
         let mut statement = connection
             .prepare(
-                "SELECT s.id, s.account_id, a.display_name, a.kind, s.platform_id, s.adapter_id, s.source_type,
+                "SELECT s.id, s.account_id, a.display_name, a.kind, a.platform_id, s.adapter_id, s.source_type,
                         s.display_name, s.secret_ref, s.state, s.last_validated_at, s.last_success_at, s.error_code, s.error_message
                  FROM sources s JOIN accounts a ON a.id = s.account_id
-                 WHERE s.platform_id = 'openai'
+                 WHERE a.platform_id = 'openai'
                  ORDER BY a.created_at, s.id",
             )
             .map_err(|err| format!("准备额度来源查询失败: {err}"))?;

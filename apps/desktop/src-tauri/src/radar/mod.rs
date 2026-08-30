@@ -229,8 +229,7 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
     let event_view_data = event_record.as_ref().map(|record| event_view(database, record));
     let ai_assessment = build_ai_assessment(database, event_record.as_ref(), analysis.as_ref(), &checks);
     let quota_verifications =
-        quota_watch::assess_quota_verifications(database, event_record.as_ref().map(|item| item.first_signal_at))
-            .unwrap_or_default();
+        quota_watch::assess_quota_verifications(database, event_record.as_ref().map(|item| item.first_signal_at))?;
     Ok(RadarSnapshot {
         source_status: source_status.into(),
         last_synced_at,
