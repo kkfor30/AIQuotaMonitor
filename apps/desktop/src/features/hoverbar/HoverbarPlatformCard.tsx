@@ -237,10 +237,12 @@ function RadarStrip({
         {analysis?.conclusion ? (
           <>
             {confidence ? <RadarConfidenceBadge confidence={confidence} /> : null}
-            <span className="hb-radar-strip-meta">
+            <span className="hb-radar-strip-meta hb-radar-strip-time">
               {formatHoverbarClock(analysis.createdAt)} 分析
-              {analysis.coversLatest ? "" : " · 可能过期"}
             </span>
+            {analysis.coversLatest ? null : (
+              <span className="hb-radar-strip-meta hb-radar-strip-stale">可能过期</span>
+            )}
           </>
         ) : (
           <span className="radar-confidence-badge" data-level="none">

@@ -765,6 +765,10 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+.hb-radar-strip-stale {
+  color: var(--q-hoverbar-warning);
+}
+
 .hb-radar-strip-actions {
   display: inline-flex;
   flex: none;
@@ -1247,12 +1251,23 @@ html.hoverbar-window #root {
   padding: 2px 5px 8px;
 }
 
+/* 左右侧停靠：雷达二级页标题放不下（300px 面板），隐藏后由「返回额度/仅为推测」承载语境。 */
+.hb-detail-root[data-edge="left"] .hb-radar-title,
+.hb-detail-root[data-edge="right"] .hb-radar-title {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-refresh,
+.hb-detail-root[data-edge="right"] .hb-radar-refresh {
+  margin-left: auto;
+}
+
 .hb-detail-root[data-edge="left"] .hb-actions,
 .hb-detail-root[data-edge="right"] .hb-actions {
   align-self: flex-end;
 }
 
-/* 左右侧停靠：重置信号条压缩为单行（隐藏装饰图标、收紧间距，避免操作组换行脱节）。 */
+/* 左右侧停靠：重置信号条压缩为单行（隐藏装饰图标与分析时间，保留过期警示，避免操作组换行脱节）。 */
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-head {
   flex-wrap: nowrap;
@@ -1264,9 +1279,9 @@ html.hoverbar-window #root {
   display: none;
 }
 
-/* 左右侧停靠：分析时间标注让位给单行头部，仅在展开详情查看。 */
-.hb-detail-root[data-edge="left"] .hb-radar-strip-meta,
-.hb-detail-root[data-edge="right"] .hb-radar-strip-meta {
+/* 左右侧停靠：分析时间让位保证单行，「可能过期」是状态信号必须保留。 */
+.hb-detail-root[data-edge="left"] .hb-radar-strip-time,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-time {
   display: none;
 }
 
