@@ -1314,6 +1314,15 @@ html.hoverbar-window #root {
   color: var(--q-hoverbar-ink);
 }
 
+.hb-quota-window {
+  flex: none;
+  margin-left: auto;
+  color: var(--q-hoverbar-muted);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 15px;
+}
+
 .hb-quota-status {
   flex: none;
   padding: 1px 8px;

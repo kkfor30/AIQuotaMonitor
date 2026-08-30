@@ -444,6 +444,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                   )}
                   {item.note && <p className="text-[11px] text-q-text-muted">{item.note}</p>}
                   <p className="text-[11px] text-q-text-muted">
+                    {item.windowLabel ? `${item.windowLabel} · ` : ""}
                     {item.lastSuccessAt ? `上次成功 ${formatTime(item.lastSuccessAt)}` : "尚无成功快照"}
                     {item.previous?.remaining != null && item.current?.remaining != null
                       ? ` · 剩余 ${Math.round(item.previous.remaining * 100)}% → ${Math.round(item.current.remaining * 100)}%`

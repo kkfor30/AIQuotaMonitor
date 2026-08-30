@@ -270,6 +270,7 @@ function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
     <div className="hb-quota-row" data-status={item.status}>
       <div className="hb-quota-row-head">
         <b>{item.accountName}</b>
+        <span className="hb-quota-window">{item.windowLabel ?? "套餐窗口"}</span>
         <span className="hb-quota-status">{quotaStatusText(item.status)}</span>
       </div>
       {item.status === "unavailable" ? (

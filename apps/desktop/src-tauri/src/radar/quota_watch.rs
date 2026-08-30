@@ -95,19 +95,16 @@ fn assess_source(
             ..base
         });
     }
-    // 每个窗口独立判定，取最显著的状态作为该来源的观察结果。
-    let mut best: Option<(u8, QuotaVerificationView)> = None;
-    for pair in &pairs {
-        let (current, _) = pair;
-        let mut verification = assess_pair(&base, pair, event_first_signal_at);
-        if significance(verification.status.as_str()) > best.as_ref().map_or(0, |(rank, _)| *rank) {
-            verification.window_id = Some(current.capability_id.clone());
-            verification.window_label = Some(current.display_name.clone());
-            verification.window_seconds = current.window_seconds;
-            best = Some((significance(verification.status.as_str()), verification));
-        }
-    }
-    Ok(best.map(|(_, verification)| verification).unwrap_or(base))
+    // 主判定窗口取最长窗口（Plus 7 天 / Free 30 天）：重置事件观察的是套餐级周期窗口，
+    // 5 小时窗口的常规滚动不能冒充套餐窗口的刷新结论。
+    let mut candidates: Vec<&(&SnapshotPairInput, &SnapshotPairInput)> = pairs.iter().collect();
+    candidates.sort_by_key(|pair| std::cmp::Reverse(pair.0.window_seconds.unwrap_or(0)));
+    let primary_pair = candidates[0];
+    let mut verification = assess_pair(&base, primary_pair, event_first_signal_at);
+    verification.window_id = Some(primary_pair.0.capability_id.clone());
+    verification.window_label = Some(primary_pair.0.display_name.clone());
+    verification.window_seconds = primary_pair.0.window_seconds;
+    Ok(verification)
 }
 
 /// 相邻成功快照对的输入。为避免引入中间结构，直接复用 SnapshotRecord 的克隆切片。
@@ -194,19 +191,6 @@ fn assess_pair(
     verification.status = "possible_reset".into();
     verification.note = Some("窗口比例恢复，但结构化证据不足".into());
     verification
-}
-
-/// 状态显著度：越高越优先作为来源的观察结果。
-fn significance(status: &str) -> u8 {
-    match status {
-        "unscheduled_reset" => 7,
-        "possible_reset" => 6,
-        "scheduled" => 5,
-        "pending" => 4,
-        "insufficient_data" => 3,
-        "unavailable" => 2,
-        _ => 1,
-    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
