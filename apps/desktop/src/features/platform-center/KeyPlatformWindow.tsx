@@ -60,9 +60,9 @@ export function KeyPlatformWindow({
 
   const reorderMutation = useMutation({
     mutationFn: (ids: string[]) => reorderPlatforms(ids),
-    onSuccess: (platforms) => {
-      // 后端返回的就是全量 summaries，直接回填缓存，避免失效重拉造成的二次渲染闪烁
-      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
+    onSuccess: () => {
+      // reorder_platforms 返回 void：失效重拉（重拉期间保留旧数据，不会出现空缓存白屏）
+      void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
     },
   });
 
@@ -234,16 +234,14 @@ export function KeyPlatformWindow({
       }
     }
 
-    // 重排后从旧视觉位置反向补偿，再过渡到 0：卡片连续滑入新槽位而不是闪跳
+    // 清掉拖拽期间的推挤/跟手 transform：DOM 重排后的无 transform 位置才是各卡的新基准，
+    // 否则残留偏移会让 FLIP 补偿量算错（表现为松手后卡片位置错乱）
+    clearCardTransforms();
     for (const [id, el] of cardRefs.current) {
       const old = before.get(id);
       if (old === undefined) continue;
       const dx0 = Math.round(old - (el.getBoundingClientRect().left + (strip?.scrollLeft ?? 0)));
-      if (Math.abs(dx0) < 1) {
-        el.style.transform = "";
-        el.style.transition = "";
-        continue;
-      }
+      if (Math.abs(dx0) < 1) continue;
       el.style.transition = "none";
       el.style.transform = `translate(${dx0}px, 0)`;
       el.style.zIndex = id === state.id ? "30" : "";

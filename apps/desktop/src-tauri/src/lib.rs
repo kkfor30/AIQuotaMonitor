@@ -15,7 +15,53 @@ mod refresh;
 mod storage;
 mod windows;
 
-use tauri::{Emitter, Manager};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager,
+};
+
+/// 从托盘/其他入口恢复主窗口。
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// 系统托盘：左键点击恢复主窗口；菜单提供「显示主窗口 / 退出」。应用只能从这里真正退出。
+fn setup_tray(app: &tauri::App) -> Result<(), tauri::Error> {
+    let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出 AIQuotaMonitor", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| tauri::Error::AssetNotFound("default window icon".into()))?;
+    TrayIconBuilder::with_id("main-tray")
+        .icon(icon)
+        .tooltip("AIQuotaMonitor · 左键点击恢复主窗口")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
 
 fn start_auto_refresh(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
@@ -100,6 +146,15 @@ pub fn run() {
             commands::settings_commands::clear_local_cache,
             commands::settings_commands::refresh_all_platforms,
         ])
+        .on_window_event(|window, event| {
+            // 主窗口点 X 只隐藏（悬浮球继续监控）；其它窗口保持默认关闭行为
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             let database = storage::database::Database::initialize(app.handle())
                 .map_err(std::io::Error::other)?;
@@ -113,15 +168,8 @@ pub fn run() {
                 prefs.detail_size.height,
             )));
 
-            // 主窗口关闭即退出整个应用（阶段一无托盘）
-            if let Some(main_window) = app.get_webview_window("main") {
-                let app_handle = app.handle().clone();
-                main_window.on_window_event(move |event| {
-                    if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                        app_handle.exit(0);
-                    }
-                });
-            }
+            // 主窗口点 X 隐藏到系统托盘继续监控；应用只能从托盘菜单退出
+            setup_tray(app)?;
 
             if prefs.enabled {
                 windows::hoverbar::ensure_hoverbar_windows(app.handle())?;
