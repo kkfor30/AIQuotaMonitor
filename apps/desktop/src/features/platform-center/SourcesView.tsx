@@ -482,10 +482,12 @@ function SourceRow({
   }, [focused]);
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const action = sourceAction(source);
-  // 仅额外 Codex 账号与本机 Grok 可重触发官方登录（本机 Codex 只检测，避免覆盖本机 CLI 登录；
-  // Grok token 失效后平台内「重新登录」即新终端 grok login，完成后自动校验并刷新）
+  // 可重触发官方登录的范围：额外 Codex 账号、本机 Grok（token 失效后平台内重登 =
+  // 新终端 grok login，完成后自动校验并刷新）；本机 Codex 只检测，避免覆盖本机 CLI 登录。
+  // 口径与来源行动作一致：CLI 检测看 supportsCliLogin 或 local_cli 类型（Grok 的
+  // supportsCliLogin 为 false，只靠 local_cli 进入「检测并刷新」）。
   const canRelogin =
-    source.supportsCliLogin
+    (source.supportsCliLogin || source.sourceType === "local_cli")
     && (source.accountKind !== "local" || source.adapterId === "grok-cli-local");
 
   return (
