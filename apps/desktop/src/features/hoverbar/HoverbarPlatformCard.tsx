@@ -273,7 +273,13 @@ function RadarStrip({
         {radarRefreshing ? "正在同步 CodexRadar…" : summary}
       </p>
       {analyzeError ? <p className="hb-radar-strip-error">{analyzeError}</p> : null}
-      <p className="hb-radar-strip-note">{radarSourceLine(radar)} · 仅为推测，不代表官方结论</p>
+      <p className="hb-radar-strip-note">
+        {radarSourceLine(radar)}
+        {analysis?.conclusion && !analysis.coversLatest ? (
+          <span className="hb-radar-strip-note-stale"> · 结论可能过期</span>
+        ) : null}
+        {" · 仅为推测，不代表官方结论"}
+      </p>
     </footer>
   );
 }

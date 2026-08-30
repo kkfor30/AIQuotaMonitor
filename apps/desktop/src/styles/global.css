@@ -769,6 +769,12 @@ html.hoverbar-window #root {
   color: var(--q-hoverbar-warning);
 }
 
+/* 过期提示的窄停靠变体：头部放不下时移到注释行，默认隐藏。 */
+.hb-radar-strip-note-stale {
+  display: none;
+  color: var(--q-hoverbar-warning);
+}
+
 .hb-radar-strip-actions {
   display: inline-flex;
   flex: none;
@@ -1267,7 +1273,7 @@ html.hoverbar-window #root {
   align-self: flex-end;
 }
 
-/* 左右侧停靠：重置信号条压缩为单行（隐藏装饰图标与分析时间，保留过期警示，避免操作组换行脱节）。 */
+/* 左右侧停靠：头部仅留徽章与操作保单行，「可能过期」移到注释行（可换行）仍可见。 */
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-head {
   flex-wrap: nowrap;
@@ -1279,10 +1285,19 @@ html.hoverbar-window #root {
   display: none;
 }
 
-/* 左右侧停靠：分析时间让位保证单行，「可能过期」是状态信号必须保留。 */
 .hb-detail-root[data-edge="left"] .hb-radar-strip-time,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-time {
   display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-strip-stale,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-stale {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-strip-note-stale,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-note-stale {
+  display: inline;
 }
 
 .hb-detail-root[data-edge="left"] .hb-service-card,
