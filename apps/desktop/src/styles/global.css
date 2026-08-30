@@ -1085,12 +1085,24 @@ html.hoverbar-window #root {
 
 /* 雷达双字段：结论 / 分析依据 分层展示；旧数据无依据时整体隐藏。 */
 .hb-radar-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   margin: 7px 0 2px;
-  color: var(--q-hoverbar-muted-strong);
+  color: var(--q-hoverbar-primary);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 14px;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.18em;
+}
+
+.hb-radar-field-label::before {
+  content: "";
+  flex: none;
+  width: 3px;
+  height: 10px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 55%, transparent);
 }
 
 .hb-radar-field-label:first-of-type {
@@ -1160,11 +1172,10 @@ html.hoverbar-window #root {
   min-width: 70px;
   padding: 1px 6px;
   border-radius: 6px;
-  color: var(--q-hoverbar-muted-strong);
-  background: var(--q-hoverbar-empty-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 95%, transparent);
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 9%, transparent);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 14px;
   white-space: nowrap;
 }
@@ -1245,14 +1256,41 @@ html.hoverbar-window #root {
 }
 
 .hb-quota-row {
+  position: relative;
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 2px;
-  padding: 7px 9px;
+  padding: 8px 10px 8px 14px;
   border-radius: 10px;
   background: var(--q-hoverbar-empty-bg);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+}
+
+/* 状态色侧条：一眼区分观察结果的性质 */
+.hb-quota-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--q-hoverbar-muted);
+}
+
+.hb-quota-row[data-status="unscheduled_reset"]::before,
+.hb-quota-row[data-status="possible_reset"]::before {
+  background: var(--q-hoverbar-warning);
+}
+
+.hb-quota-row[data-status="scheduled"]::before,
+.hb-quota-row[data-status="no_change"]::before {
+  background: var(--q-hoverbar-success);
+}
+
+.hb-quota-row[data-status="pending"]::before {
+  background: var(--q-hoverbar-primary);
 }
 
 .hb-quota-row-head {
@@ -1270,15 +1308,30 @@ html.hoverbar-window #root {
 
 .hb-quota-status {
   flex: none;
-  font-size: 11px;
-  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
   line-height: 15px;
   color: var(--q-hoverbar-muted-strong);
+  background: color-mix(in srgb, var(--q-hoverbar-muted) 14%, transparent);
 }
 
 .hb-quota-row[data-status="unscheduled_reset"] .hb-quota-status,
 .hb-quota-row[data-status="possible_reset"] .hb-quota-status {
   color: var(--q-hoverbar-warning);
+  background: color-mix(in srgb, var(--q-hoverbar-warning) 14%, transparent);
+}
+
+.hb-quota-row[data-status="scheduled"] .hb-quota-status,
+.hb-quota-row[data-status="no_change"] .hb-quota-status {
+  color: var(--q-hoverbar-success);
+  background: color-mix(in srgb, var(--q-hoverbar-success) 12%, transparent);
+}
+
+.hb-quota-row[data-status="pending"] .hb-quota-status {
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 10%, transparent);
 }
 
 .hb-quota-row[data-status="unavailable"] .hb-quota-status,

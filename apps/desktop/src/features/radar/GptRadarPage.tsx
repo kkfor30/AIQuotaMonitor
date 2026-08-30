@@ -319,14 +319,14 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
           ) : ai?.current?.conclusion ? (
             <div className="flex min-h-0 flex-col gap-2">
               <div className="flex flex-col gap-1">
-                <p className="text-[11px] font-medium text-q-text-muted">结论</p>
+                <p className="text-[11px] font-semibold tracking-widest text-q-primary">结论</p>
                 <p className="text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
                   {ai.current.conclusion}
                 </p>
               </div>
               {ai.current.analysisBasis ? (
                 <div className="flex flex-col gap-1">
-                  <p className="text-[11px] font-medium text-q-text-muted">
+                  <p className="text-[11px] font-semibold tracking-widest text-q-primary">
                     分析依据 · {ai.current.analysisBasis.length} 字
                   </p>
                   <div
@@ -367,13 +367,13 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
           </div>
           {event ? (
             <div className="flex min-h-0 flex-col gap-2">
-              <p className="text-[11px] font-medium text-q-text-muted">结论</p>
+              <p className="text-[11px] font-semibold tracking-widest text-q-primary">结论</p>
               <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
                 {event.title}
               </p>
               {event.summary && (
                 <div className="flex flex-col gap-1">
-                  <p className="text-[11px] font-medium text-q-text-muted">分析依据</p>
+                  <p className="text-[11px] font-semibold tracking-widest text-q-primary">分析依据</p>
                   <p className="text-xs leading-relaxed text-q-text-secondary" data-selectable="true">
                     {event.summary}
                   </p>
@@ -892,14 +892,14 @@ function AiAnalysisView({
         {analysis?.conclusion ? (
           <>
             <div className="flex flex-col gap-1.5">
-              <p className="text-[11px] font-medium text-q-text-muted">结论</p>
+              <p className="text-[11px] font-semibold tracking-widest text-q-primary">结论</p>
               <p className="text-[15px] font-medium leading-relaxed text-q-text-primary" data-selectable="true">
                 {analysis.conclusion}
               </p>
             </div>
             {analysis.analysisBasis ? (
               <div className="flex flex-col gap-1.5">
-                <p className="text-[11px] font-medium text-q-text-muted">
+                <p className="text-[11px] font-semibold tracking-widest text-q-primary">
                   分析依据 · {analysis.analysisBasis.length} 字
                 </p>
                 <div
