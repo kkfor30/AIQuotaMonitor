@@ -1172,8 +1172,8 @@ html.hoverbar-window #root {
   min-width: 70px;
   padding: 1px 6px;
   border-radius: 6px;
-  color: var(--q-hoverbar-primary);
-  background: color-mix(in srgb, var(--q-hoverbar-primary) 9%, transparent);
+  color: var(--q-hoverbar-ink);
+  background: color-mix(in srgb, var(--q-hoverbar-muted) 13%, transparent);
   font-size: 10px;
   font-weight: 800;
   line-height: 14px;
@@ -1184,6 +1184,7 @@ html.hoverbar-window #root {
   min-width: 0;
   color: var(--q-hoverbar-ink);
   font-size: 11px;
+  font-weight: 600;
   line-height: 15px;
 }
 
@@ -1226,7 +1227,7 @@ html.hoverbar-window #root {
 
 .radar-phase-badge[data-phase="closed"] {
   color: var(--q-hoverbar-muted);
-  background: var(--q-hoverbar-empty-bg);
+  background: color-mix(in srgb, var(--q-hoverbar-muted) 13%, transparent);
 }
 
 /* 雷达二级页：事件卡头 / 两路判断 / 本机额度验证 / 时间线。 */
@@ -1464,7 +1465,7 @@ html.hoverbar-window #root {
 
 .hb-radar-post-badge[data-signal="none"] {
   color: var(--q-hoverbar-muted);
-  background: var(--q-hoverbar-empty-bg);
+  background: color-mix(in srgb, var(--q-hoverbar-muted) 13%, transparent);
 }
 
 .hb-radar-post-time {
