@@ -1167,14 +1167,24 @@ html.hoverbar-window #root {
   display: inline-flex;
   flex: none;
   align-items: center;
-  /* 无底色纯文字标签（对齐设计稿）：等宽列保证三行正文同一左起点 */
+  gap: 5px;
+  /* 与「分析依据」节标同款：主色字 + 侧标条；等宽列保证三行正文同一左起点 */
   min-width: 70px;
-  color: var(--q-hoverbar-ink);
+  color: var(--q-hoverbar-primary);
   font-size: 10px;
   font-weight: 800;
   line-height: 14px;
   letter-spacing: 0.02em;
   white-space: nowrap;
+}
+
+.hb-radar-strip-tag::before {
+  content: "";
+  flex: none;
+  width: 3px;
+  height: 10px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 55%, transparent);
 }
 
 .hb-radar-strip-row-text {

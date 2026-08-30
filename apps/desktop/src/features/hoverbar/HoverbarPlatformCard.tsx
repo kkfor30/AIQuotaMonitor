@@ -277,7 +277,7 @@ function RadarStrip({
         </span>
       </div>
       <div className="hb-radar-strip-row">
-        <span className="hb-radar-strip-tag">AI 辅助</span>
+        <span className="hb-radar-strip-tag">AI分析</span>
         <span className="hb-radar-strip-row-text" data-selectable="true">
           {aiLine}
         </span>

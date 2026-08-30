@@ -122,7 +122,7 @@ export function HoverbarRadarDetail({
               </>
             ) : null}
             <p className="hb-radar-meta">
-              {formatHoverbarClock(event.firstSignalAt)} → {formatHoverbarClock(event.latestEvidenceAt)}
+              首帖发布 {formatHoverbarClock(event.firstSignalAt)} · 最新证据 {formatHoverbarClock(event.latestEvidenceAt)}
             </p>
           </>
         ) : (
@@ -148,7 +148,7 @@ export function HoverbarRadarDetail({
           </div>
         </div>
         <div className="hb-radar-judge">
-          <span className="hb-radar-strip-tag">AI 辅助</span>
+          <span className="hb-radar-strip-tag">AI分析</span>
           <div className="hb-radar-judge-body">
             <p className="hb-radar-text" data-selectable="true">
               {aiLines.primary}
