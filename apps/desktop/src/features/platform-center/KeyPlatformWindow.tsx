@@ -72,10 +72,11 @@ type CardDragState = {
  * 关键平台横向窗口（V7 总览设计稿 01）：
  * - 一个 Platform 永远占一个排序槽位；槽位内部按 platform.accounts 构建账号卡组，
  *   前卡显示当前账号，箭头 1/2 切换（到端禁用），前端按平台记忆当前账号。
- * - 拖拽：按住卡身任意空白处即可拖动整组（卡内按钮不受影响）。被拖卡位移始终以
- *   起始位置为基准（translateX = 指针位移 + 滚动补偿，与 target 无关），target 只
- *   决定其余卡的让位；事件走 window 原生监听 + 单帧 rAF 调度，拖拽全程零 React
- *   渲染（拖拽态为命令式 class），松手一次性提交顺序并 FLIP 落位。
+ * - 拖拽：仅卡头「名称与账号箭头之间」的拖拽带发起，移动整组（翻页按钮与卡内
+ *   文字不受影响，文字可选中）。被拖卡位移始终以起始位置为基准（translateX =
+ *   指针位移 + 滚动补偿，与 target 无关），target 只决定其余卡的让位；事件走
+ *   window 原生监听 + 单帧 rAF 调度，拖拽全程零 React 渲染（拖拽态为命令式
+ *   class），松手一次性提交顺序并 FLIP 落位。
  * - 排序复用 reorder_platforms，只提交 platform ids；滚轮/触控板/空白拖拽/边缘自动滚动保留。
  */
 export function KeyPlatformWindow({
@@ -172,7 +173,7 @@ export function KeyPlatformWindow({
     el.scrollBy({ left: direction * CARD_STEP * 2, behavior: "smooth" });
   };
 
-  // —— 卡身拖拽排序：坐标模型以起始位置为唯一基准 ——
+  // —— 卡头拖拽带排序：坐标模型以起始位置为唯一基准 ——
   // 被拖卡 translateX = 指针位移 + 滚动补偿（与 target 无关）；
   // target 仅由内容坐标里的卡组中心推算（O(1)，带迟滞），驱动其余卡让位。
 
@@ -403,8 +404,6 @@ export function KeyPlatformWindow({
 
   const onCardPointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
     if (event.button !== 0) return;
-    // 卡内交互控件（箭头/查看全部账户等）不发起拖拽
-    if ((event.target as HTMLElement).closest("button, a, input, select, textarea")) return;
     const strip = stripRef.current;
     const draggedEl = cardRefs.current.get(id);
     const index = connected.findIndex((p) => p.providerId === id);
@@ -637,8 +636,8 @@ function accountCapability(
 }
 
 /**
- * 一个平台的账号卡组槽位：按住卡身任意空白处拖动整组排序（卡内按钮除外），
- * 卡头箭头切换账号（到端禁用）。
+ * 一个平台的账号卡组槽位：卡头拖拽带移动整组排序，卡头箭头切换账号（到端禁用），
+ * 卡内文字与数值保持可选中。
  */
 function PlatformDeckCard({
   platform,
@@ -667,8 +666,7 @@ function PlatformDeckCard({
     <div
       ref={registerRef}
       data-strip-card
-      onPointerDown={onCardPointerDown}
-      className="relative shrink-0 cursor-grab select-none"
+      className="relative shrink-0"
       style={{ width: CARD_WIDTH, height: CARD_HEIGHT }}
     >
       {current && (
@@ -682,6 +680,7 @@ function PlatformDeckCard({
             index={currentIndex}
             total={accounts.length}
             multiAccount={multiAccount}
+            onCardPointerDown={onCardPointerDown}
             onSelectAccount={onSelectAccount}
             onOpenAll={onOpenAll}
           />
@@ -691,13 +690,14 @@ function PlatformDeckCard({
   );
 }
 
-/** 账户卡内容：卡头（手柄提示 + 账号切换）→ 账号别名 → 窗口剩余额度 → 余额块 → 查看全部账户 */
+/** 账户卡内容：卡头（logo + 名称 + 中间拖拽带 + 账号切换）→ 账号别名 → 窗口剩余额度 → 余额块 → 查看全部账户 */
 function AccountCardBody({
   platform,
   account,
   index,
   total,
   multiAccount,
+  onCardPointerDown,
   onSelectAccount,
   onOpenAll,
 }: {
@@ -706,6 +706,7 @@ function AccountCardBody({
   index: number;
   total: number;
   multiAccount: boolean;
+  onCardPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onSelectAccount: (accountId: string) => void;
   onOpenAll: () => void;
 }) {
@@ -715,19 +716,24 @@ function AccountCardBody({
 
   return (
     <>
-      {/* 卡头：手柄为拖拽提示（整卡可拖）；多账号时箭头到端禁用 */}
-      <div className="flex items-center gap-2">
+      {/* 卡头：只有名称与箭头之间的拖拽带发起整组拖拽，翻页按钮与文字不受影响 */}
+      <div className="flex items-center gap-1.5">
         <PlatformMark providerId={platform.providerId} size={30} />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-q-text-primary">
+        <span
+          className="min-w-0 max-w-[45%] shrink truncate text-[13px] font-semibold text-q-text-primary"
+          title={platform.displayName}
+        >
           {platform.displayName}
         </span>
-        <span
-          aria-hidden
+        <div
+          role="button"
+          aria-label={`拖动排序 ${platform.displayName}`}
           title="拖动排序"
-          className="flex h-6 w-6 items-center justify-center rounded-[7px] text-q-text-muted/70 transition-colors hover:bg-q-primary-softer hover:text-q-text-secondary"
+          onPointerDown={onCardPointerDown}
+          className="flex h-7 min-w-0 flex-1 cursor-grab touch-none items-center justify-center rounded-[8px] text-q-text-muted/60 transition-colors hover:bg-q-primary-softer hover:text-q-text-secondary active:cursor-grabbing"
         >
-          <GripVertical size={14} />
-        </span>
+          <GripVertical size={15} aria-hidden />
+        </div>
         {multiAccount && (
           <span className="flex shrink-0 items-center gap-0.5">
             <button
@@ -735,9 +741,9 @@ function AccountCardBody({
               aria-label="上一个账号"
               disabled={index === 0}
               onClick={() => onSelectAccount(platform.accounts[index - 1].accountId)}
-              className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
             >
-              <ChevronLeft size={13} aria-hidden />
+              <ChevronLeft size={14} aria-hidden />
             </button>
             <span className="min-w-[24px] text-center text-[11px] tabular-nums text-q-text-muted">
               {index + 1}/{total}
@@ -747,9 +753,9 @@ function AccountCardBody({
               aria-label="下一个账号"
               disabled={index >= total - 1}
               onClick={() => onSelectAccount(platform.accounts[index + 1].accountId)}
-              className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
             >
-              <ChevronRight size={13} aria-hidden />
+              <ChevronRight size={14} aria-hidden />
             </button>
           </span>
         )}
