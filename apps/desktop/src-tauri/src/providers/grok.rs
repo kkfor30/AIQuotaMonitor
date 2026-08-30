@@ -226,19 +226,34 @@ pub async fn login_via_cli() -> Result<(), String> {
                         }
                     }
                     return Err(format!(
-                        "Grok 登录未完成或已取消。CLI 最后输出：{}",
-                        recent.iter().cloned().collect::<Vec<_>>().join(" / ")
+                        "Grok 登录未完成或已取消。CLI 最后输出：{}{}",
+                        recent.iter().cloned().collect::<Vec<_>>().join(" / "),
+                        network_failure_hint(&recent)
                     ));
                 }
                 if std::time::Instant::now() > deadline {
                     let _ = child.kill().await;
                     return Err(format!(
-                        "登录超时（3 分钟）。CLI 最后输出：{}。也可以在终端手动运行 grok login",
-                        recent.iter().cloned().collect::<Vec<_>>().join(" / ")
+                        "登录超时（3 分钟）。CLI 最后输出：{}{}。也可以在终端手动运行 grok login",
+                        recent.iter().cloned().collect::<Vec<_>>().join(" / "),
+                        network_failure_hint(&recent)
                     ));
                 }
             }
         }
+    }
+}
+
+/// CLI 输出里出现网络失败特征时，追加可行动的代理提示（auth.x.ai 需要代理可达）。
+fn network_failure_hint(recent: &std::collections::VecDeque<String>) -> String {
+    let joined = recent.iter().cloned().collect::<Vec<_>>().join(" ").to_lowercase();
+    let failed = ["timed out", "error sending request", "connection refused", "connection reset", "unreachable", "proxy"]
+        .iter()
+        .any(|mark| joined.contains(mark));
+    if failed {
+        "。无法连接 auth.x.ai：若网络需要代理访问 xAI，请开启系统代理后重试（登录会自动注入系统代理）；若代理已开仍失败，检查代理软件是否放行 auth.x.ai".to_string()
+    } else {
+        String::new()
     }
 }
 
