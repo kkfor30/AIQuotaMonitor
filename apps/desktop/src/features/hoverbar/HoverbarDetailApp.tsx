@@ -83,14 +83,19 @@ export function HoverbarDetailApp() {
   });
   const radarCheck = useMutation({
     mutationFn: () => {
+      const savedSource = radar?.analysisPrefs.sourceId ?? null;
+      const savedModel = radar?.analysisPrefs.model ?? null;
       const readyModel =
-        radar?.models.find((item) => item.sourceId === radar.analysisPrefs.sourceId && item.ready) ??
+        radar?.models.find(
+          (item) => item.sourceId === savedSource && item.model === savedModel && item.ready,
+        ) ??
+        radar?.models.find((item) => item.sourceId === savedSource && item.ready) ??
         radar?.models.find((item) => item.ready);
       const analyze = Boolean(radar?.analysisPrefs.analyze && readyModel);
       return runRadarCheck({
         analyze,
         rangeKey: radar?.analysisPrefs.rangeKey || "3d",
-        sourceId: readyModel?.sourceId ?? radar?.analysisPrefs.sourceId ?? null,
+        sourceId: readyModel?.sourceId ?? savedSource,
         model: readyModel?.model ?? null,
       });
     },

@@ -173,6 +173,7 @@ export type RadarAnalysisPrefs = {
   analyze: boolean;
   rangeKey: string;
   sourceId: string | null;
+  model: string | null;
   userPrompt: string;
   defaultUserPrompt: string;
 };
@@ -307,6 +308,7 @@ export type RadarModelOption = {
   displayName: string;
   model: string;
   ready: boolean;
+  custom: boolean;
 };
 
 export async function fetchRadarSnapshot(): Promise<RadarSnapshot> {
@@ -344,9 +346,22 @@ export async function saveRadarAnalysisPrefs(input: {
   analyze: boolean;
   rangeKey: string;
   sourceId?: string | null;
+  model?: string | null;
   userPrompt?: string | null;
 }): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("save_radar_analysis_prefs", input);
+}
+
+export async function testRadarModel(input: { sourceId: string; model: string }): Promise<void> {
+  return invoke<void>("test_radar_model", input);
+}
+
+export async function addRadarCustomModel(input: { sourceId: string; model: string }): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("add_radar_custom_model", input);
+}
+
+export async function deleteRadarCustomModel(input: { sourceId: string; model: string }): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("delete_radar_custom_model", input);
 }
 
 export type AppSettingsView = {

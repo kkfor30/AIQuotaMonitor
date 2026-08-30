@@ -7,7 +7,9 @@ mod quota_watch;
 
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
-use crate::storage::repository::{RadarAnalysisRecord, RadarCheckRecord, RadarEventRecord, TiboPostRecord};
+use crate::storage::repository::{
+    RadarAnalysisRecord, RadarCheckRecord, RadarEventRecord, SourceRecord, TiboPostRecord,
+};
 use crate::storage::vault;
 use chrono::{Duration as ChronoDuration, Local, NaiveDate, TimeZone};
 use quota_watch::QuotaVerificationView;
@@ -151,6 +153,8 @@ pub struct RadarModelOption {
     pub display_name: String,
     pub model: String,
     pub ready: bool,
+    /// 用户通过「验证连接」添加的自定义模型；默认模型为 false。
+    pub custom: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -177,6 +181,7 @@ pub struct RadarAnalysisPrefs {
     pub analyze: bool,
     pub range_key: String,
     pub source_id: Option<String>,
+    pub model: Option<String>,
     pub user_prompt: String,
     pub default_user_prompt: String,
 }
@@ -353,7 +358,7 @@ pub async fn run_check(
     model: Option<&str>,
     user_prompt: Option<&str>,
 ) -> Result<RadarSnapshot, String> {
-    let _ = save_analysis_prefs(database, analyze, range_key, source_id, user_prompt);
+    let _ = save_analysis_prefs(database, analyze, range_key, source_id, model, user_prompt);
     let started = epoch_ms();
     let id = format!("radar-{started}");
     let client = Client::builder()
@@ -669,6 +674,7 @@ fn json_list(value: &str) -> Vec<String> {
 }
 
 fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
+    let custom_models = database.list_radar_custom_models()?;
     let mut options = Vec::new();
     for platform in database.list_user_platforms()? {
         for source in database.list_sources(&platform.platform_id)? {
@@ -678,26 +684,48 @@ fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
             let Some((display, model)) = chat_target(&source.adapter_id) else {
                 continue;
             };
-            let ready = source
-                .secret_ref
-                .as_deref()
-                .and_then(|reference| vault::get(reference).ok().flatten())
-                .is_some()
-                && source.state != "error";
+            let ready = source_ready(&source);
             options.push(RadarModelOption {
-                source_id: source.id,
+                source_id: source.id.clone(),
                 platform_id: platform.platform_id.clone(),
-                display_name: if source.account_kind == "additional" {
-                    format!("{display} · {}", source.account_name)
-                } else {
-                    display.into()
-                },
+                display_name: display_name_for(&source, display),
                 model: model.into(),
                 ready,
+                custom: false,
             });
+            for custom in custom_models
+                .iter()
+                .filter(|item| item.source_id == source.id)
+            {
+                options.push(RadarModelOption {
+                    source_id: source.id.clone(),
+                    platform_id: platform.platform_id.clone(),
+                    display_name: display_name_for(&source, display),
+                    model: custom.model.clone(),
+                    ready,
+                    custom: true,
+                });
+            }
         }
     }
     Ok(options)
+}
+
+fn source_ready(source: &SourceRecord) -> bool {
+    source
+        .secret_ref
+        .as_deref()
+        .and_then(|reference| vault::get(reference).ok().flatten())
+        .is_some()
+        && source.state != "error"
+}
+
+fn display_name_for(source: &SourceRecord, display: &str) -> String {
+    if source.account_kind == "additional" {
+        format!("{display} · {}", source.account_name)
+    } else {
+        display.into()
+    }
 }
 
 fn chat_target(source_id: &str) -> Option<(&'static str, &'static str)> {
@@ -1277,6 +1305,7 @@ pub fn save_analysis_prefs(
     analyze: bool,
     range_key: &str,
     source_id: Option<&str>,
+    model: Option<&str>,
     user_prompt: Option<&str>,
 ) -> Result<(), String> {
     let range_key = if is_valid_range_key(range_key) {
@@ -1287,6 +1316,10 @@ pub fn save_analysis_prefs(
     database.set_setting_bool("radar_analyze", analyze)?;
     database.set_setting_string("radar_range_key", range_key)?;
     database.set_setting_string("radar_source_id", source_id.unwrap_or(""))?;
+    database.set_setting_string(
+        "radar_model",
+        model.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(""),
+    )?;
     if let Some(user_prompt) = user_prompt {
         database.set_setting_string("radar_user_prompt", &sanitize_user_prompt(user_prompt))?;
     }
@@ -1308,6 +1341,9 @@ fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String
         source_id: database
             .setting_string("radar_source_id")?
             .filter(|value| !value.is_empty()),
+        model: database
+            .setting_string("radar_model")?
+            .filter(|value| !value.is_empty()),
         user_prompt,
         default_user_prompt: DEFAULT_USER_PROMPT.into(),
     })
@@ -1323,6 +1359,76 @@ pub(crate) fn sanitize_user_prompt(raw: &str) -> String {
         return trimmed.to_string();
     }
     trimmed.chars().take(USER_PROMPT_MAX_CHARS).collect()
+}
+
+/// 校验用户输入的自定义模型名：只允许模型 ID 常见字符，拒绝控制字符与空白变体。
+fn sanitize_custom_model(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("模型名称不能为空".into());
+    }
+    if trimmed.len() > 128 {
+        return Err("模型名称过长（最多 128 字符）".into());
+    }
+    let valid = trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '/' | ':' | '@' | '+'));
+    if !valid {
+        return Err("模型名称只能包含字母、数字和 . - _ / : @ +".into());
+    }
+    Ok(trimmed.to_string())
+}
+
+/// 验证连接：用所选来源凭据向对话端点发一次极小请求，证明该模型名对此凭据真实可用。
+pub async fn test_chat_model(
+    database: &Database,
+    coordinator: &RefreshCoordinator,
+    source_id: &str,
+    model: &str,
+) -> Result<(), String> {
+    let model = sanitize_custom_model(model)?;
+    let target = resolve_chat_target(database, Some(source_id), Some(&model))?;
+    let body = json!({
+        "model": target.model,
+        "messages": [{"role": "user", "content": "ping"}]
+    });
+    send_chat(coordinator.client(), &target, &body).await?;
+    Ok(())
+}
+
+/// 保存自定义模型：校验来源存在且具备对话接口，入库去重后返回新快照。
+pub fn add_custom_model(
+    database: &Database,
+    source_id: &str,
+    model: &str,
+) -> Result<RadarSnapshot, String> {
+    let model = sanitize_custom_model(model)?;
+    let source = database.source(source_id)?;
+    if source.source_type != "api_key" {
+        return Err("只有 API Key 来源支持自定义模型".into());
+    }
+    let api_base = database
+        .user_platform(&source.platform_id)?
+        .and_then(|item| item.api_base_url);
+    if chat_endpoint_candidates(&source.adapter_id, api_base.as_deref()).is_empty() {
+        return Err("该来源没有对话接口".into());
+    }
+    if chat_target(&source.adapter_id).is_some_and(|(_, default)| default == model) {
+        return Err("该模型已是此来源的默认模型，无需重复添加".into());
+    }
+    database.add_radar_custom_model(source_id, &model)?;
+    snapshot(database)
+}
+
+/// 删除自定义模型；默认模型不在库中，删除是空操作但仍返回快照保持前端一致。
+pub fn delete_custom_model(
+    database: &Database,
+    source_id: &str,
+    model: &str,
+) -> Result<RadarSnapshot, String> {
+    let model = sanitize_custom_model(model)?;
+    database.delete_radar_custom_model(source_id, &model)?;
+    snapshot(database)
 }
 
 struct ModelJson {

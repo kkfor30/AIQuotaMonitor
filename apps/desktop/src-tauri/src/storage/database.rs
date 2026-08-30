@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 6;
+const CURRENT_SCHEMA_VERSION: i64 = 7;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -116,6 +116,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 6 {
         migrate_v6(&transaction)?;
+    }
+    if previous_version < 7 {
+        migrate_v7(&transaction)?;
     }
     transaction
         .commit()
@@ -400,6 +403,26 @@ fn migrate_v6(transaction: &Transaction<'_>) -> Result<(), String> {
             "#,
         )
         .map_err(|err| format!("执行 SQLite v6 迁移失败: {err}"))
+}
+
+fn migrate_v7(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            CREATE TABLE radar_custom_models (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                model TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(source_id, model)
+            );
+            CREATE INDEX idx_radar_custom_models_source ON radar_custom_models(source_id, created_at);
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (7, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v7 迁移失败: {err}"))
 }
 
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {

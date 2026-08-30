@@ -37,6 +37,13 @@ pub struct SourceRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct RadarCustomModelRecord {
+    pub source_id: String,
+    pub model: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct AccountRecord {
     pub id: String,
     pub platform_id: String,
@@ -921,6 +928,47 @@ impl Database {
         if changed == 0 {
             return Err(format!("雷达动态 {post_id} 不存在"));
         }
+        Ok(())
+    }
+
+    /// 雷达自定义分析模型：按来源保存用户验证过可用的模型名。
+    pub fn list_radar_custom_models(&self) -> Result<Vec<RadarCustomModelRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare("SELECT source_id, model, created_at FROM radar_custom_models ORDER BY created_at, id")
+            .map_err(|err| format!("准备自定义模型查询失败: {err}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(RadarCustomModelRecord {
+                    source_id: row.get(0)?,
+                    model: row.get(1)?,
+                    created_at: row.get(2)?,
+                })
+            })
+            .map_err(|err| format!("查询自定义模型失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取自定义模型失败: {err}"))
+    }
+
+    pub fn add_radar_custom_model(&self, source_id: &str, model: &str) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO radar_custom_models(source_id, model, created_at) VALUES (?1, ?2, ?3)",
+                params![source_id, model, epoch_ms()],
+            )
+            .map_err(|err| format!("保存自定义模型失败: {err}"))?;
+        Ok(())
+    }
+
+    pub fn delete_radar_custom_model(&self, source_id: &str, model: &str) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "DELETE FROM radar_custom_models WHERE source_id = ?1 AND model = ?2",
+                params![source_id, model],
+            )
+            .map_err(|err| format!("删除自定义模型失败: {err}"))?;
         Ok(())
     }
 

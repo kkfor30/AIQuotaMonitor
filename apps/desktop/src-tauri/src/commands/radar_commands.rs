@@ -57,6 +57,7 @@ pub fn save_radar_analysis_prefs(
     analyze: bool,
     range_key: String,
     source_id: Option<String>,
+    model: Option<String>,
     user_prompt: Option<String>,
     window: WebviewWindow,
     app: AppHandle,
@@ -68,9 +69,53 @@ pub fn save_radar_analysis_prefs(
         analyze,
         &range_key,
         source_id.as_deref(),
+        model.as_deref(),
         user_prompt.as_deref(),
     )?;
     let snapshot = radar::snapshot(&database)?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
+}
+
+/// 验证连接：向所选来源的对话端点发一次极小请求，验证自定义模型名真实可用。
+#[tauri::command]
+pub async fn test_radar_model(
+    source_id: String,
+    model: String,
+    window: WebviewWindow,
+    database: State<'_, Database>,
+    coordinator: State<'_, RefreshCoordinator>,
+) -> Result<(), String> {
+    require_label(&window, &["main"])?;
+    radar::test_chat_model(&database, &coordinator, &source_id, &model).await
+}
+
+/// 保存验证过的自定义模型，加入分析模型下拉。
+#[tauri::command]
+pub fn add_radar_custom_model(
+    source_id: String,
+    model: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main"])?;
+    let snapshot = radar::add_custom_model(&database, &source_id, &model)?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
+}
+
+/// 删除自定义模型，从分析模型下拉移除。
+#[tauri::command]
+pub fn delete_radar_custom_model(
+    source_id: String,
+    model: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main"])?;
+    let snapshot = radar::delete_custom_model(&database, &source_id, &model)?;
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
 }

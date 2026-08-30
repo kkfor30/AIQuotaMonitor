@@ -20,15 +20,18 @@ import { Switch } from "@/components/ui/Switch";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import {
+  addRadarCustomModel,
   confirmRadarQuotaChange,
+  deleteRadarCustomModel,
   fetchRadarSnapshot,
   ipcErrorMessage,
   openExternalUrl,
   runRadarCheck,
   saveRadarAnalysisPrefs,
+  testRadarModel,
 } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
-import type { RadarPost } from "@/lib/ipc";
+import type { RadarModelOption, RadarPost } from "@/lib/ipc";
 import { quotaStatusText, radarPhaseLabel } from "@/features/hoverbar/hoverbar-state";
 
 export function GptRadarPage() {
@@ -39,6 +42,7 @@ export function GptRadarPage() {
   const [rangeKey, setRangeKey] = useState("3d");
   const [analyze, setAnalyze] = useState(false);
   const [sourceId, setSourceId] = useState<string>("");
+  const [modelChoice, setModelChoice] = useState<string>("");
   const [userPrompt, setUserPrompt] = useState("");
 
   const { data, isLoading } = useQuery({
@@ -53,6 +57,7 @@ export function GptRadarPage() {
     setAnalyze(data.analysisPrefs.analyze);
     setRangeKey(data.analysisPrefs.rangeKey || "3d");
     if (data.analysisPrefs.sourceId) setSourceId(data.analysisPrefs.sourceId);
+    if (data.analysisPrefs.model) setModelChoice(data.analysisPrefs.model);
     setUserPrompt(data.analysisPrefs.userPrompt ?? data.analysisPrefs.defaultUserPrompt ?? "");
   }, [data]);
 
@@ -63,19 +68,27 @@ export function GptRadarPage() {
         analyze,
         rangeKey,
         sourceId: sourceId || null,
+        model: modelChoice || null,
         userPrompt,
       });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [analyze, rangeKey, sourceId, userPrompt]);
+  }, [analyze, rangeKey, sourceId, modelChoice, userPrompt]);
+
+  // 所选来源 + 模型的选项；modelChoice 失配（来源切换、旧偏好）时回退该来源默认模型。
+  const modelOptions = data?.models ?? [];
+  const chosenModel =
+    modelOptions.find((item) => item.sourceId === sourceId && item.model === modelChoice) ??
+    modelOptions.find((item) => item.sourceId === sourceId) ??
+    null;
 
   const checkMutation = useMutation({
     mutationFn: () =>
       runRadarCheck({
         analyze,
         rangeKey,
-        sourceId: sourceId || data?.models.find((item) => item.ready)?.sourceId || null,
-        model: data?.models.find((item) => item.sourceId === sourceId)?.model ?? null,
+        sourceId: chosenModel?.sourceId ?? null,
+        model: chosenModel?.model ?? null,
         userPrompt,
       }),
     onSuccess: (snapshot) => {
@@ -90,7 +103,6 @@ export function GptRadarPage() {
     return post.filter === "none";
   });
   const selected = visible.find((post) => post.id === selectedId) ?? visible[0] ?? null;
-  const models = data?.models ?? [];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-2 pr-2">
@@ -169,11 +181,13 @@ export function GptRadarPage() {
           data={data}
           analyze={analyze}
           rangeKey={rangeKey}
-          sourceId={sourceId || models.find((item) => item.ready)?.sourceId || ""}
-          models={models}
+          sourceId={sourceId || modelOptions.find((item) => item.ready)?.sourceId || ""}
+          modelChoice={modelChoice}
+          models={modelOptions}
           onAnalyzeChange={setAnalyze}
           onRangeChange={setRangeKey}
           onSourceChange={setSourceId}
+          onModelChange={setModelChoice}
           userPrompt={userPrompt}
           defaultUserPrompt={data?.analysisPrefs.defaultUserPrompt ?? ""}
           onUserPromptChange={setUserPrompt}
@@ -700,24 +714,28 @@ function AiAnalysisView({
   analyze,
   rangeKey,
   sourceId,
+  modelChoice,
   models,
   userPrompt,
   defaultUserPrompt,
   onAnalyzeChange,
   onRangeChange,
   onSourceChange,
+  onModelChange,
   onUserPromptChange,
 }: {
   data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined;
   analyze: boolean;
   rangeKey: string;
   sourceId: string;
-  models: { sourceId: string; displayName: string; model: string; ready: boolean }[];
+  modelChoice: string;
+  models: RadarModelOption[];
   userPrompt: string;
   defaultUserPrompt: string;
   onAnalyzeChange: (value: boolean) => void;
   onRangeChange: (value: string) => void;
   onSourceChange: (value: string) => void;
+  onModelChange: (value: string) => void;
   onUserPromptChange: (value: string) => void;
 }) {
   const analysis = data?.analysis;
@@ -736,6 +754,11 @@ function AiAnalysisView({
   const customRange = customRangeOf(rangeKey);
   const customActive = !QUICK_RANGES.some((range) => range.id === rangeKey) && customRange !== null;
   const todayIso = toIsoDate(new Date());
+  // 所选来源 + 模型的选项；modelChoice 失配（来源切换、旧偏好）时回退该来源默认模型。
+  const selectedModelOption =
+    models.find((item) => item.sourceId === sourceId && item.model === modelChoice) ??
+    models.find((item) => item.sourceId === sourceId) ??
+    null;
   const applyCustomRange = (start: string, end: string) => {
     if (!start || !end || start.length !== 10 || end.length !== 10) return;
     const [from, to] = start <= end ? [start, end] : [end, start];
@@ -809,16 +832,31 @@ function AiAnalysisView({
           </div>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium text-q-text-primary">分析模型</span>
-            <select value={sourceId} onChange={(event) => onSourceChange(event.target.value)} className={selectClass}>
+            <select
+              value={
+                selectedModelOption ? `${selectedModelOption.sourceId}|${selectedModelOption.model}` : ""
+              }
+              onChange={(event) => {
+                const [nextSource, ...rest] = event.target.value.split("|");
+                onSourceChange(nextSource);
+                onModelChange(rest.join("|"));
+              }}
+              className={selectClass}
+            >
               {models.length === 0 && <option value="">请先在平台中心接入 API Key</option>}
               {models.map((item) => (
-                <option key={item.sourceId} value={item.sourceId} disabled={!item.ready}>
+                <option
+                  key={`${item.sourceId}|${item.model}`}
+                  value={`${item.sourceId}|${item.model}`}
+                  disabled={!item.ready}
+                >
                   {item.displayName} · {item.model}
                   {item.ready ? "" : "（不可用）"}
                 </option>
               ))}
             </select>
           </label>
+          <CustomModelPanel models={models} selected={selectedModelOption} onAdded={onModelChange} />
           <p className="text-xs leading-relaxed text-q-text-muted">
             开启 AI 时，每次检查都会按当前时间范围重新分析所选帖子，不跳过、不沿用旧结果；关闭时仅同步来源内容，结论区展示最近一次成功分析并标注时间。
           </p>
@@ -929,6 +967,156 @@ function AiAnalysisView({
         <BrainCircuit size={13} aria-hidden className="shrink-0" />
         AI 是解释器而不是证据来源：每个输出必须引用实际原文；没有真实原文或分析失败时不生成结论。
       </p>
+    </div>
+  );
+}
+
+/* ——— 自定义分析模型：输入模型名 → 验证连接 → 保存入库 ——— */
+
+function CustomModelPanel({
+  models,
+  selected,
+  onAdded,
+}: {
+  models: RadarModelOption[];
+  selected: RadarModelOption | null;
+  onAdded: (model: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [verifiedModel, setVerifiedModel] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  const trimmed = draft.trim();
+  const sourceReady = Boolean(selected?.ready);
+
+  const testMutation = useMutation({
+    mutationFn: () => {
+      if (!selected) return Promise.reject(new Error("请先选择一个分析模型来源"));
+      return testRadarModel({ sourceId: selected.sourceId, model: trimmed });
+    },
+    onSuccess: () => {
+      setVerifiedModel(trimmed);
+      setFeedback({ kind: "ok", text: "连接成功，可以保存。" });
+    },
+    onError: (error) => {
+      setVerifiedModel(null);
+      setFeedback({ kind: "error", text: ipcErrorMessage(error, "操作失败") });
+    },
+  });
+  const addMutation = useMutation({
+    mutationFn: (model: string) => {
+      if (!selected) return Promise.reject(new Error("请先选择一个分析模型来源"));
+      return addRadarCustomModel({ sourceId: selected.sourceId, model });
+    },
+    onSuccess: (snapshot, model) => {
+      queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot);
+      onAdded(model);
+      setDraft("");
+      setVerifiedModel(null);
+      setFeedback({ kind: "ok", text: `已保存 ${model}，已加入上方下拉。` });
+    },
+    onError: (error) => setFeedback({ kind: "error", text: ipcErrorMessage(error, "操作失败") }),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (model: string) => {
+      if (!selected) return Promise.reject(new Error("请先选择一个分析模型来源"));
+      return deleteRadarCustomModel({ sourceId: selected.sourceId, model });
+    },
+    onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
+    onError: (error) => setFeedback({ kind: "error", text: ipcErrorMessage(error, "操作失败") }),
+  });
+
+  const changeDraft = (value: string) => {
+    setDraft(value);
+    setVerifiedModel(null);
+    setFeedback(null);
+  };
+
+  // 切换来源后，旧来源的验证结果不再有效，避免未验证就保存到新来源。
+  useEffect(() => {
+    setVerifiedModel(null);
+    setFeedback(null);
+  }, [selected?.sourceId]);
+
+  const customOptions = selected
+    ? models.filter((item) => item.custom && item.sourceId === selected.sourceId)
+    : [];
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        className="self-start cursor-pointer text-xs font-medium text-q-primary hover:underline"
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? "收起自定义模型" : "添加自定义模型"}
+      </button>
+      {open ? (
+        selected ? (
+          <div className="flex flex-col gap-2 rounded-q-control border border-q-border bg-q-surface px-3 py-2.5">
+            <p className="text-xs leading-relaxed text-q-text-muted">
+              为「{selected.displayName}」添加平台支持的任意模型名：先验证连接（发送一次极小请求），通过后保存即可加入上方下拉。
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={draft}
+                onChange={(event) => changeDraft(event.target.value)}
+                placeholder="模型名称，例如 deepseek-reasoner"
+                disabled={!sourceReady}
+                className="h-9 min-w-0 flex-1 rounded-md border border-q-border bg-q-surface px-2.5 text-xs text-q-text-primary outline-none focus:border-q-primary disabled:opacity-50"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!sourceReady || !trimmed || testMutation.isPending}
+                onClick={() => testMutation.mutate()}
+              >
+                {testMutation.isPending ? "验证中…" : verifiedModel === trimmed ? "重新验证" : "验证连接"}
+              </Button>
+              <Button
+                size="sm"
+                disabled={!sourceReady || !trimmed || verifiedModel !== trimmed || addMutation.isPending}
+                onClick={() => addMutation.mutate(trimmed)}
+              >
+                {addMutation.isPending ? "保存中…" : "保存"}
+              </Button>
+            </div>
+            {!sourceReady ? (
+              <p className="text-xs text-q-text-muted">当前来源凭据不可用，先在平台中心修复后再添加模型。</p>
+            ) : null}
+            {feedback ? (
+              <p className={cn("text-xs leading-relaxed", feedback.kind === "ok" ? "text-q-success" : "text-q-danger")}>
+                {feedback.text}
+              </p>
+            ) : null}
+            {customOptions.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {customOptions.map((item) => (
+                  <span
+                    key={item.model}
+                    className="inline-flex items-center gap-1 rounded-q-pill border border-q-border bg-q-surface-strong py-0.5 pl-2.5 pr-1 text-[11px] text-q-text-secondary"
+                  >
+                    {item.model}
+                    <button
+                      type="button"
+                      aria-label={`删除自定义模型 ${item.model}`}
+                      disabled={deleteMutation.isPending}
+                      onClick={() => deleteMutation.mutate(item.model)}
+                      className="cursor-pointer rounded-full px-1 text-q-text-muted hover:bg-q-danger-soft hover:text-q-danger disabled:opacity-50"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-xs text-q-text-muted">请先在上方下拉中选择一个分析模型来源。</p>
+        )
+      ) : null}
     </div>
   );
 }
