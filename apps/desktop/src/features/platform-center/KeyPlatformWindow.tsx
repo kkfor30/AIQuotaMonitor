@@ -412,9 +412,21 @@ function PlatformStripCard({
         capability.capabilityId.startsWith("quota_window_") && capability.value.primary !== null,
     )
     .sort((left, right) => windowOrder(left.capabilityId) - windowOrder(right.capabilityId) || left.capabilityId.localeCompare(right.capabilityId));
+  // 多账号平台按账号分行展示窗口额度（Capability 用 accountId 归属，不合并同名窗口）
+  const accountWindowRows = platform.accounts
+    .map((account) => ({
+      account,
+      windows: windows.filter((capability) => capability.accountId === account.accountId),
+    }))
+    .filter((row) => row.windows.length > 0);
+  const multiAccountRows = platform.accounts.length > 1 && accountWindowRows.length > 1 ? accountWindowRows : null;
   const balance = platform.capabilities.find(
     (capability) => capability.capabilityId === "balance" && capability.value.primary !== null,
   );
+  // 多账号平台余额行标注所属账号，避免多个余额来源时含义不清
+  const balanceAccountName = balance && multiAccountRows
+    ? (platform.accounts.find((account) => account.accountId === balance.accountId)?.displayName ?? null)
+    : null;
   const totalSpend = platform.capabilities.find(
     (capability) => capability.capabilityId === "total_spend" && capability.value.primary !== null,
   );
@@ -457,9 +469,56 @@ function PlatformStripCard({
         <AggregateStatusBadge status={platform.aggregateStatus} />
       </div>
 
-      {/* 卡身：窗口平台展示 5 小时 / 7 天大号百分比；余额平台展示大号金额 */}
+      {/* 卡身：单账号窗口平台展示 5 小时 / 7 天大号百分比；多账号平台按账号分行，避免同名窗口并列混淆 */}
       <div className="mt-3 flex min-h-0 flex-1 flex-col">
-        {windows.length > 0 ? (
+        {multiAccountRows ? (
+          <>
+            <div className="flex min-h-0 flex-1 flex-col justify-center gap-2.5">
+              {multiAccountRows.map((row) => (
+                <div key={row.account.accountId} className="flex min-w-0 items-baseline justify-between gap-2">
+                  <span className="min-w-0 truncate text-[11px] font-medium text-q-text-muted">
+                    {row.account.displayName}
+                  </span>
+                  <span className="flex shrink-0 flex-wrap items-baseline justify-end gap-x-3 gap-y-0.5">
+                    {row.windows.map((capability) => (
+                      <span
+                        key={capability.capabilityId}
+                        className="text-[11px] text-q-text-muted"
+                        data-selectable="true"
+                      >
+                        {windowShortLabel(capability)}
+                        <b
+                          className={cn(
+                            "ml-1 text-[15px] font-bold leading-5 tabular-nums",
+                            stale ? "text-q-warning" : "",
+                          )}
+                          style={stale ? undefined : { color: tone }}
+                        >
+                          {compactPercentText(capability.value.primary ?? "")}
+                        </b>
+                        {capability.freshness === "stale" ? " · 缓存" : ""}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {balance && (
+              <div className="mt-auto flex items-baseline justify-between border-t border-q-border pt-2">
+                <span className="min-w-0 truncate text-[11px] text-q-text-muted">
+                  {balance.displayName}
+                  {balanceAccountName ? ` · ${balanceAccountName}` : ""}
+                </span>
+                <span
+                  className="text-[13px] font-bold tabular-nums text-q-text-primary"
+                  data-selectable="true"
+                >
+                  {compactPercentText(balance.value.primary ?? "")}
+                </span>
+              </div>
+            )}
+          </>
+        ) : windows.length > 0 ? (
           <>
             <div className="grid flex-1 grid-cols-2 gap-2">
               {windows.slice(0, 2).map((capability) => (
