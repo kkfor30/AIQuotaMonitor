@@ -56,16 +56,28 @@ export function OverviewPage({
     (p) => p.aggregateStatus === "setup_required" || p.aggregateStatus === "error",
   ).length;
 
-  // 消费趋势：只纳入携带真实金额序列（usage_trend）的平台
+  // 消费趋势：每个余额/消费类平台取一条真实金额序列（每平台最多一条，不混口径）。
+  // 优先 adapter 提供的官方消费序列（如 DeepSeek usage_trend）；无消费能力的
+  // 余额平台回退展示余额走势，序列名标注「余额」，全部来自本地真实快照历史。
   const consumptionSeries: TrendSeries[] = platforms.flatMap((platform) => {
-    const capability = platform.capabilities.find(
+    const adapterTrend = platform.capabilities.find(
       (item) => item.value.kind === "trend" && item.trend.length > 0,
     );
+    const moneyCap = ["today_spend", "month_spend", "total_spend", "balance"]
+      .map((id) =>
+        platform.capabilities.find(
+          (item) => item.capabilityId === id && item.trend.length > 0,
+        ),
+      )
+      .find((item): item is NonNullable<typeof item> => Boolean(item));
+    const capability = adapterTrend ?? moneyCap;
     if (!capability) return [];
+    // 无消费能力的余额平台用余额走势，序列名标清口径避免与消费混读
+    const kindLabel = !adapterTrend && capability.capabilityId === "balance" ? "余额" : "消费";
     return [
       {
         id: platform.providerId,
-        name: platform.displayName,
+        name: `${platform.displayName} ${kindLabel}`,
         color: providerBrand(platform.providerId).color,
         points: capability.trend.map((point) => ({ label: point.label, value: point.value })),
       },
@@ -233,7 +245,7 @@ export function OverviewPage({
               消费趋势
               <span className="ml-1.5 text-[11px] font-normal text-q-text-muted">（最近 7 天）</span>
             </h2>
-            <span title="仅纳入提供官方金额序列的平台（如 DeepSeek 网页用量）">
+            <span title="每个平台一条真实金额序列：优先每日消费，无消费能力的余额平台展示余额走势；均来自本机快照历史">
               <Info size={14} aria-hidden className="cursor-help text-q-text-muted" />
             </span>
           </div>
@@ -241,7 +253,7 @@ export function OverviewPage({
             series={consumptionSeries}
             valueKind="money"
             emptyTitle="暂无消费趋势数据"
-            emptyDescription="接入带官方金额序列的平台（如 DeepSeek 网页用量）后，此处展示每日消费变化。"
+            emptyDescription="平台产生真实的消费或余额快照后，此处展示最近 7 天的金额走势。"
           />
         </section>
       </div>

@@ -712,6 +712,27 @@ impl Database {
         capability_id: &str,
         days: i64,
     ) -> Result<Vec<(String, f64)>, String> {
+        self.snapshot_daily_trend(source_id, capability_id, days, parse_percent_value)
+    }
+
+    /// 最近 N 个本地自然日内同一 Source + 金额能力的历史（每日最后一条快照的原值）。
+    pub fn money_daily_trend(
+        &self,
+        source_id: &str,
+        capability_id: &str,
+        days: i64,
+    ) -> Result<Vec<(String, f64)>, String> {
+        self.snapshot_daily_trend(source_id, capability_id, days, parse_money_value)
+    }
+
+    /// 每日趋势通用聚合：取窗口内每天最大 id（最后一次写入）的真实快照，按本地日分桶。
+    fn snapshot_daily_trend(
+        &self,
+        source_id: &str,
+        capability_id: &str,
+        days: i64,
+        parse: impl Fn(&str) -> Option<f64>,
+    ) -> Result<Vec<(String, f64)>, String> {
         let connection = self.connect()?;
         let since = epoch_ms().saturating_sub(days * 86_400_000);
         let mut statement = connection
@@ -720,18 +741,18 @@ impl Database {
                  WHERE source_id = ?1 AND capability_id = ?2 AND captured_at >= ?3 AND primary_value IS NOT NULL
                  ORDER BY id ASC",
             )
-            .map_err(|err| format!("准备窗口趋势查询失败: {err}"))?;
+            .map_err(|err| format!("准备每日趋势查询失败: {err}"))?;
         let rows = statement
             .query_map(params![source_id, capability_id, since], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
             })
-            .map_err(|err| format!("读取窗口趋势失败: {err}"))?;
+            .map_err(|err| format!("读取每日趋势失败: {err}"))?;
         // 同一本地自然日取最大 id（最后一次写入），缺失日自然缺席
         let mut by_day: std::collections::BTreeMap<chrono::NaiveDate, (i64, f64)> =
             std::collections::BTreeMap::new();
         for row in rows {
-            let (id, captured_at, primary) = row.map_err(|err| format!("读取窗口趋势失败: {err}"))?;
-            let Some(remaining) = parse_percent_value(&primary) else {
+            let (id, captured_at, primary) = row.map_err(|err| format!("读取每日趋势失败: {err}"))?;
+            let Some(value) = parse(&primary) else {
                 continue;
             };
             let day = chrono::DateTime::from_timestamp_millis(captured_at)
@@ -740,13 +761,13 @@ impl Database {
             match by_day.get(&day) {
                 Some(&(existing_id, _)) if existing_id > id => {}
                 _ => {
-                    by_day.insert(day, (id, remaining));
+                    by_day.insert(day, (id, value));
                 }
             }
         }
         Ok(by_day
             .into_iter()
-            .map(|(day, (_, remaining))| (day.format("%m-%d").to_string(), remaining))
+            .map(|(day, (_, value))| (day.format("%m-%d").to_string(), value))
             .collect())
     }
 
@@ -1034,6 +1055,17 @@ fn epoch_ms() -> i64 {
 fn parse_percent_value(primary: &str) -> Option<f64> {
     let text = primary.trim().trim_end_matches('%').trim();
     text.parse::<f64>().ok().filter(|value| value.is_finite())
+}
+
+/// 解析金额快照主值（如 "¥3.50"、"$1,299.00" → 数值）；仅用于图表展示，不做汇总。
+fn parse_money_value(primary: &str) -> Option<f64> {
+    let text: String = primary
+        .trim()
+        .trim_start_matches(['¥', '$'])
+        .chars()
+        .filter(|ch| ch.is_ascii_digit() || *ch == '.')
+        .collect();
+    text.parse::<f64>().ok().filter(|value| value.is_finite() && *value >= 0.0)
 }
 
 #[cfg(test)]

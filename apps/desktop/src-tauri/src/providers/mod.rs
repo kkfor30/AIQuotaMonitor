@@ -537,27 +537,45 @@ fn real_platform(
             },
         });
     }
-    // 额度使用趋势（V7）：进度条看剩余，趋势图看已使用。窗口能力的历史来自
-    // SQLite 最近 7 天真实快照（按本地日分桶），在 ViewModel 层把剩余换算为已使用，
-    // 不要求 adapter 拼历史，也不补缺失日。
+    // 趋势回填（V7）：进度条看剩余，趋势图看已使用/金额。窗口与金额能力的历史来自
+    // SQLite 最近 7 天真实快照（按本地日分桶），在 ViewModel 层换算，不要求 adapter
+    // 拼历史，也不补缺失日。adapter 已提供序列的能力（如 DeepSeek usage_trend）不覆盖。
     let mut capabilities = capabilities;
     for capability in capabilities.iter_mut() {
-        if !capability.capability_id.starts_with("quota_window_") {
+        let already_trended = !capability.trend.is_empty() || capability.value.kind == "trend";
+        if already_trended {
             continue;
         }
-        let points = database
-            .window_daily_trend(&capability.source_id, &capability.capability_id, 7)
-            .unwrap_or_default();
-        capability.trend = points
-            .into_iter()
-            .filter_map(|(label, remaining)| {
-                if !remaining.is_finite() {
-                    return None;
-                }
-                let used = (100.0 - remaining).clamp(0.0, 100.0);
-                Some(TrendPoint { label, value: (used * 10.0).round() / 10.0 })
-            })
-            .collect();
+        let points = if capability.capability_id.starts_with("quota_window_") {
+            database
+                .window_daily_trend(&capability.source_id, &capability.capability_id, 7)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|(label, remaining)| {
+                    if !remaining.is_finite() {
+                        return None;
+                    }
+                    let used = (100.0 - remaining).clamp(0.0, 100.0);
+                    Some(TrendPoint { label, value: (used * 10.0).round() / 10.0 })
+                })
+                .collect::<Vec<_>>()
+        } else if matches!(
+            capability.capability_id.as_str(),
+            "balance" | "today_spend" | "month_spend" | "total_spend"
+        ) && capability.value.kind == "money"
+        {
+            database
+                .money_daily_trend(&capability.source_id, &capability.capability_id, 7)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|(label, amount)| {
+                    amount.is_finite().then(|| TrendPoint { label, value: (amount * 100.0).round() / 100.0 })
+                })
+                .collect::<Vec<_>>()
+        } else {
+            continue;
+        };
+        capability.trend = points;
     }
     let platform_status = aggregate_status(&sources, &capabilities);
     let mut accounts = Vec::new();
