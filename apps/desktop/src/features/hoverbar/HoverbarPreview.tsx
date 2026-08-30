@@ -342,6 +342,7 @@ const previewRadar: RadarSnapshot = {
     analyze: false,
     rangeKey: "3d",
     sourceId: null,
+    model: null,
     userPrompt: "",
     defaultUserPrompt: "",
   },
