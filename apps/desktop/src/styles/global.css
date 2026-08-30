@@ -1273,7 +1273,8 @@ html.hoverbar-window #root {
   align-self: flex-end;
 }
 
-/* 左右侧停靠：头部仅留徽章与操作保单行，「可能过期」移到注释行（可换行）仍可见。 */
+/* 左右侧停靠：头部仅留徽章与操作保单行（300px 下标题+徽章+操作逼近临界），
+   「可能过期」移到注释行（可换行）仍可见。 */
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-head {
   flex-wrap: nowrap;
@@ -1282,6 +1283,11 @@ html.hoverbar-window #root {
 
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head > svg,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-head > svg {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-strip-title,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-title {
   display: none;
 }
 
