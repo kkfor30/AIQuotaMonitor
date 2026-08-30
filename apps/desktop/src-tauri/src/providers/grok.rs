@@ -15,6 +15,7 @@
 //! 两者都缺才报 response_shape_changed，不补零不造数。
 
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
+use tokio::io::AsyncBufReadExt;
 use crate::providers::money::WEB_UA;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
@@ -66,30 +67,6 @@ fn select_access_token(root: &serde_json::Map<String, Value>) -> Option<String> 
     oidc.or(legacy)
 }
 
-/// 在新的终端窗口运行 `grok login`（浏览器 OAuth 由 CLI 自行处理），
-/// 命令退出后校验本机 auth.json 已恢复可用。本应用不代填凭据。
-pub async fn login_via_cli() -> Result<(), String> {
-    let program = resolve_grok_program().map_err(|message| message)?;
-    let mut command = tokio::process::Command::new(program);
-    command.arg("login").kill_on_drop(false);
-    #[cfg(windows)]
-    {
-        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-        command.creation_flags(CREATE_NEW_CONSOLE);
-    }
-    let status = command
-        .status()
-        .await
-        .map_err(|error| format!("无法启动 Grok 登录：{error}。请确认终端里可以运行 `grok`"))?;
-    if !status.success() {
-        return Err("Grok 登录未完成或已取消".into());
-    }
-    if !local_auth_available() {
-        return Err("登录窗口已关闭，但仍未检测到 Grok 登录".into());
-    }
-    Ok(())
-}
-
 fn resolve_grok_program() -> Result<std::path::PathBuf, String> {
     if let Some(explicit) = std::env::var_os("GROK_BIN") {
         let path = std::path::PathBuf::from(explicit);
@@ -113,6 +90,113 @@ fn resolve_grok_program() -> Result<std::path::PathBuf, String> {
         }
     }
     Err("未找到 Grok CLI。请确认终端里可以运行 `grok`，或设置 GROK_BIN 指向可执行文件。".into())
+}
+
+/// 平台内重新登录：后台静默运行 `grok login`，自动抓取 CLI 打印的授权链接并
+/// 打开浏览器完成 OAuth；轮询本机 auth.json 中 token 变化判定登录完成。
+/// 超时或取消时把 CLI 的最后输出带回给用户（不再开一个无提示的黑窗）。
+pub async fn login_via_cli() -> Result<(), String> {
+    let program = resolve_grok_program().map_err(|message| message)?;
+    let baseline_token = read_access_token();
+    let mut command = tokio::process::Command::new(program);
+    command.arg("login").kill_on_drop(false);
+    command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("无法启动 Grok 登录：{error}。请确认终端里可以运行 `grok`，或设置 GROK_BIN"))?;
+    let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    if let Some(stdout) = child.stdout.take() {
+        let tx = line_tx.clone();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = tx.send(line);
+            }
+        });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let tx = line_tx.clone();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = tx.send(line);
+            }
+        });
+    }
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+    let mut ticker = tokio::time::interval(std::time::Duration::from_millis(500));
+    let mut opened_url = false;
+    let mut recent: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    let mut output_closed = false;
+    loop {
+        tokio::select! {
+            maybe_line = line_rx.recv() => {
+                match maybe_line {
+                    Some(line) => {
+                        if !opened_url {
+                            if let Some(url) = extract_http_url(&line) {
+                                opened_url = true;
+                                let _ = crate::commands::window_commands::open_http_url(url);
+                            }
+                        }
+                        recent.push_back(line);
+                        if recent.len() > 4 {
+                            recent.pop_front();
+                        }
+                    }
+                    None => {
+                        // 两个输出流都已关闭：进程即将/已经退出
+                        output_closed = true;
+                    }
+                }
+            }
+            _ = ticker.tick() => {
+                if let Some(token) = read_access_token() {
+                    if baseline_token.as_deref() != Some(token.as_str()) {
+                        // CLI 已把新 token 写回 auth.json：登录完成
+                        return Ok(());
+                    }
+                }
+                if output_closed {
+                    // 给 CLI 一点收尾写文件的时间再做最终判定
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    if let Some(token) = read_access_token() {
+                        if baseline_token.as_deref() != Some(token.as_str()) {
+                            return Ok(());
+                        }
+                    }
+                    return Err(format!(
+                        "Grok 登录未完成或已取消。CLI 最后输出：{}",
+                        recent.iter().cloned().collect::<Vec<_>>().join(" / ")
+                    ));
+                }
+                if std::time::Instant::now() > deadline {
+                    let _ = child.kill().await;
+                    return Err(format!(
+                        "登录超时（3 分钟）。CLI 最后输出：{}。也可以在终端手动运行 grok login",
+                        recent.iter().cloned().collect::<Vec<_>>().join(" / ")
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// 从 CLI 输出行里提取第一个 http(s) 链接（授权页/设备码页）。
+fn extract_http_url(line: &str) -> Option<&str> {
+    let start = line.find("http://").or_else(|| line.find("https://"))?;
+    let rest = &line[start..];
+    let end = rest
+        .find(|ch: char| ch.is_whitespace() || ch == ')' || ch == '"' || ch == '\'' || ch == '`')
+        .unwrap_or(rest.len());
+    let url = &rest[..end];
+    (url.len() > 8).then_some(url)
 }
 
 pub async fn fetch(client: &Client) -> SourceRefreshOutput {
