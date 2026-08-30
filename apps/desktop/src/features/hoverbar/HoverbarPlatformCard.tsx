@@ -14,7 +14,7 @@ import type {
 import type { RadarSnapshot } from "@/lib/ipc";
 import { compactPercentText } from "@/lib/format";
 import { RadarConfidenceBadge } from "@/features/radar/RadarConfidenceBadge";
-import { radarSourceLine } from "./hoverbar-state";
+import { formatHoverbarClock, radarSourceLine } from "./hoverbar-state";
 import { hoverbarProviderVisual } from "./provider-visuals";
 
 const DEEPSEEK_EXTRA_IDS = ["today_spend", "month_spend", "cache_hit_rate"] as const;
@@ -227,14 +227,26 @@ function RadarStrip({
     latest?.translatedText ??
     latest?.text ??
     "暂未同步重置信号来源";
-  const confidence = analysis?.errorMessage ? null : analysis?.confidence ?? null;
-  const analyzeError = analysis?.errorMessage ?? radarRefreshError;
+  const confidence = analysis?.confidence ?? null;
+  const analyzeError = radarRefreshError;
   return (
     <footer className="hb-radar-strip">
       <div className="hb-radar-strip-head">
         <Radar size={14} aria-hidden />
         <span className="hb-radar-strip-title">重置信号</span>
-        {confidence ? <RadarConfidenceBadge confidence={confidence} /> : null}
+        {analysis?.conclusion ? (
+          <>
+            {confidence ? <RadarConfidenceBadge confidence={confidence} /> : null}
+            <span className="hb-radar-strip-meta">
+              {formatHoverbarClock(analysis.createdAt)} 分析
+              {analysis.coversLatest ? "" : " · 可能过期"}
+            </span>
+          </>
+        ) : (
+          <span className="radar-confidence-badge" data-level="none">
+            未分析
+          </span>
+        )}
         <div className="hb-radar-strip-actions">
           {onRefreshRadar ? (
             <button

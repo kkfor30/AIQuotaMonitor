@@ -212,6 +212,8 @@ function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "pri
 function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined }) {
   const latest = data?.latest;
   const notice = data?.notice;
+  const latestCheck = data?.checks[0];
+  const latestAnalyzeError = latestCheck?.analyzeStatus === "failed" ? latestCheck.errorMessage : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -288,11 +290,17 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             </span>
             <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">AI 辅助结论</h2>
           </div>
-          {data?.analysis?.errorMessage ? (
-            <p className="text-xs leading-relaxed text-q-danger">{data.analysis.errorMessage}</p>
+          {latestAnalyzeError ? (
+            <p className="text-xs leading-relaxed text-q-danger">最近一次分析失败：{latestAnalyzeError}</p>
           ) : null}
           {data?.analysis?.conclusion ? (
             <div className="flex min-h-0 flex-col gap-2">
+              {data.analysisPrefs.analyze === false ? (
+                <p className="text-[11px] text-q-text-muted">AI 分析当前关闭，展示最近一次成功分析的结果</p>
+              ) : null}
+              {data.analysis.coversLatest ? null : (
+                <p className="text-[11px] text-q-warning">分析后有新动态，结论未覆盖最新内容</p>
+              )}
               <div className="flex flex-col gap-1">
                 <p className="text-[11px] font-medium text-q-text-muted">结论</p>
                 <p className="text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
@@ -317,13 +325,14 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                 {data.analysis.model && (
                   <span className="text-[11px] text-q-text-muted">{data.analysis.model}</span>
                 )}
+                <span className="text-[11px] text-q-text-muted">{formatTime(data.analysis.createdAt)} 分析</span>
               </div>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
               <p className="text-xs leading-relaxed text-q-text-muted">
-                {data?.analysis?.errorMessage
-                  ? "本次分析失败，可更换模型后重试。"
+                {latestAnalyzeError
+                  ? "最近一次分析失败，可更换模型或调整时间范围后重试。"
                   : "未分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。"}
               </p>
               <RadarConfidenceBadge confidence={data?.analysis?.confidence ?? null} />
@@ -577,10 +586,7 @@ function AiAnalysisView({
 }) {
   const analysis = data?.analysis;
   const latestCheck = data?.checks[0];
-  const analyzeError =
-    analysis?.errorMessage ||
-    (latestCheck?.analyzeStatus === "failed" ? latestCheck.errorMessage : null) ||
-    null;
+  const analyzeError = latestCheck?.analyzeStatus === "failed" ? latestCheck.errorMessage : null;
   const analysisInput = useMemo(() => {
     const { start, end } = rangeBoundsMs(rangeKey);
     return (data?.posts ?? []).filter((post) => post.postedAt >= start && post.postedAt <= end);
@@ -672,7 +678,7 @@ function AiAnalysisView({
             </select>
           </label>
           <p className="text-xs leading-relaxed text-q-text-muted">
-            每次检查都会按当前时间范围重新分析所选帖子，不跳过、不沿用旧结果。
+            开启 AI 时，每次检查都会按当前时间范围重新分析所选帖子，不跳过、不沿用旧结果；关闭时仅同步来源内容，结论区展示最近一次成功分析并标注时间。
           </p>
         </section>
 
@@ -745,9 +751,15 @@ function AiAnalysisView({
           <div className="flex flex-wrap items-center gap-2">
             <RadarConfidenceBadge confidence={analysis?.confidence ?? null} />
             {analysis?.model ? <span className="text-[11px] text-q-text-muted">{analysis.model}</span> : null}
+            {analysis ? (
+              <span className="text-[11px] text-q-text-muted">{formatTime(analysis.createdAt)} 分析</span>
+            ) : null}
           </div>
         </div>
         {analyzeError ? <p className="text-xs leading-relaxed text-q-danger">{analyzeError}</p> : null}
+        {analysis?.conclusion && analysis.coversLatest === false ? (
+          <p className="text-xs text-q-warning">分析后有新动态，结论未覆盖最新内容</p>
+        ) : null}
         {analysis?.conclusion ? (
           <>
             <div className="flex flex-col gap-1.5">

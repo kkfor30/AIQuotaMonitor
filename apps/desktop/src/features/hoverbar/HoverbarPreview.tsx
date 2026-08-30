@@ -262,6 +262,7 @@ const previewRadar: RadarSnapshot = {
     cutLabel: null,
     sourceId: "deepseek-balance-api",
     model: "deepseek-chat",
+    coversLatest: true,
     conclusion: "示例结论：近期出现新的重置迹象，仍在等待更多区域确认。",
     analysisBasis: "部分地区出现窗口翻滚信号，但尚无官方公告，区域覆盖范围也未确认。",
     confidence: "medium",

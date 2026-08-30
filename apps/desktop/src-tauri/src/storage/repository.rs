@@ -896,7 +896,7 @@ impl Database {
         connection
             .query_row(
                 "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message
-                 FROM radar_analyses ORDER BY created_at DESC LIMIT 1",
+                 FROM radar_analyses WHERE error_message IS NULL ORDER BY created_at DESC LIMIT 1",
                 [],
                 map_radar_analysis,
             )

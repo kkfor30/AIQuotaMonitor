@@ -756,6 +756,15 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+.hb-radar-strip-meta {
+  flex: none;
+  color: var(--q-hoverbar-muted);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
 .hb-radar-strip-actions {
   display: inline-flex;
   flex: none;
@@ -836,6 +845,12 @@ html.hoverbar-window #root {
   background: var(--q-neutral-soft);
 }
 
+.radar-confidence-badge[data-level="none"],
+.hb-radar-strip-confidence[data-level="none"] {
+  color: var(--q-text-muted);
+  background: var(--q-neutral-soft);
+}
+
 .hb-detail-root .radar-confidence-badge[data-level="high"],
 .hb-detail-root .hb-radar-strip-confidence[data-level="high"] {
   color: var(--q-hoverbar-success);
@@ -849,6 +864,12 @@ html.hoverbar-window #root {
 .hb-detail-root .radar-confidence-badge[data-level="low"],
 .hb-detail-root .hb-radar-strip-confidence[data-level="low"] {
   color: var(--q-hoverbar-ink);
+  background: var(--q-hoverbar-empty-bg);
+}
+
+.hb-detail-root .radar-confidence-badge[data-level="none"],
+.hb-detail-root .hb-radar-strip-confidence[data-level="none"] {
+  color: var(--q-hoverbar-muted);
   background: var(--q-hoverbar-empty-bg);
 }
 
@@ -1102,6 +1123,14 @@ html.hoverbar-window #root {
   line-height: 16px;
 }
 
+.hb-radar-stale {
+  margin: 7px 0 0;
+  color: var(--q-hoverbar-warning);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+}
+
 .hb-radar-post {
   display: flex;
   min-width: 0;
@@ -1232,6 +1261,12 @@ html.hoverbar-window #root {
 
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head > svg,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-head > svg {
+  display: none;
+}
+
+/* 左右侧停靠：分析时间标注让位给单行头部，仅在展开详情查看。 */
+.hb-detail-root[data-edge="left"] .hb-radar-strip-meta,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-meta {
   display: none;
 }
 

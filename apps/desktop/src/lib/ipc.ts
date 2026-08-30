@@ -228,6 +228,7 @@ export type RadarAnalysis = {
   against: string[];
   uncertainty: string[];
   errorMessage: string | null;
+  coversLatest: boolean;
 };
 
 export type RadarModelOption = {

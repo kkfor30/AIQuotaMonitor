@@ -74,6 +74,7 @@ pub struct RadarAnalysisView {
     pub against: Vec<String>,
     pub uncertainty: Vec<String>,
     pub error_message: Option<String>,
+    pub covers_latest: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -140,13 +141,20 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
     } else {
         "fresh"
     };
+    let analysis = database.latest_radar_analysis()?.map(|record| {
+        let covers_latest = match record.to_posted_at {
+            Some(to) => posts.first().map_or(true, |post| post.posted_at <= to),
+            None => true,
+        };
+        analysis_view(record, covers_latest)
+    });
     Ok(RadarSnapshot {
         source_status: source_status.into(),
         last_synced_at,
         posts,
         latest,
         checks,
-        analysis: database.latest_radar_analysis()?.map(analysis_view),
+        analysis,
         models: chat_models(database)?,
         analysis_prefs: load_analysis_prefs(database)?,
         notice: load_notice(database)?,
@@ -445,7 +453,7 @@ fn check_view(check: RadarCheckRecord) -> RadarCheckView {
     }
 }
 
-fn analysis_view(record: RadarAnalysisRecord) -> RadarAnalysisView {
+fn analysis_view(record: RadarAnalysisRecord, covers_latest: bool) -> RadarAnalysisView {
     RadarAnalysisView {
         id: record.id,
         created_at: record.created_at,
@@ -462,6 +470,7 @@ fn analysis_view(record: RadarAnalysisRecord) -> RadarAnalysisView {
         against: json_list(&record.against_json),
         uncertainty: json_list(&record.uncertainty_json),
         error_message: record.error_message,
+        covers_latest,
     }
 }
 

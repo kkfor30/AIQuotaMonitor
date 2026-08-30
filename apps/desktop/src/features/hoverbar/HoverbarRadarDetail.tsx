@@ -46,7 +46,9 @@ export function HoverbarRadarDetail({
   const analysis = radar?.analysis;
   const latest = radar?.latest;
   const posts = (radar?.posts ?? []).slice(0, 3);
-  const analyzeError = analysis?.errorMessage ?? refreshError;
+  const latestCheck = radar?.checks[0];
+  const analyzeError =
+    (latestCheck?.analyzeStatus === "failed" ? latestCheck.errorMessage : null) ?? refreshError;
 
   return (
     <div className="hb-radar-page">
@@ -89,6 +91,12 @@ export function HoverbarRadarDetail({
         {analysis?.conclusion ? (
           <>
             <h3 className="hb-radar-card-title">AI 辅助结论</h3>
+            {radar?.analysisPrefs.analyze === false ? (
+              <p className="hb-radar-meta">AI 分析已关闭，展示最近一次成功分析</p>
+            ) : null}
+            {analysis.coversLatest ? null : (
+              <p className="hb-radar-stale">分析后有新动态，结论未覆盖最新内容</p>
+            )}
             <p className="hb-radar-field-label">结论</p>
             <p className="hb-radar-text" data-selectable="true">
               {analysis.conclusion}
@@ -104,6 +112,7 @@ export function HoverbarRadarDetail({
             <div className="hb-radar-meta-row">
               <RadarConfidenceBadge confidence={analysis.confidence} />
               <span className="hb-radar-meta">模型 {analysis.model ?? "—"}</span>
+              <span className="hb-radar-meta">{formatHoverbarClock(analysis.createdAt)} 分析</span>
             </div>
             <p className="hb-radar-meta">
               支持 {analysis.support.length} · 反向 {analysis.against.length} · 不确定 {analysis.uncertainty.length}
