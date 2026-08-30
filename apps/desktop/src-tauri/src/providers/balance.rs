@@ -294,6 +294,7 @@ fn parse_stepfun(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityData
 }
 
 /// 响应：`{ data: { total_credits, total_usage } }`，剩余 = total_credits - total_usage（Decimal 减法）。
+/// total_usage 是官方累计消费字段，额外输出 total_spend 能力供消费趋势使用。
 fn parse_openrouter(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityData>, RefreshError> {
     let data = body.get("data").unwrap_or(body);
     let total_credits = data
@@ -305,10 +306,26 @@ fn parse_openrouter(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityD
         .and_then(decimal_from_json)
         .ok_or_else(|| RefreshError::new("missing_balance", format!("{}未返回可解析的已用额度字段", spec.label), false, false))?;
     let remaining = total_credits - total_usage;
-    Ok(balance_capability(
-        format_usd(remaining),
-        format!("总额度 {} · 已用 {}", format_usd(total_credits), format_usd(total_usage)),
-    ))
+    Ok(vec![
+        CapabilityData {
+            capability_id: "balance".into(),
+            display_name: "账户余额".into(),
+            value_kind: "money".into(),
+            primary_value: Some(format_usd(remaining)),
+            secondary_value: Some(format!("总额度 {} · 已用 {}", format_usd(total_credits), format_usd(total_usage))),
+            progress: None,
+            trend: vec![],
+        },
+        CapabilityData {
+            capability_id: "total_spend".into(),
+            display_name: "累计消费".into(),
+            value_kind: "money".into(),
+            primary_value: Some(format_usd(total_usage)),
+            secondary_value: Some("OpenRouter 官方已用额度".into()),
+            progress: None,
+            trend: vec![],
+        },
+    ])
 }
 
 /// 响应：`{ availableBalance, cashBalance }`，字段单位是 0.0001 USD，Decimal 除以 10000 展示。

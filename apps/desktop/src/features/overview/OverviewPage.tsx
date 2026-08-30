@@ -56,28 +56,27 @@ export function OverviewPage({
     (p) => p.aggregateStatus === "setup_required" || p.aggregateStatus === "error",
   ).length;
 
-  // 消费趋势：每个余额/消费类平台取一条真实金额序列（每平台最多一条，不混口径）。
-  // 优先 adapter 提供的官方消费序列（如 DeepSeek usage_trend）；无消费能力的
-  // 余额平台回退展示余额走势，序列名标注「余额」，全部来自本地真实快照历史。
+  // 消费趋势：维度统一为消费金额。每平台取一条真实消费序列，每平台最多一条：
+  // 优先 adapter 官方消费序列（如 DeepSeek usage_trend），否则消费类能力
+  // （today_spend/month_spend/total_spend）的本地快照历史。余额不是消费，
+  // 纯余额平台在接入官方消费字段前不进入本图，不画余额线冒充消费。
   const consumptionSeries: TrendSeries[] = platforms.flatMap((platform) => {
     const adapterTrend = platform.capabilities.find(
       (item) => item.value.kind === "trend" && item.trend.length > 0,
     );
-    const moneyCap = ["today_spend", "month_spend", "total_spend", "balance"]
+    const spendCap = ["today_spend", "month_spend", "total_spend"]
       .map((id) =>
         platform.capabilities.find(
           (item) => item.capabilityId === id && item.trend.length > 0,
         ),
       )
       .find((item): item is NonNullable<typeof item> => Boolean(item));
-    const capability = adapterTrend ?? moneyCap;
+    const capability = adapterTrend ?? spendCap;
     if (!capability) return [];
-    // 无消费能力的余额平台用余额走势，序列名标清口径避免与消费混读
-    const kindLabel = !adapterTrend && capability.capabilityId === "balance" ? "余额" : "消费";
     return [
       {
         id: platform.providerId,
-        name: `${platform.displayName} ${kindLabel}`,
+        name: `${platform.displayName} 消费`,
         color: providerBrand(platform.providerId).color,
         points: capability.trend.map((point) => ({ label: point.label, value: point.value })),
       },
@@ -245,7 +244,7 @@ export function OverviewPage({
               消费趋势
               <span className="ml-1.5 text-[11px] font-normal text-q-text-muted">（最近 7 天）</span>
             </h2>
-            <span title="每个平台一条真实金额序列：优先每日消费，无消费能力的余额平台展示余额走势；均来自本机快照历史">
+            <span title="统一消费金额口径：官方消费序列或消费能力的本机快照历史；纯余额平台接入官方消费字段后才会出现">
               <Info size={14} aria-hidden className="cursor-help text-q-text-muted" />
             </span>
           </div>
@@ -253,7 +252,7 @@ export function OverviewPage({
             series={consumptionSeries}
             valueKind="money"
             emptyTitle="暂无消费趋势数据"
-            emptyDescription="平台产生真实的消费或余额快照后，此处展示最近 7 天的金额走势。"
+            emptyDescription="平台产生真实的消费金额序列后，此处展示最近 7 天的消费走势。"
           />
         </section>
       </div>

@@ -142,7 +142,12 @@ fn grok_templates() -> Vec<CapabilityTemplate> {
 }
 
 fn balance_platform_templates(source_id: &str) -> Vec<CapabilityTemplate> {
-    vec![template("balance", source_id, "账户余额", "money")]
+    // OpenRouter 的 credits 接口自带官方累计消费（total_usage），多挂一个 total_spend 能力
+    let mut templates = vec![template("balance", source_id, "账户余额", "money")];
+    if source_id == balance::OPENROUTER_SOURCE_ID {
+        templates.push(template("total_spend", source_id, "累计消费", "money"));
+    }
+    templates
 }
 
 fn openai_templates(database: &Database, sources: &[SourceRecord]) -> Result<Vec<CapabilityTemplate>, String> {
@@ -561,7 +566,7 @@ fn real_platform(
                 .collect::<Vec<_>>()
         } else if matches!(
             capability.capability_id.as_str(),
-            "balance" | "today_spend" | "month_spend" | "total_spend"
+            "today_spend" | "month_spend" | "total_spend"
         ) && capability.value.kind == "money"
         {
             database
