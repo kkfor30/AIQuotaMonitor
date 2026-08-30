@@ -20,9 +20,7 @@ import type {
 const CARD_WIDTH = 258;
 const CARD_HEIGHT = 296;
 const CARD_GAP = 14;
-/** 前卡右侧叠缘区：2 + 16 + 2 + 14，最多露出两层后卡边缘 */
-const DECK_EXTRA = 34;
-const CARD_STEP = CARD_WIDTH + DECK_EXTRA + CARD_GAP;
+const CARD_STEP = CARD_WIDTH + CARD_GAP;
 /** 账号类型徽章（本机/默认/额外），V7 中所有账号别名可见 */
 const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   local: "本机",
@@ -30,23 +28,33 @@ const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   additional: "额外",
 };
 
+const SHIFT_TRANSITION = "transform 200ms cubic-bezier(0.2, 0.78, 0.24, 1)";
+
 type CardDragState = {
   id: string;
-  /** 拖拽开始时该卡所在槽位（锚点，拖拽期间不随实时换位变化） */
+  /** 拖拽开始时该卡所在槽位（锚点，拖拽期间不变化） */
   startIndex: number;
   /** 拖拽开始时该卡的视觉左缘（指针锚定基准） */
   anchorLeft: number;
   startX: number;
   startY: number;
   moved: boolean;
+  /** 实时换位目标槽位；期间只写 DOM transform，不触发 React 渲染 */
+  target: number;
+  /** 条带几何缓存：避免每个 pointermove 强制布局 */
+  stripLeft: number;
+  scrollLeft: number;
+  /** 拖拽期间固定不变的 connected 平台 id 顺序 */
+  connected: string[];
 };
 
 /**
  * 关键平台横向窗口（V7 总览设计稿 01）：
  * - 一个 Platform 永远占一个排序槽位；槽位内部按 platform.accounts 构建账号卡组，
- *   前卡显示当前账号，右侧最多露出两层后卡边缘（竖排账号别名，点击即切换）。
- * - 拖拽从卡头手柄发起，移动整个账号卡组；账号箭头、后卡边缘、查看全部账户均不触发排序。
- * - 排序复用 reorder_platforms，只提交 platform ids；滚轮/触控板/空白拖拽/边缘自动滚动/FLIP 落位保留。
+ *   前卡显示当前账号，箭头 1/2 切换（到端禁用），前端按平台记忆当前账号。
+ * - 拖拽从卡头手柄发起，移动整个账号卡组：拖拽期间零 React 渲染（被拖卡 transform
+ *   直接跟随指针，其余卡按需 transform 让位），松手一次性提交顺序并 FLIP 落位。
+ * - 排序复用 reorder_platforms，只提交 platform ids；滚轮/触控板/空白拖拽/边缘自动滚动保留。
  */
 export function KeyPlatformWindow({
   platforms,
@@ -97,6 +105,8 @@ export function KeyPlatformWindow({
       atEnd: el.scrollWidth - el.clientWidth - el.scrollLeft <= 2,
       index,
     });
+    // 边缘自动滚动改变 scrollLeft 时，同步拖拽中的几何缓存
+    if (cardDrag.current) cardDrag.current.scrollLeft = el.scrollLeft;
   }, []);
 
   useEffect(() => {
@@ -136,27 +146,39 @@ export function KeyPlatformWindow({
     el.scrollBy({ left: direction * CARD_STEP * 2, behavior: "smooth" });
   };
 
-  // —— 卡头手柄拖拽排序（拖动中实时换位，松手仅落位收尾）——
-  const clearCardTransforms = () => {
-    for (const el of cardRefs.current.values()) {
-      el.style.transform = "";
-      el.style.transition = "";
-      el.style.zIndex = "";
-    }
+  // —— 卡头手柄拖拽排序：拖拽期间零渲染，松手一次提交 ——
+  /** 槽位 i 的基准视觉左缘（不含让位偏移）：strip 左内边距 2px + i*步长 - 滚动量 */
+  const slotBaseLeft = (index: number) => {
+    const strip = stripRef.current;
+    const state = cardDrag.current;
+    if (!strip || !state) return 0;
+    return state.stripLeft + 2 + index * CARD_STEP - state.scrollLeft;
   };
 
-  /** 槽位 i 的视觉左缘：strip 左内边距(2px) + i*步长 - 滚动量。等宽卡片，纯几何计算不依赖 DOM 顺序。 */
-  const slotLeft = (index: number) => {
-    const strip = stripRef.current;
-    if (!strip) return 0;
-    return strip.getBoundingClientRect().left + 2 + index * CARD_STEP - strip.scrollLeft;
+  /** 对区间内受影响的卡写入/清除让位 transform（纯 DOM，无渲染） */
+  const applyShifts = (state: CardDragState, nextTarget: number) => {
+    const prevTarget = state.target;
+    if (nextTarget === prevTarget) return;
+    const lo = Math.min(prevTarget, nextTarget);
+    const hi = Math.max(prevTarget, nextTarget);
+    for (let i = lo; i <= hi; i++) {
+      const id = state.connected[i];
+      if (id === undefined || id === state.id) continue;
+      const el = cardRefs.current.get(id);
+      if (!el) continue;
+      const shift = i > state.startIndex ? -CARD_STEP : i < state.startIndex ? CARD_STEP : 0;
+      el.style.transition = shift !== 0 ? SHIFT_TRANSITION : "none";
+      el.style.transform = shift !== 0 ? `translate(${shift}px, 0)` : "";
+    }
+    state.target = nextTarget;
   };
 
   const onHandlePointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
     if (event.button !== 0) return;
-    const index = connected.findIndex((p) => p.providerId === id);
+    const strip = stripRef.current;
     const draggedEl = cardRefs.current.get(id);
-    if (index < 0 || !draggedEl) return;
+    const index = connected.findIndex((p) => p.providerId === id);
+    if (!strip || index < 0 || !draggedEl) return;
     cardDrag.current = {
       id,
       startIndex: index,
@@ -164,6 +186,12 @@ export function KeyPlatformWindow({
       startX: event.clientX,
       startY: event.clientY,
       moved: false,
+      target: index,
+      stripLeft: strip.getBoundingClientRect().left,
+      scrollLeft: strip.scrollLeft,
+      connected: orderRef.current.filter(
+        (pid) => byId.get(pid)?.aggregateStatus !== "setup_required",
+      ),
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -182,59 +210,35 @@ export function KeyPlatformWindow({
       setDraggingId(state.id);
     }
 
-    const connectedIds = orderRef.current.filter(
-      (pid) => byId.get(pid)?.aggregateStatus !== "setup_required",
-    );
-    const curIdx = connectedIds.indexOf(state.id);
-    if (curIdx < 0) return;
-
-    // 实时换位：指针带动的卡片中心越过相邻卡中心即更新顺序
-    const draggedCenter = state.anchorLeft + dx + CARD_WIDTH / 2;
-    let target = curIdx;
-    for (let i = 0; i < connectedIds.length; i++) {
-      if (i === curIdx) continue;
-      const center = slotLeft(i) + CARD_WIDTH / 2;
-      if (i > curIdx && draggedCenter > center) target = Math.max(target, i);
-      else if (i < curIdx && draggedCenter < center) target = Math.min(target, i);
+    // 实时换位：被拖卡中心越过相邻卡中心即更新目标；只写 transform，不渲染。
+    // 让位卡（(startIndex, target] 左移一位、[target, startIndex) 右移一位）的判定中心同样要加上自身偏移。
+    const draggedLeft = state.anchorLeft + dx;
+    const draggedCenter = draggedLeft + CARD_WIDTH / 2;
+    let target = state.target;
+    for (let i = 0; i < state.connected.length; i++) {
+      if (i === state.target) continue;
+      const shift =
+        i > state.startIndex && i <= state.target
+          ? -CARD_STEP
+          : i < state.startIndex && i >= state.target
+            ? CARD_STEP
+            : 0;
+      const center = slotBaseLeft(i) + CARD_WIDTH / 2 + shift;
+      if (i > state.target && draggedCenter > center) target = Math.max(target, i);
+      else if (i < state.target && draggedCenter < center) target = Math.min(target, i);
     }
-    if (target !== curIdx) {
-      const nextConnected = connectedIds.filter((pid) => pid !== state.id);
-      nextConnected.splice(target, 0, state.id);
-      // FLIP：记录其余卡当前视觉位置（含让位过渡中的偏移），重排后反向补偿滑动到新槽位
-      const before = new Map<string, number>();
-      for (const [pid, el] of cardRefs.current) {
-        if (pid === state.id) continue;
-        before.set(pid, el.getBoundingClientRect().left);
-      }
-      let cursor = 0;
-      const nextFull = orderRef.current.map((pid) =>
-        byId.get(pid)?.aggregateStatus !== "setup_required" ? nextConnected[cursor++] ?? pid : pid,
-      );
-      flushSync(() => setOrder(nextFull));
-      orderRef.current = nextFull;
-      for (const [pid, el] of cardRefs.current) {
-        const old = before.get(pid);
-        if (old === undefined || pid === state.id) continue;
-        const shift = Math.round(old - el.getBoundingClientRect().left);
-        if (Math.abs(shift) < 1) continue;
-        el.style.transition = "none";
-        el.style.transform = `translate(${shift}px, 0)`;
-        void el.offsetWidth;
-        el.style.transition = "transform 200ms cubic-bezier(0.2, 0.78, 0.24, 1)";
-        el.style.transform = "";
-      }
-    }
+    if (target !== state.target) applyShifts(state, target);
 
-    // 被拖卡即时跟随指针：以拖拽开始的视觉位置为锚，槽位变化量直接折进 transform，不跳
-    const liveIdx = target !== curIdx ? target : curIdx;
+    // 被拖卡即时跟随指针（每帧一次 style 写入）
     draggedEl.style.transition = "none";
-    draggedEl.style.transform = `translate(${Math.round(state.anchorLeft + dx - slotLeft(liveIdx))}px, ${Math.max(-10, Math.min(10, dy))}px)`;
+    draggedEl.style.transform = `translate(${Math.round(draggedLeft - slotBaseLeft(state.target))}px, ${Math.max(-10, Math.min(10, dy))}px)`;
     draggedEl.style.zIndex = "30";
 
-    // 拖近窗口边缘时自动滚动；滚动量会在下一次 move 的槽位计算中自动吸收
+    // 拖近窗口边缘时自动滚动；滚动量经 scroll 事件同步进几何缓存
     const rect = strip.getBoundingClientRect();
     if (event.clientX < rect.left + 80) strip.scrollLeft -= 16;
     else if (event.clientX > rect.right - 80) strip.scrollLeft += 16;
+    state.scrollLeft = strip.scrollLeft;
   };
 
   const settleCardDrag = () => {
@@ -242,12 +246,34 @@ export function KeyPlatformWindow({
     cardDrag.current = null;
     setDraggingId(null);
     if (!state || !state.moved) return;
-    const strip = stripRef.current;
+    const changed = state.target !== state.startIndex;
+
+    // 关闭全部过渡，避免 DOM 顺序调整时让位动画残留干扰
+    for (const el of cardRefs.current.values()) {
+      el.style.transition = "none";
+    }
+    if (changed) {
+      const nextConnected = state.connected.filter((pid) => pid !== state.id);
+      nextConnected.splice(state.target, 0, state.id);
+      let cursor = 0;
+      const nextFull = orderRef.current.map((pid) =>
+        byId.get(pid)?.aggregateStatus !== "setup_required" ? nextConnected[cursor++] ?? pid : pid,
+      );
+      orderRef.current = nextFull;
+      // 松手唯一一次同步渲染：提交顺序后立刻测量新槽位
+      flushSync(() => setOrder(nextFull));
+    }
+    // 清除让位偏移，卡落回各自（新）槽位
+    for (const [pid, el] of cardRefs.current) {
+      if (pid === state.id) continue;
+      el.style.transform = "";
+      el.style.zIndex = "";
+    }
+    // 被拖卡从当前视觉位置平滑滑入所属槽位
     const draggedEl = cardRefs.current.get(state.id);
+    const strip = stripRef.current;
     if (strip && draggedEl) {
-      // 被拖卡从当前视觉位置平滑滑入所属槽位
       const from = draggedEl.getBoundingClientRect();
-      draggedEl.style.transition = "none";
       draggedEl.style.transform = "";
       draggedEl.style.zIndex = "";
       const dx0 = Math.round(from.left - draggedEl.getBoundingClientRect().left);
@@ -257,10 +283,12 @@ export function KeyPlatformWindow({
         void strip.offsetWidth;
         draggedEl.style.transition = "transform 220ms cubic-bezier(0.2, 0.78, 0.24, 1)";
         draggedEl.style.transform = "";
-        window.setTimeout(() => clearCardTransforms(), 230);
+        window.setTimeout(() => {
+          draggedEl.style.transition = "";
+        }, 230);
       }
     }
-    if (orderRef.current.join("\n") !== initialOrderRef.current.join("\n")) {
+    if (changed && orderRef.current.join("\n") !== initialOrderRef.current.join("\n")) {
       reorderMutation.mutate(orderRef.current);
       initialOrderRef.current = orderRef.current;
     }
@@ -449,8 +477,8 @@ function accountCapability(
 }
 
 /**
- * 一个平台的账号卡组槽位：前卡（当前账号）+ 右侧最多两层后卡边缘（竖排别名，点击切换）。
- * 拖拽仅从卡头手柄发起；箭头/叠缘/查看全部账户与拖拽互不影响。
+ * 一个平台的账号卡组槽位：前卡（当前账号）+ 卡头箭头切换账号。
+ * 拖拽仅从卡头手柄发起；箭头/查看全部账户与拖拽互不影响。
  */
 function PlatformDeckCard({
   platform,
@@ -487,45 +515,9 @@ function PlatformDeckCard({
     <div
       ref={registerRef}
       data-strip-card
-      className={cn(
-        "relative shrink-0 select-none",
-        dragging && "z-30",
-      )}
-      style={{ width: CARD_WIDTH + DECK_EXTRA, height: CARD_HEIGHT }}
+      className={cn("relative shrink-0 select-none", dragging && "z-30")}
+      style={{ width: CARD_WIDTH, height: CARD_HEIGHT }}
     >
-      {/* 后卡边缘：点击直接切换到该账号（V7 账号卡组） */}
-      {multiAccount &&
-        [1, 2].map((offset) => {
-          const account = accounts[currentIndex + offset];
-          if (!account) return null;
-          const width = offset === 1 ? 16 : 14;
-          const left = CARD_WIDTH + 2 + (offset === 1 ? 0 : 18);
-          return (
-            <button
-              key={account.accountId}
-              type="button"
-              title={`切换到 ${account.displayName}`}
-              onClick={() => onSelectAccount(account.accountId)}
-              className="absolute flex cursor-pointer items-center justify-center overflow-hidden rounded-[12px] border border-q-border bg-q-surface shadow-q-sm transition-colors duration-150 hover:border-q-border-selected"
-              style={{
-                left,
-                top: 10 + (offset - 1) * 10,
-                width,
-                height: CARD_HEIGHT - 20 - (offset - 1) * 20,
-                zIndex: 30 - offset * 10,
-              }}
-            >
-              <span
-                className="truncate text-[11px] text-q-text-muted"
-                style={{ writingMode: "vertical-rl" }}
-              >
-                {account.displayName}
-              </span>
-            </button>
-          );
-        })}
-
-      {/* 前卡：当前账号 */}
       {current && (
         <div
           className={cn(
@@ -534,7 +526,7 @@ function PlatformDeckCard({
               ? "scale-[1.02] opacity-95 shadow-q-lg ring-2 ring-q-primary/50"
               : "transition-[transform,box-shadow] duration-150",
           )}
-          style={{ left: 0, top: 0, width: CARD_WIDTH, height: CARD_HEIGHT, zIndex: 40, borderRadius: 16 }}
+          style={{ left: 0, top: 0, width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 16 }}
         >
           <AccountCardBody
             platform={platform}
