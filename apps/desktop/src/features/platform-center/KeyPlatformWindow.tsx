@@ -29,6 +29,7 @@ const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
 };
 
 const SHIFT_TRANSITION = "transform 200ms cubic-bezier(0.2, 0.78, 0.24, 1)";
+const DROP_TRANSITION = "transform 220ms cubic-bezier(0.2, 0.78, 0.24, 1)";
 
 type CardDragState = {
   id: string;
@@ -38,11 +39,16 @@ type CardDragState = {
   anchorLeft: number;
   startX: number;
   startY: number;
+  /** 最新指针位置；pointermove 只写坐标，DOM 更新统一在 rAF 帧里做 */
+  clientX: number;
+  clientY: number;
+  pending: boolean;
   moved: boolean;
   /** 实时换位目标槽位；期间只写 DOM transform，不触发 React 渲染 */
   target: number;
-  /** 条带几何缓存：避免每个 pointermove 强制布局 */
+  /** 条带几何缓存：拖拽全程不再读 getBoundingClientRect（避免强制布局） */
   stripLeft: number;
+  stripRight: number;
   scrollLeft: number;
   /** 拖拽期间固定不变的 connected 平台 id 顺序 */
   connected: string[];
@@ -52,8 +58,9 @@ type CardDragState = {
  * 关键平台横向窗口（V7 总览设计稿 01）：
  * - 一个 Platform 永远占一个排序槽位；槽位内部按 platform.accounts 构建账号卡组，
  *   前卡显示当前账号，箭头 1/2 切换（到端禁用），前端按平台记忆当前账号。
- * - 拖拽从卡头手柄发起，移动整个账号卡组：拖拽期间零 React 渲染（被拖卡 transform
- *   直接跟随指针，其余卡按需 transform 让位），松手一次性提交顺序并 FLIP 落位。
+ * - 拖拽：按住卡身任意空白处即可拖动整组（卡内按钮不受影响）。指针事件走 window
+ *   原生监听 + pointer capture 双保险，DOM 更新在 rAF 帧里做，拖拽全程零 React
+ *   渲染（拖拽态为命令式 class），松手一次性提交顺序并 FLIP 落位。
  * - 排序复用 reorder_platforms，只提交 platform ids；滚轮/触控板/空白拖拽/边缘自动滚动保留。
  */
 export function KeyPlatformWindow({
@@ -67,12 +74,12 @@ export function KeyPlatformWindow({
   const stripRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
   const [order, setOrder] = useState<string[]>(() => platforms.map((p) => p.providerId));
-  const [draggingId, setDraggingId] = useState<string | null>(null);
   const [scrollState, setScrollState] = useState({ atStart: true, atEnd: true, index: 0 });
   /** 每个平台独立维护当前展示的账号；刷新时保留，账号被删才回退第一个 */
   const [currentAccountId, setCurrentAccountId] = useState<Record<string, string>>({});
 
   const cardDrag = useRef<CardDragState | null>(null);
+  const rafRef = useRef<number | null>(null);
   // 空白处拖拽滚动状态（非受控，避免重渲染打断惯性）
   const dragScroll = useRef<{ startX: number; startScroll: number; moved: boolean } | null>(null);
   const orderRef = useRef(order);
@@ -146,16 +153,7 @@ export function KeyPlatformWindow({
     el.scrollBy({ left: direction * CARD_STEP * 2, behavior: "smooth" });
   };
 
-  // —— 卡头手柄拖拽排序：拖拽期间零渲染，松手一次提交 ——
-  /** 槽位 i 的基准视觉左缘（不含让位偏移）：strip 左内边距 2px + i*步长 - 滚动量 */
-  const slotBaseLeft = (index: number) => {
-    const strip = stripRef.current;
-    const state = cardDrag.current;
-    if (!strip || !state) return 0;
-    return state.stripLeft + 2 + index * CARD_STEP - state.scrollLeft;
-  };
-
-  /** 对区间内受影响的卡写入/清除让位 transform（纯 DOM，无渲染） */
+  // —— 卡身拖拽排序：window 原生监听 + rAF 帧同步，拖拽期间零 React 渲染 ——
   const applyShifts = (state: CardDragState, nextTarget: number) => {
     const prevTarget = state.target;
     if (nextTarget === prevTarget) return;
@@ -173,41 +171,24 @@ export function KeyPlatformWindow({
     state.target = nextTarget;
   };
 
-  const onHandlePointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
-    if (event.button !== 0) return;
-    const strip = stripRef.current;
-    const draggedEl = cardRefs.current.get(id);
-    const index = connected.findIndex((p) => p.providerId === id);
-    if (!strip || index < 0 || !draggedEl) return;
-    cardDrag.current = {
-      id,
-      startIndex: index,
-      anchorLeft: draggedEl.getBoundingClientRect().left,
-      startX: event.clientX,
-      startY: event.clientY,
-      moved: false,
-      target: index,
-      stripLeft: strip.getBoundingClientRect().left,
-      scrollLeft: strip.scrollLeft,
-      connected: orderRef.current.filter(
-        (pid) => byId.get(pid)?.aggregateStatus !== "setup_required",
-      ),
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onHandlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+  /** 每帧最多一次的拖拽处理：跟手 transform、实时换位、边缘自动滚动 */
+  const dragFrame = useCallback(() => {
     const state = cardDrag.current;
     if (!state) return;
+    if (!state.pending) {
+      rafRef.current = requestAnimationFrame(dragFrame);
+      return;
+    }
+    state.pending = false;
     const strip = stripRef.current;
     const draggedEl = cardRefs.current.get(state.id);
     if (!strip || !draggedEl) return;
-    const dx = event.clientX - state.startX;
-    const dy = event.clientY - state.startY;
+    const dx = state.clientX - state.startX;
+    const dy = state.clientY - state.startY;
     if (!state.moved) {
-      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
       state.moved = true;
-      setDraggingId(state.id);
+      draggedEl.classList.add("strip-card-dragging");
     }
 
     // 实时换位：被拖卡中心越过相邻卡中心即更新目标；只写 transform，不渲染。
@@ -223,29 +204,36 @@ export function KeyPlatformWindow({
           : i < state.startIndex && i >= state.target
             ? CARD_STEP
             : 0;
-      const center = slotBaseLeft(i) + CARD_WIDTH / 2 + shift;
+      const center = state.stripLeft + 2 + i * CARD_STEP - state.scrollLeft + CARD_WIDTH / 2 + shift;
       if (i > state.target && draggedCenter > center) target = Math.max(target, i);
       else if (i < state.target && draggedCenter < center) target = Math.min(target, i);
     }
     if (target !== state.target) applyShifts(state, target);
 
     // 被拖卡即时跟随指针（每帧一次 style 写入）
+    const base = state.stripLeft + 2 + state.target * CARD_STEP - state.scrollLeft;
     draggedEl.style.transition = "none";
-    draggedEl.style.transform = `translate(${Math.round(draggedLeft - slotBaseLeft(state.target))}px, ${Math.max(-10, Math.min(10, dy))}px)`;
+    draggedEl.style.transform = `translate(${Math.round(draggedLeft - base)}px, ${Math.max(-10, Math.min(10, dy))}px)`;
     draggedEl.style.zIndex = "30";
 
     // 拖近窗口边缘时自动滚动；滚动量经 scroll 事件同步进几何缓存
-    const rect = strip.getBoundingClientRect();
-    if (event.clientX < rect.left + 80) strip.scrollLeft -= 16;
-    else if (event.clientX > rect.right - 80) strip.scrollLeft += 16;
+    if (state.clientX < state.stripLeft + 80) strip.scrollLeft -= 16;
+    else if (state.clientX > state.stripRight - 80) strip.scrollLeft += 16;
     state.scrollLeft = strip.scrollLeft;
-  };
+    rafRef.current = requestAnimationFrame(dragFrame);
+  }, []);
 
-  const settleCardDrag = () => {
+  const settleCardDrag = useCallback(() => {
     const state = cardDrag.current;
     cardDrag.current = null;
-    setDraggingId(null);
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     if (!state || !state.moved) return;
+    const strip = stripRef.current;
+    const draggedEl = cardRefs.current.get(state.id);
+    if (draggedEl) draggedEl.classList.remove("strip-card-dragging");
     const changed = state.target !== state.startIndex;
 
     // 关闭全部过渡，避免 DOM 顺序调整时让位动画残留干扰
@@ -270,8 +258,6 @@ export function KeyPlatformWindow({
       el.style.zIndex = "";
     }
     // 被拖卡从当前视觉位置平滑滑入所属槽位
-    const draggedEl = cardRefs.current.get(state.id);
-    const strip = stripRef.current;
     if (strip && draggedEl) {
       const from = draggedEl.getBoundingClientRect();
       draggedEl.style.transform = "";
@@ -281,7 +267,7 @@ export function KeyPlatformWindow({
       if (dx0 !== 0 || dy0 !== 0) {
         draggedEl.style.transform = `translate(${dx0}px, ${dy0}px)`;
         void strip.offsetWidth;
-        draggedEl.style.transition = "transform 220ms cubic-bezier(0.2, 0.78, 0.24, 1)";
+        draggedEl.style.transition = DROP_TRANSITION;
         draggedEl.style.transform = "";
         window.setTimeout(() => {
           draggedEl.style.transition = "";
@@ -292,12 +278,84 @@ export function KeyPlatformWindow({
       reorderMutation.mutate(orderRef.current);
       initialOrderRef.current = orderRef.current;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reorderMutation/byId 为稳定引用或仅读 ref
+  }, [byId, reorderMutation]);
+
+  const settleRef = useRef(settleCardDrag);
+  settleRef.current = settleCardDrag;
+
+  const detachDragListeners = useCallback(() => {
+    window.removeEventListener("pointermove", onWindowPointerMove);
+    window.removeEventListener("pointerup", onWindowPointerUp);
+    window.removeEventListener("pointercancel", onWindowPointerCancel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 处理器均为稳定 useCallback
+  }, []);
+
+  const onWindowPointerMove = useCallback((event: PointerEvent) => {
+    const state = cardDrag.current;
+    if (!state) return;
+    state.clientX = event.clientX;
+    state.clientY = event.clientY;
+    state.pending = true;
+  }, []);
+
+  const onWindowPointerUp = useCallback(() => {
+    detachDragListeners();
+    settleRef.current();
+  }, [detachDragListeners]);
+
+  const onWindowPointerCancel = useCallback(() => {
+    // 取消与松手同路径：顺序已实时生效，保持并落位
+    onWindowPointerUp();
+  }, [onWindowPointerUp]);
+
+  const onCardPointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
+    if (event.button !== 0) return;
+    // 卡内交互控件（箭头/查看全部账户等）不发起拖拽
+    if ((event.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+    const strip = stripRef.current;
+    const draggedEl = cardRefs.current.get(id);
+    const index = connected.findIndex((p) => p.providerId === id);
+    if (!strip || index < 0 || !draggedEl || cardDrag.current) return;
+    const rect = strip.getBoundingClientRect();
+    cardDrag.current = {
+      id,
+      startIndex: index,
+      anchorLeft: draggedEl.getBoundingClientRect().left,
+      startX: event.clientX,
+      startY: event.clientY,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pending: false,
+      moved: false,
+      target: index,
+      stripLeft: rect.left,
+      stripRight: rect.right,
+      scrollLeft: strip.scrollLeft,
+      connected: orderRef.current.filter(
+        (pid) => byId.get(pid)?.aggregateStatus !== "setup_required",
+      ),
+    };
+    // window 原生监听为主路径；capture 仅作移出窗口时的兜底（WebView2 下 capture 可能被重排打断）
+    window.addEventListener("pointermove", onWindowPointerMove);
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointercancel", onWindowPointerCancel);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // capture 失败不影响拖拽：window 监听已覆盖
+    }
+    rafRef.current = requestAnimationFrame(dragFrame);
   };
 
-  const onHandlePointerCancel = () => {
-    // 取消与松手同路径：顺序已实时生效，保持并落位，避免与已持久化顺序不一致
-    settleCardDrag();
-  };
+  // 卸载兜底：组件销毁时清理监听与动画帧
+  useEffect(() => {
+    return () => {
+      cardDrag.current = null;
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      detachDragListeners();
+    };
+  }, [detachDragListeners]);
 
   // —— 空白处拖拽滚动（卡内交互不触发排序，互不干扰）——
   const onStripPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -347,7 +405,7 @@ export function KeyPlatformWindow({
         <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">关键平台</h2>
         <span className="inline-flex items-center gap-1 text-[11px] text-q-text-muted">
           <GripVertical size={12} aria-hidden />
-          拖动手柄排序
+          拖动卡片排序
         </span>
         <div className="ml-auto flex items-center gap-1.5">
           <CarouselArrow
@@ -379,15 +437,11 @@ export function KeyPlatformWindow({
             key={platform.providerId}
             platform={platform}
             currentAccountId={currentAccountId[platform.providerId]}
-            dragging={draggingId === platform.providerId}
             registerRef={(el) => {
               if (el) cardRefs.current.set(platform.providerId, el);
               else cardRefs.current.delete(platform.providerId);
             }}
-            onHandlePointerDown={(event) => onHandlePointerDown(event, platform.providerId)}
-            onHandlePointerMove={onHandlePointerMove}
-            onHandlePointerUp={settleCardDrag}
-            onHandlePointerCancel={onHandlePointerCancel}
+            onCardPointerDown={(event) => onCardPointerDown(event, platform.providerId)}
             onSelectAccount={(accountId) =>
               setCurrentAccountId((prev) => ({ ...prev, [platform.providerId]: accountId }))
             }
@@ -418,7 +472,7 @@ function SectionHeader() {
       <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">关键平台</h2>
       <span className="inline-flex items-center gap-1 text-[11px] text-q-text-muted">
         <GripVertical size={12} aria-hidden />
-        拖动手柄排序
+        拖动卡片排序
       </span>
     </div>
   );
@@ -477,29 +531,21 @@ function accountCapability(
 }
 
 /**
- * 一个平台的账号卡组槽位：前卡（当前账号）+ 卡头箭头切换账号。
- * 拖拽仅从卡头手柄发起；箭头/查看全部账户与拖拽互不影响。
+ * 一个平台的账号卡组槽位：按住卡身任意空白处拖动整组排序（卡内按钮除外），
+ * 卡头箭头切换账号（到端禁用）。
  */
 function PlatformDeckCard({
   platform,
   currentAccountId,
-  dragging,
   registerRef,
-  onHandlePointerDown,
-  onHandlePointerMove,
-  onHandlePointerUp,
-  onHandlePointerCancel,
+  onCardPointerDown,
   onSelectAccount,
   onOpenAll,
 }: {
   platform: PlatformSummaryViewModel;
   currentAccountId: string | undefined;
-  dragging: boolean;
   registerRef: (el: HTMLDivElement | null) => void;
-  onHandlePointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onHandlePointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onHandlePointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onHandlePointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onCardPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onSelectAccount: (accountId: string) => void;
   onOpenAll: () => void;
 }) {
@@ -515,17 +561,13 @@ function PlatformDeckCard({
     <div
       ref={registerRef}
       data-strip-card
-      className={cn("relative shrink-0 select-none", dragging && "z-30")}
+      onPointerDown={onCardPointerDown}
+      className="relative shrink-0 cursor-grab select-none"
       style={{ width: CARD_WIDTH, height: CARD_HEIGHT }}
     >
       {current && (
         <div
-          className={cn(
-            "glass-panel absolute flex flex-col p-4",
-            dragging
-              ? "scale-[1.02] opacity-95 shadow-q-lg ring-2 ring-q-primary/50"
-              : "transition-[transform,box-shadow] duration-150",
-          )}
+          className="strip-card-face glass-panel absolute flex flex-col p-4"
           style={{ left: 0, top: 0, width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 16 }}
         >
           <AccountCardBody
@@ -534,10 +576,6 @@ function PlatformDeckCard({
             index={currentIndex}
             total={accounts.length}
             multiAccount={multiAccount}
-            onHandlePointerDown={onHandlePointerDown}
-            onHandlePointerMove={onHandlePointerMove}
-            onHandlePointerUp={onHandlePointerUp}
-            onHandlePointerCancel={onHandlePointerCancel}
             onSelectAccount={onSelectAccount}
             onOpenAll={onOpenAll}
           />
@@ -547,17 +585,13 @@ function PlatformDeckCard({
   );
 }
 
-/** 账户卡内容：卡头（手柄 + 账号切换）→ 账号别名 → 窗口剩余额度 → 余额块 → 查看全部账户 */
+/** 账户卡内容：卡头（手柄提示 + 账号切换）→ 账号别名 → 窗口剩余额度 → 余额块 → 查看全部账户 */
 function AccountCardBody({
   platform,
   account,
   index,
   total,
   multiAccount,
-  onHandlePointerDown,
-  onHandlePointerMove,
-  onHandlePointerUp,
-  onHandlePointerCancel,
   onSelectAccount,
   onOpenAll,
 }: {
@@ -566,10 +600,6 @@ function AccountCardBody({
   index: number;
   total: number;
   multiAccount: boolean;
-  onHandlePointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onHandlePointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onHandlePointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onHandlePointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
   onSelectAccount: (accountId: string) => void;
   onOpenAll: () => void;
 }) {
@@ -579,24 +609,19 @@ function AccountCardBody({
 
   return (
     <>
-      {/* 卡头：手柄发起整组拖拽；多账号时箭头到端禁用 */}
+      {/* 卡头：手柄为拖拽提示（整卡可拖）；多账号时箭头到端禁用 */}
       <div className="flex items-center gap-2">
         <PlatformMark providerId={platform.providerId} size={30} />
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-q-text-primary">
           {platform.displayName}
         </span>
-        <div
-          role="button"
-          aria-label={`拖动排序 ${platform.displayName}`}
+        <span
+          aria-hidden
           title="拖动排序"
-          onPointerDown={onHandlePointerDown}
-          onPointerMove={onHandlePointerMove}
-          onPointerUp={onHandlePointerUp}
-          onPointerCancel={onHandlePointerCancel}
-          className="flex h-6 w-6 cursor-grab touch-none items-center justify-center rounded-[7px] text-q-text-muted transition-colors hover:bg-q-primary-softer hover:text-q-text-secondary active:cursor-grabbing"
+          className="flex h-6 w-6 items-center justify-center rounded-[7px] text-q-text-muted/70 transition-colors hover:bg-q-primary-softer hover:text-q-text-secondary"
         >
-          <GripVertical size={14} aria-hidden />
-        </div>
+          <GripVertical size={14} />
+        </span>
         {multiAccount && (
           <span className="flex shrink-0 items-center gap-0.5">
             <button

@@ -57,6 +57,21 @@ button {
   border-radius: var(--q-radius-control);
 }
 
+/* 关键平台卡拖拽态：由 JS 命令式添加/移除（拖拽期间零 React 渲染，避免 capture 丢失与掉帧） */
+.strip-card-dragging {
+  z-index: 30;
+  cursor: grabbing;
+}
+.strip-card-dragging > .strip-card-face {
+  transform: scale(1.02);
+  opacity: 0.96;
+  box-shadow:
+    inset 0 1px 0 var(--q-surface-highlight),
+    var(--q-shadow-lg);
+  outline: 2px solid rgba(10, 102, 255, 0.5);
+  outline-offset: -1px;
+}
+
 /* V6 画布：冷白 → 淡蓝纵向渐变 + 两团柔和色光（深色主题回退纯色底） */
 @utility app-backdrop {
   background:
