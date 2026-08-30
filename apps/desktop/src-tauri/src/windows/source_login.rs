@@ -858,6 +858,10 @@ fn start_watcher(
         let Some(template) = template_for(&adapter_id) else {
             return;
         };
+        // 主缓存兜底扫描只允许「共享应用主 WebView2 profile」的默认账号：
+        // 它读的是主 profile 的 HTTP 缓存，隔离窗口的账号（额外账号 / GLM / MiMo）
+        // 一旦使用会把其他账号留在主缓存里的会话当成自己的，造成跨账户串号。
+        let uses_main_profile = source_id == template.source_id && !template.isolated_profile;
         tokio::time::sleep(Duration::from_millis(400)).await;
         let mut cache_scan_failed = false;
         let mut usage_status_sent = false;
@@ -885,7 +889,7 @@ fn start_watcher(
                     }
                 }
                 poll_deepseek_page_token(&app, &window, &source_id);
-                if !cache_scan_failed && tick >= 2 {
+                if uses_main_profile && !cache_scan_failed && tick >= 2 {
                     if let Some(token) = find_webview_cached_usage_token() {
                         match capture_and_finish(&app, &window, &source_id, &token, true).await {
                             CaptureOutcome::Success => return,
