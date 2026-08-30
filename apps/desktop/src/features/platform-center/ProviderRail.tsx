@@ -66,7 +66,18 @@ export function ProviderRail({
         icons ? "w-[72px]" : "w-[232px]",
       )}
     >
-      {!icons && (
+      {icons ? (
+        // 图标栏：添加入口放顶部（窄栏底部按钮显得突兀），平台列表紧随其后
+        <button
+          type="button"
+          onClick={onAdd}
+          title="添加平台"
+          aria-label="添加平台"
+          className="mx-auto flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-q-control border border-q-border bg-q-surface-strong text-q-text-secondary transition-colors hover:border-q-border-selected hover:text-q-primary"
+        >
+          <Plus size={17} aria-hidden />
+        </button>
+      ) : (
         <p className="px-2 pb-1 pt-1 text-xs font-medium tracking-wide text-q-text-muted">平台目录</p>
       )}
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
@@ -163,17 +174,7 @@ export function ProviderRail({
           );
         })}
       </div>
-      {icons ? (
-        <button
-          type="button"
-          onClick={onAdd}
-          title="添加平台"
-          aria-label="添加平台"
-          className="mx-auto flex h-9 w-9 cursor-pointer items-center justify-center rounded-q-control border border-q-border bg-q-surface-strong text-q-text-secondary transition-colors hover:border-q-border-selected hover:text-q-primary"
-        >
-          <Plus size={17} aria-hidden />
-        </button>
-      ) : (
+      {icons ? null : (
         <Button variant="secondary" className="mt-auto" onClick={onAdd}>
           + 添加平台
         </Button>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * 统一的内容宽度三档模式（全站唯一阈值来源，禁止组件各自定义冲突阈值）：
@@ -24,12 +24,13 @@ export function containerModeOf(width: number): ContainerMode {
 /**
  * 用 ResizeObserver 测量元素实际内容宽度——窗口宽度不等于扣除导航/侧栏后的
  * 内容宽度，页面内部布局一律以组件可用宽度响应，不使用 window.innerWidth。
+ * 采用 callback ref：组件可能先以占位分支渲染（isLoading 等 early return），
+ * 目标元素稍后才出现，callback ref 保证元素出现/替换时都重新建立观察。
  */
 export function useContainerWidth<T extends HTMLElement>() {
-  const ref = useRef<T | null>(null);
+  const [el, setEl] = useState<T | null>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
     setWidth(el.getBoundingClientRect().width);
     const observer = new ResizeObserver((entries) => {
@@ -37,6 +38,7 @@ export function useContainerWidth<T extends HTMLElement>() {
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [el]);
+  const ref = useCallback((node: T | null) => setEl(node), []);
   return { ref, width, mode: containerModeOf(width) };
 }

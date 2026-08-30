@@ -20,6 +20,16 @@ const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   additional: "额外",
 };
 
+/** 套餐徽章归类（与悬浮球同款语义配色）：pro/plus/lite/free，其余中性。 */
+function planKey(plan: string): "pro" | "plus" | "lite" | "free" | "other" {
+  const key = plan.trim().toLowerCase();
+  return key === "plus" || key === "pro" || key === "lite" || key === "free" ? key : "other";
+}
+
+function planOf(capabilities: CapabilitySnapshotViewModel[]): string | null {
+  return capabilities.find((capability) => capability.capabilityId === "plan_level")?.value.primary ?? null;
+}
+
 /** 能力语义分组：与呈现顺序无关的业务类别（纯展示层归类）。 */
 function isVisibleQuotaCard(capability: CapabilitySnapshotViewModel): boolean {
   if (!capability.capabilityId.startsWith("quota_window_")) return true;
@@ -28,8 +38,10 @@ function isVisibleQuotaCard(capability: CapabilitySnapshotViewModel): boolean {
 
 function capabilitySection(capabilityId: string): { title: string; order: number } | null {
   if (capabilityId === "usage_trend") return null;
+  // plan_level 不再单独成卡：作为套餐徽章挂在账户名旁（悬浮球同款配色）
+  if (capabilityId === "plan_level") return null;
   if (capabilityId.startsWith("quota_window")) return { title: "窗口额度", order: 0 };
-  if (capabilityId === "credits" || capabilityId === "plan_level") return { title: "订阅信息", order: 1 };
+  if (capabilityId === "credits") return { title: "订阅信息", order: 1 };
   if (capabilityId === "balance" || capabilityId === "month_spend" || capabilityId === "today_spend" || capabilityId === "total_spend") {
     return { title: "余额与消费", order: 2 };
   }
@@ -91,8 +103,8 @@ function CapabilitySections({ capabilities }: { capabilities: CapabilitySnapshot
   );
 }
 
-/** 账号区块头：账号名 + 类型 + 账号聚合状态。顺序沿用后端 accounts 顺序。 */
-function AccountHeader({ account }: { account: AccountSummaryViewModel }) {
+/** 账号区块头：账号名 + 类型 + 套餐徽章（悬浮球同款配色）+ 账号聚合状态。顺序沿用后端 accounts 顺序。 */
+function AccountHeader({ account, plan }: { account: AccountSummaryViewModel; plan?: string | null }) {
   const statusMeta = AGGREGATE_STATUS_META[account.status];
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-1">
@@ -104,6 +116,11 @@ function AccountHeader({ account }: { account: AccountSummaryViewModel }) {
       >
         {ACCOUNT_KIND_LABEL[account.kind]}
       </span>
+      {plan && (
+        <span className="plan-chip" data-plan={planKey(plan)} title="订阅计划">
+          {plan}
+        </span>
+      )}
       <StatusBadge tone={statusMeta.tone}>{statusMeta.label}</StatusBadge>
     </div>
   );
@@ -138,10 +155,14 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
     (capability) => capability.capabilityId !== "usage_trend" && isVisibleQuotaCard(capability),
   );
   const multiAccount = platform.accounts.length > 1;
-  const accountSections = platform.accounts.map((account) => ({
-    account,
-    capabilities: cardCapabilities.filter((capability) => capability.accountId === account.accountId),
-  }));
+  const accountSections = platform.accounts.map((account) => {
+    const capabilities = cardCapabilities.filter((capability) => capability.accountId === account.accountId);
+    return {
+      account,
+      plan: planOf(capabilities),
+      capabilities: capabilities.filter((capability) => capability.capabilityId !== "plan_level"),
+    };
+  });
 
   const mainContent = (
     <div className="flex min-w-0 flex-col gap-4">
@@ -149,9 +170,9 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
       {!wide && <RefreshHistory platform={platform} variant="inline" />}
       {multiAccount ? (
         <div className="flex flex-col gap-6">
-          {accountSections.map(({ account, capabilities }) => (
+          {accountSections.map(({ account, plan, capabilities }) => (
             <section key={account.accountId} className="flex min-w-0 flex-col gap-3">
-              <AccountHeader account={account} />
+              <AccountHeader account={account} plan={plan} />
               {capabilities.length > 0 ? (
                 <CapabilitySections capabilities={capabilities} />
               ) : (
@@ -161,7 +182,13 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
           ))}
         </div>
       ) : (
-        <CapabilitySections capabilities={cardCapabilities} />
+        // 单账号平台同样展示账户头（套餐徽章挂在账户名旁，订阅计划不再单独成卡）
+        <div className="flex min-w-0 flex-col gap-3">
+          <AccountHeader account={platform.accounts[0]} plan={planOf(cardCapabilities)} />
+          <CapabilitySections
+            capabilities={cardCapabilities.filter((capability) => capability.capabilityId !== "plan_level")}
+          />
+        </div>
       )}
       {trendCapability && trendCapability.trend.length > 0 && (
         <UsageTrend capability={trendCapability} />

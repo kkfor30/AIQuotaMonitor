@@ -585,6 +585,42 @@ html.hoverbar-window #root {
   background: var(--q-hoverbar-empty-bg);
 }
 
+/* 主窗口版套餐徽章（平台中心账户标题旁）：与悬浮球同一套语义配色。 */
+.plan-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: #0a66ff;
+  background: rgba(10, 102, 255, 0.12);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.plan-chip[data-plan="pro"] {
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.12);
+}
+
+.plan-chip[data-plan="plus"] {
+  color: #0a66ff;
+  background: rgba(10, 102, 255, 0.12);
+}
+
+.plan-chip[data-plan="lite"] {
+  color: #0e7490;
+  background: rgba(14, 116, 144, 0.12);
+}
+
+.plan-chip[data-plan="free"],
+.plan-chip[data-plan="other"] {
+  color: #64748b;
+  background: rgba(100, 116, 139, 0.12);
+}
+
 /* 账户分组 */
 .hb-groups {
   display: flex;

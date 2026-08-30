@@ -508,7 +508,16 @@ function SourceRow({
             </span>
           )}
           {source.state === "auth_required" && (
-            <span className="text-[10px] leading-3.5 text-q-text-muted">凭据待配置</span>
+            <span
+              className={cn(
+                "truncate text-[10px] leading-3.5",
+                source.credentialConfigured && source.errorMessage ? "text-q-warning" : "text-q-text-muted",
+              )}
+              title={source.credentialConfigured && source.errorMessage ? source.errorMessage : "凭据待配置"}
+            >
+              {/* 已配置但待配置态（如本机 CLI token 失效）：展示后端真实原因（引导 grok login 等），不再吞成笼统文案 */}
+              {source.credentialConfigured && source.errorMessage ? source.errorMessage : "凭据待配置"}
+            </span>
           )}
         </span>
       </span>
