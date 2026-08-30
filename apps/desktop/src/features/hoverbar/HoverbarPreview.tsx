@@ -127,16 +127,23 @@ const glmPlatform: PlatformSummaryViewModel = {
   aggregateStatus: "healthy",
   accessSummary: "Token Plan + 个人余额",
   supportsMultipleAccounts: true,
-  accounts: [{ accountId: "glm-default", displayName: "默认账号", kind: "default", status: "healthy", sourceIds: ["glm-coding-plan", "glm-web-balance"], canRename: false, canRemove: false }],
+  accounts: [
+    { accountId: "glm-default", displayName: "默认账号", kind: "default", status: "healthy", sourceIds: ["glm-coding-plan", "glm-web-balance"], canRename: false, canRemove: false },
+    { accountId: "glm-lite", displayName: "个人 GLM", kind: "additional", status: "healthy", sourceIds: ["glm-lite-plan"], canRename: true, canRemove: true },
+  ],
   sources: [
     source("glm-coding-plan", "Coding Plan", ["quota_window_5h", "quota_window_7d", "plan_level"], "coding_plan"),
     source("glm-web-balance", "网页个人余额", ["balance"], "personal_balance"),
+    source("glm-lite-plan", "个人 Coding Plan", ["quota_window_5h", "quota_window_7d", "plan_level"], "coding_plan"),
   ],
   capabilities: [
     cap("quota_window_5h", "glm-coding-plan", "5 小时窗口", "72%", "已使用 28.0% · 重置 15:20"),
     cap("quota_window_7d", "glm-coding-plan", "周窗口", "80%", "已使用 20.0% · 重置 09/03 09:00"),
     cap("plan_level", "glm-coding-plan", "订阅计划", "Pro", "官方 Coding Plan"),
     cap("balance", "glm-web-balance", "账户余额", "¥88.10", "网页个人余额"),
+    cap("quota_window_5h", "glm-lite-plan", "个人 · 5 小时窗口", "100%", "已使用 0% · 重置 09/02 22:59"),
+    cap("quota_window_7d", "glm-lite-plan", "个人 · 周窗口", "0%", "重置 09/06 22:59"),
+    cap("plan_level", "glm-lite-plan", "个人 · 订阅计划", "Lite", "个人 GLM 套餐"),
   ],
 };
 

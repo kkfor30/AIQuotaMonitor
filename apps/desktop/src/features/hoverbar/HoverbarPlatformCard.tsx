@@ -266,7 +266,7 @@ function RadarStrip({
 
 function planKey(plan: string): string {
   const key = plan.trim().toLowerCase();
-  return key === "plus" || key === "pro" || key === "free" ? key : "other";
+  return key === "plus" || key === "pro" || key === "free" || key === "lite" ? key : "other";
 }
 
 /**
