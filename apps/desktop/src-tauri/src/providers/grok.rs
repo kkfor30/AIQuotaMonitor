@@ -16,6 +16,9 @@
 
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
 use tokio::io::AsyncBufReadExt;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use crate::providers::money::WEB_UA;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
@@ -67,6 +70,48 @@ fn select_access_token(root: &serde_json::Map<String, Value>) -> Option<String> 
     oidc.or(legacy)
 }
 
+/// 读取 Windows 系统代理（Clash/V2Ray 等写入注册表的 ProxyServer）。
+/// GUI 启动的应用环境里通常没有 HTTP_PROXY/HTTPS_PROXY，第三方 CLI 子进程
+/// 也不会读注册表——需要显式注入，否则 grok login 的 auth.x.ai 请求会超时。
+fn windows_system_proxy() -> Option<String> {
+    const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+    const NO_WINDOW: u32 = 0x0800_0000;
+    let query = |name: &str| -> Option<String> {
+        let output = std::process::Command::new("reg")
+            .args(["query", KEY, "/v", name])
+            .creation_flags(NO_WINDOW)
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        // 行形如 "    ProxyEnable    REG_DWORD    0x1" / "    ProxyServer    REG_SZ    127.0.0.1:7890"
+        // DWORD 与 SZ 类型都按空白分段取末位值
+        text.lines().find_map(|line| {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.first()?.eq_ignore_ascii_case(name) {
+                parts.last().map(|value| value.to_string())
+            } else {
+                None
+            }
+        })
+    };
+    let enabled = query("ProxyEnable")?;
+    if enabled != "0x1" {
+        return None;
+    }
+    let server = query("ProxyServer")?;
+    // 统一格式 "127.0.0.1:7890" 或分协议 "http=...;https=...;ftp=..."
+    if let Some(pos) = server.find("https=") {
+        let rest = &server[pos + "https=".len()..];
+        let end = rest.find(';').unwrap_or(rest.len());
+        let https = rest[..end].trim();
+        return (!https.is_empty()).then(|| format!("http://{https}"));
+    }
+    if server.starts_with("http://") || server.starts_with("https://") {
+        return Some(server);
+    }
+    (!server.is_empty()).then(|| format!("http://{server}"))
+}
+
 fn resolve_grok_program() -> Result<std::path::PathBuf, String> {
     if let Some(explicit) = std::env::var_os("GROK_BIN") {
         let path = std::path::PathBuf::from(explicit);
@@ -106,6 +151,12 @@ pub async fn login_via_cli() -> Result<(), String> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
+    // 关键：注入系统代理。grok login 首步请求 auth.x.ai 的 OIDC 配置，
+    // 子进程不会读注册表代理，缺这个会直接超时（应用内重登卡死的根因）。
+    if let Some(proxy) = windows_system_proxy() {
+        command.env("HTTPS_PROXY", &proxy);
+        command.env("HTTP_PROXY", &proxy);
+    }
     let mut child = command
         .spawn()
         .map_err(|error| format!("无法启动 Grok 登录：{error}。请确认终端里可以运行 `grok`，或设置 GROK_BIN"))?;
@@ -139,10 +190,13 @@ pub async fn login_via_cli() -> Result<(), String> {
             maybe_line = line_rx.recv() => {
                 match maybe_line {
                     Some(line) => {
+                        // 只打开带参数的链接（真实授权页）；discovery JSON 里的裸端点不误开
                         if !opened_url {
                             if let Some(url) = extract_http_url(&line) {
-                                opened_url = true;
-                                let _ = crate::commands::window_commands::open_http_url(url);
+                                if url.contains('?') {
+                                    opened_url = true;
+                                    let _ = crate::commands::window_commands::open_http_url(url);
+                                }
                             }
                         }
                         recent.push_back(line);
