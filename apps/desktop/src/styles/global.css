@@ -1160,8 +1160,9 @@ html.hoverbar-window #root {
   min-width: 70px;
   padding: 1px 6px;
   border-radius: 6px;
-  color: var(--q-hoverbar-muted);
+  color: var(--q-hoverbar-muted-strong);
   background: var(--q-hoverbar-empty-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 95%, transparent);
   font-size: 10px;
   font-weight: 700;
   line-height: 14px;
@@ -1305,10 +1306,6 @@ html.hoverbar-window #root {
 .hb-quota-retry:disabled {
   opacity: 0.6;
   cursor: default;
-}
-
-.hb-quota-retry-short {
-  display: none;
 }
 
 .hb-timeline {
@@ -1496,8 +1493,7 @@ html.hoverbar-window #root {
   align-self: flex-end;
 }
 
-/* 左右侧停靠：头部仅留徽章与操作保单行（300px 下标题+徽章+操作逼近临界），
-   「可能过期」移到注释行（可换行）仍可见。 */
+/* 左右侧停靠：头部「重置雷达 + 操作」保单行；阶段徽章放不下，事件阶段在详情页首卡展示。 */
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-head {
   flex-wrap: nowrap;
@@ -1509,33 +1505,15 @@ html.hoverbar-window #root {
   display: none;
 }
 
-.hb-detail-root[data-edge="left"] .hb-radar-strip-title,
-.hb-detail-root[data-edge="right"] .hb-radar-strip-title {
+.hb-detail-root[data-edge="left"] .hb-radar-strip-head .radar-phase-badge,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-head .radar-phase-badge {
   display: none;
 }
 
-/* 左右侧停靠：验证卡详细前后值收进内部滚动，重试按钮紧凑化。 */
+/* 左右侧停靠：验证卡详细前后值收进内部滚动。 */
 .hb-detail-root[data-edge="left"] .hb-quota-detail,
 .hb-detail-root[data-edge="right"] .hb-quota-detail {
   display: none;
-}
-
-.hb-detail-root[data-edge="left"] .hb-quota-retry-full,
-.hb-detail-root[data-edge="right"] .hb-quota-retry-full {
-  display: none;
-}
-
-.hb-detail-root[data-edge="left"] .hb-quota-retry-short,
-.hb-detail-root[data-edge="right"] .hb-quota-retry-short {
-  display: inline;
-}
-
-.hb-detail-root[data-edge="left"] .hb-quota-retry,
-.hb-detail-root[data-edge="right"] .hb-quota-retry {
-  align-self: flex-end;
-  padding: 2px 4px;
-  background: transparent;
-  box-shadow: none;
 }
 
 .hb-detail-root[data-edge="left"] .hb-service-card,

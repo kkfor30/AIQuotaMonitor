@@ -174,8 +174,7 @@ export function HoverbarRadarDetail({
             disabled={quotaRefreshing}
           >
             <RefreshCw size={12} aria-hidden className={quotaRefreshing ? "hb-spin" : ""} />
-            <span className="hb-quota-retry-full">{quotaRefreshing ? "正在获取…" : "重试获取额度"}</span>
-            <span className="hb-quota-retry-short">{quotaRefreshing ? "获取中" : "重试"}</span>
+            {quotaRefreshing ? "正在获取…" : "重试获取额度"}
           </button>
         ) : null}
       </section>
