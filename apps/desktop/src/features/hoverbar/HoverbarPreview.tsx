@@ -106,7 +106,7 @@ const gptPlatform: PlatformSummaryViewModel = {
     { accountId: "openai-extra-3", displayName: "工作账号", kind: "additional", status: "setup_required", sourceIds: ["openai-codex-extra-3"], canRename: true, canRemove: true },
   ],
   sources: [
-    source("openai-codex-local", "本机 Codex（当前 CLI）", ["quota_window_5h", "quota_window_7d", "credits", "plan_level"], "local_cli"),
+    source("openai-codex-local", "本机 Codex", ["quota_window_5h", "quota_window_7d", "credits", "plan_level"], "local_cli"),
     source("openai-codex-extra-2", "额外 ChatGPT 账号 2", ["quota_window_30d", "credits", "plan_level"], "local_cli"),
     source("openai-codex-extra-3", "工作账号", [], "local_cli", "auth_required", false),
   ],

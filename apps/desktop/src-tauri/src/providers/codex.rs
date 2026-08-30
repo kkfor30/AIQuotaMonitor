@@ -117,10 +117,6 @@ pub async fn fetch_at(client: &Client, home: Option<&Path>) -> SourceRefreshOutp
     }
 }
 
-pub async fn login_cli() -> Result<(), String> {
-    login_cli_at(None).await
-}
-
 pub async fn login_cli_at(home: Option<&Path>) -> Result<(), String> {
     if let Some(home) = home {
         std::fs::create_dir_all(home).map_err(|error| format!("无法创建额外账号目录：{error}"))?;

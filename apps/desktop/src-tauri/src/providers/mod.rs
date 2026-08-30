@@ -59,7 +59,7 @@ fn source_definitions(platform_id: &str) -> Vec<SourceDefinition> {
         "minimax" => vec![one(coding_plan::MINIMAX_SOURCE_ID, "api_key", "Token Plan")],
         "minimax_intl" => vec![one(coding_plan::MINIMAX_INTL_SOURCE_ID, "api_key", "Token Plan")],
         "claude_code" => vec![one(claude::SOURCE_ID, "local_cli", "本地 Claude 订阅")],
-        "grok" => vec![one(grok::SOURCE_ID, "local_cli", "本机 Grok CLI")],
+        "grok" => vec![one(grok::SOURCE_ID, "local_cli", "本机 Grok")],
         "mimo" => vec![one(mimo::SOURCE_ID, "web_session", "网页会话")],
         "siliconflow" => vec![one(balance::SILICONFLOW_SOURCE_ID, "api_key", "账户余额")],
         "siliconflow_intl" => vec![one(balance::SILICONFLOW_INTL_SOURCE_ID, "api_key", "账户余额")],
@@ -471,8 +471,13 @@ fn real_platform(
         } else if source.adapter_id == codex::SOURCE_ID && matches!(state, SourceState::AuthRequired) {
             state = SourceState::Ready;
         }
-        let display_name = if source.account_kind == "local" && source.adapter_id == codex::SOURCE_ID {
-            "本机 Codex（当前 CLI）".to_string()
+        // 本机来源显示名在 ViewModel 层统一覆盖，旧数据库里的旧名称不再露出
+        let display_name = if source.account_kind == "local" {
+            match source.adapter_id.as_str() {
+                id if id == codex::SOURCE_ID => "本机 Codex".to_string(),
+                id if id == grok::SOURCE_ID => "本机 Grok".to_string(),
+                _ => source.display_name.clone(),
+            }
         } else {
             source.display_name.clone()
         };
@@ -665,7 +670,7 @@ fn real_platform(
         "kimi" => kimi_access_summary(&sources),
         "glm" | "glm_intl" => glm_access_summary(&sources),
         "mimo" if configured_count > 0 => "网页会话".to_string(),
-        "grok" if configured_count > 0 => "本机 Grok CLI".to_string(),
+        "grok" if configured_count > 0 => "本机 Grok".to_string(),
         "claude_code" if configured_count > 0 => "本机 Claude".to_string(),
         "minimax" | "minimax_intl" if configured_count > 0 => "Token Plan".to_string(),
         id if balance::source_id_for_platform(id).is_some() && configured_count > 0 => "API Key".to_string(),

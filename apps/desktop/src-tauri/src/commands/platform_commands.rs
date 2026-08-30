@@ -368,11 +368,11 @@ pub async fn start_source_login(
         return Err("仅主窗口可以打开来源登录".into());
     }
     let source = database.source(&source_id)?;
+    // 本机 Codex 账号只允许检测本机 CLI，不在这里触发 `codex login`，避免覆盖本机登录状态。
     match source.adapter_id.as_str() {
         id if crate::windows::source_login::is_web_login_source(id) => {
             crate::windows::source_login::open(&app, &source.id, id).await
         }
-        id if id == crate::providers::codex::SOURCE_ID && source.account_kind == "local" => crate::providers::codex::login_cli().await,
         id if id == crate::providers::codex::SOURCE_ID && source.account_kind == "additional" => {
             let home = extra_codex_home(&database, &source).ok_or_else(|| "无法定位额外账号目录".to_string())?;
             crate::providers::codex::login_cli_at(Some(&home)).await

@@ -48,7 +48,7 @@ const SOURCE_TYPE_ICON: Record<string, LucideIcon> = {
   oauth: ShieldCheck,
 };
 
-/** 来源行操作（V7 矩阵）：CLI 可检测刷新，Codex CLI 另可重触发官方登录；API Key / Web 只编辑。 */
+/** 来源行操作（V7 矩阵）：CLI 可检测刷新，Codex 额外账号另可重触发官方登录；API Key / Web 只编辑。 */
 function sourceAction(source: SourceSummaryViewModel): "edit" | "refresh" | null {
   if (source.supportsCliLogin || source.sourceType === "local_cli") return "refresh";
   if (source.credentialInput || source.supportsInteractiveLogin) return "edit";
@@ -91,7 +91,7 @@ export function SourcesView({
       queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
     },
   });
-  // Codex CLI 来源重新触发官方登录（中断后补救 / 已配置账号更换登录），完成后刷新平台
+  // Codex 额外账号重新触发官方登录（登录中断补救 / 更换登录）；本机账号只检测，不触发登录
   const reloginMutation = useMutation({
     mutationFn: async (sourceId: string) => {
       await startSourceLogin(sourceId);
@@ -482,8 +482,8 @@ function SourceRow({
   }, [focused]);
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const action = sourceAction(source);
-  // Codex CLI 来源可重触发官方登录：登录中断的额外账号由此补救，已配置账号可更换登录
-  const canRelogin = source.supportsCliLogin;
+  // 仅额外 Codex 账号可重触发官方登录（中断补救 / 更换登录）；本机账号只检测，避免覆盖本机 CLI 登录
+  const canRelogin = source.supportsCliLogin && source.accountKind !== "local";
 
   return (
     <div
