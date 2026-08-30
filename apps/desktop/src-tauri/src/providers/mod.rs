@@ -2,6 +2,7 @@
 
 pub mod balance;
 pub mod catalog;
+pub mod claude;
 pub mod coding_plan;
 pub mod codex;
 pub mod deepseek;
@@ -57,7 +58,7 @@ fn source_definitions(platform_id: &str) -> Vec<SourceDefinition> {
         "glm_intl" => vec![one(coding_plan::GLM_INTL_SOURCE_ID, "api_key", "Coding Plan")],
         "minimax" => vec![one(coding_plan::MINIMAX_SOURCE_ID, "api_key", "Token Plan")],
         "minimax_intl" => vec![one(coding_plan::MINIMAX_INTL_SOURCE_ID, "api_key", "Token Plan")],
-        "claude_code" => vec![one("claude-code-local", "local_cli", "本地 Claude 订阅")],
+        "claude_code" => vec![one(claude::SOURCE_ID, "local_cli", "本地 Claude 订阅")],
         "grok" => vec![one(grok::SOURCE_ID, "local_cli", "本机 Grok CLI")],
         "mimo" => vec![one(mimo::SOURCE_ID, "web_session", "网页会话")],
         "siliconflow" => vec![one(balance::SILICONFLOW_SOURCE_ID, "api_key", "账户余额")],
@@ -141,6 +142,23 @@ fn grok_templates() -> Vec<CapabilityTemplate> {
     vec![template("quota_window_7d", grok::SOURCE_ID, "周窗口", "percent")]
 }
 
+/// Claude 窗口模板按最近快照动态生成（5 小时 / 周 / Opus / Sonnet 子窗口），
+/// 与 openai 同机制：首次刷新前无能力覆盖，刷新后按官方实际返回的窗口展示。
+fn claude_templates(database: &Database, sources: &[SourceRecord]) -> Result<Vec<CapabilityTemplate>, String> {
+    let mut templates = Vec::new();
+    for source in sources.iter().filter(|source| source.adapter_id == claude::SOURCE_ID) {
+        for snapshot in database.latest_window_snapshots(&source.id)? {
+            templates.push(template(
+                &snapshot.capability_id,
+                &source.id,
+                &snapshot.display_name,
+                "percent",
+            ));
+        }
+    }
+    Ok(templates)
+}
+
 fn balance_platform_templates(source_id: &str) -> Vec<CapabilityTemplate> {
     // OpenRouter 的 credits 接口自带官方累计消费（total_usage），多挂一个 total_spend 能力
     let mut templates = vec![template("balance", source_id, "账户余额", "money")];
@@ -204,6 +222,16 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
                 platforms.push(real_platform(
                     database,
                     "openai",
+                    display_name,
+                    official_url,
+                    added.api_base_url.as_deref(),
+                    &[],
+                )?)
+            }
+            "claude_code" => {
+                platforms.push(real_platform(
+                    database,
+                    "claude_code",
                     display_name,
                     official_url,
                     added.api_base_url.as_deref(),
@@ -429,6 +457,8 @@ fn real_platform(
     let records = database.list_sources(provider_id)?;
     let templates = if provider_id == "openai" {
         openai_templates(database, &records)?
+    } else if provider_id == "claude_code" {
+        claude_templates(database, &records)?
     } else {
         materialize_templates(&records, templates)
     };
@@ -636,6 +666,7 @@ fn real_platform(
         "glm" | "glm_intl" => glm_access_summary(&sources),
         "mimo" if configured_count > 0 => "网页会话".to_string(),
         "grok" if configured_count > 0 => "本机 Grok CLI".to_string(),
+        "claude_code" if configured_count > 0 => "本机 Claude".to_string(),
         "minimax" | "minimax_intl" if configured_count > 0 => "Token Plan".to_string(),
         id if balance::source_id_for_platform(id).is_some() && configured_count > 0 => "API Key".to_string(),
         _ => "尚未接入".to_string(),
@@ -683,6 +714,9 @@ fn source_configured(database: &Database, source: &SourceRecord) -> bool {
     }
     if source.adapter_id == grok::SOURCE_ID {
         return grok::local_auth_available();
+    }
+    if source.adapter_id == claude::SOURCE_ID {
+        return claude::local_auth_available();
     }
     if source.adapter_id == codex::SOURCE_ID && source.account_kind == "additional" {
         return database

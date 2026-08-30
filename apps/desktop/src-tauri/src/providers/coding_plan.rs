@@ -334,7 +334,9 @@ fn remaining_from_remaining(id: &str, label: &str, remaining_percent: f64, reset
     window_capability(id, label, remaining_percent.clamp(0.0, 100.0), reset)
 }
 
-fn window_capability(id: &str, label: &str, remaining: f64, reset: Option<&Value>) -> CapabilityData {
+/// 窗口能力构造：remaining 为剩余百分比，reset 支持 ISO 字符串 / 秒 / 毫秒时间戳。
+/// grok / claude 等订阅窗口 Source 与 Coding Plan 共用同一展示格式。
+pub(crate) fn window_capability(id: &str, label: &str, remaining: f64, reset: Option<&Value>) -> CapabilityData {
     let used = (100.0 - remaining).clamp(0.0, 100.0);
     CapabilityData {
         capability_id: id.into(),

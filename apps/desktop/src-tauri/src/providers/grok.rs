@@ -15,7 +15,7 @@
 //! 两者都缺才报 response_shape_changed，不补零不造数。
 
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
-use crate::providers::money::{format_percent, WEB_UA};
+use crate::providers::money::WEB_UA;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -175,26 +175,13 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
     };
     let used = used.clamp(0.0, 100.0);
     let remaining = 100.0 - used;
-    let used_text = format_percent(used);
-    let secondary = match period_end.and_then(reset_label) {
-        Some(reset) => format!("已使用 {used_text} · {reset}"),
-        None => format!("已使用 {used_text}"),
-    };
-    Ok(vec![CapabilityData {
-        capability_id: "quota_window_7d".into(),
-        display_name: "周窗口".into(),
-        value_kind: "percent".into(),
-        primary_value: Some(format_percent(remaining)),
-        secondary_value: Some(secondary),
-        progress: Some(remaining / 100.0),
-        trend: vec![],
-    }])
-}
-
-fn reset_label(iso: &str) -> Option<String> {
-    chrono::DateTime::parse_from_rfc3339(iso)
-        .ok()
-        .map(|time| format!("重置 {}", time.with_timezone(&chrono::Local).format("%m-%d %H:%M")))
+    let reset = period_end.map(|end| Value::String(end.to_string()));
+    Ok(vec![super::coding_plan::window_capability(
+        "quota_window_7d",
+        "周窗口",
+        remaining,
+        reset.as_ref(),
+    )])
 }
 
 #[cfg(test)]

@@ -48,9 +48,9 @@ const SOURCE_TYPE_ICON: Record<string, LucideIcon> = {
   oauth: ShieldCheck,
 };
 
-/** 来源行唯一操作（V7 矩阵）：CLI 只检测刷新；API Key / Web 只编辑；其余不制造空抽屉。 */
+/** 来源行操作（V7 矩阵）：CLI 可检测刷新，Codex CLI 另可重触发官方登录；API Key / Web 只编辑。 */
 function sourceAction(source: SourceSummaryViewModel): "edit" | "refresh" | null {
-  if (source.supportsCliLogin) return "refresh";
+  if (source.supportsCliLogin || source.sourceType === "local_cli") return "refresh";
   if (source.credentialInput || source.supportsInteractiveLogin) return "edit";
   return null;
 }
@@ -87,6 +87,16 @@ export function SourcesView({
   });
   const refreshMutation = useMutation({
     mutationFn: () => refreshPlatform(platform.providerId),
+    onSuccess: (platforms) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
+    },
+  });
+  // Codex CLI 来源重新触发官方登录（中断后补救 / 已配置账号更换登录），完成后刷新平台
+  const reloginMutation = useMutation({
+    mutationFn: async (sourceId: string) => {
+      await startSourceLogin(sourceId);
+      return refreshPlatform(platform.providerId);
+    },
     onSuccess: (platforms) => {
       queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
     },
@@ -220,8 +230,8 @@ export function SourcesView({
 
               {/* 来源紧凑行（V7）：来源名 / 接入类型 / 凭据状态 / 能力覆盖 / 最后成功 / 唯一操作 */}
               <div className="mt-1 overflow-x-auto">
-                <div className="min-w-[560px]">
-                  <div className="grid grid-cols-[minmax(0,1.5fr)_84px_72px_78px_88px_76px] items-center gap-x-3 border-b border-q-border px-3 pb-1.5 text-[11px] font-medium text-q-text-muted">
+                <div className="min-w-[640px]">
+                  <div className="grid grid-cols-[minmax(0,1.5fr)_84px_72px_78px_88px_150px] items-center gap-x-3 border-b border-q-border px-3 pb-1.5 text-[11px] font-medium text-q-text-muted">
                     <span>来源</span>
                     <span>接入类型</span>
                     <span>凭据状态</span>
@@ -235,8 +245,10 @@ export function SourcesView({
                       source={source}
                       focused={source.sourceId === focusSourceId}
                       refreshing={refreshMutation.isPending}
+                      reloginPending={reloginMutation.isPending && reloginMutation.variables === source.sourceId}
                       onEdit={() => setEditingSourceId(source.sourceId)}
                       onRefresh={() => refreshMutation.mutate()}
+                      onRelogin={() => reloginMutation.mutate(source.sourceId)}
                     />
                   ))}
                 </div>
@@ -259,6 +271,12 @@ export function SourcesView({
       {removeAccountMutation.error && (
         <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
           {ipcErrorMessage(removeAccountMutation.error, "移除账号失败，请稍后重试。")}
+        </p>
+      )}
+
+      {reloginMutation.error && (
+        <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
+          {ipcErrorMessage(reloginMutation.error, "无法启动官方登录，请稍后重试。")}
         </p>
       )}
 
@@ -445,14 +463,18 @@ function SourceRow({
   source,
   focused,
   refreshing,
+  reloginPending,
   onEdit,
   onRefresh,
+  onRelogin,
 }: {
   source: SourceSummaryViewModel;
   focused: boolean;
   refreshing: boolean;
+  reloginPending: boolean;
   onEdit: () => void;
   onRefresh: () => void;
+  onRelogin: () => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -460,13 +482,15 @@ function SourceRow({
   }, [focused]);
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const action = sourceAction(source);
+  // Codex CLI 来源可重触发官方登录：登录中断的额外账号由此补救，已配置账号可更换登录
+  const canRelogin = source.supportsCliLogin;
 
   return (
     <div
       ref={rowRef}
       data-focused={focused || undefined}
       className={cn(
-        "grid grid-cols-[minmax(0,1.5fr)_84px_72px_78px_88px_76px] items-center gap-x-3 border-b border-q-border/50 px-3 py-2.5 text-xs last:border-b-0",
+        "grid grid-cols-[minmax(0,1.5fr)_84px_72px_78px_88px_150px] items-center gap-x-3 border-b border-q-border/50 px-3 py-2.5 text-xs last:border-b-0",
         focused && "bg-q-primary-softer/70 ring-1 ring-inset ring-q-primary/40",
       )}
     >
@@ -496,7 +520,7 @@ function SourceRow({
         {source.capabilityIds.length > 0 ? `${source.capabilityIds.length} 项能力` : "—"}
       </span>
       <span className="tabular-nums text-q-text-secondary">{formatDateTime(source.lastSuccessAt)}</span>
-      <span className="justify-self-end">
+      <span className="justify-self-end text-nowrap">
         {action === "refresh" && (
           <button
             type="button"
@@ -505,6 +529,16 @@ function SourceRow({
             className="cursor-pointer text-xs font-medium text-q-primary transition-colors hover:text-q-primary-hover disabled:opacity-60"
           >
             {refreshing ? "检测中…" : "检测并刷新"}
+          </button>
+        )}
+        {action === "refresh" && canRelogin && (
+          <button
+            type="button"
+            onClick={onRelogin}
+            disabled={reloginPending}
+            className="ml-2 cursor-pointer text-xs font-medium text-q-text-secondary transition-colors hover:text-q-primary disabled:opacity-60"
+          >
+            {reloginPending ? "等待登录…" : source.credentialConfigured ? "更换登录" : "重新登录"}
           </button>
         )}
         {action === "edit" && (
