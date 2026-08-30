@@ -13,8 +13,13 @@ import type {
 } from "@/lib/types";
 import type { RadarSnapshot } from "@/lib/ipc";
 import { compactPercentText } from "@/lib/format";
-import { RadarConfidenceBadge } from "@/features/radar/RadarConfidenceBadge";
-import { formatHoverbarClock, radarSourceLine } from "./hoverbar-state";
+import {
+  QUOTA_STATUS_PRIORITY,
+  radarAiLine,
+  radarPhaseLabel,
+  radarQuotaLine,
+  radarSourceLine,
+} from "./hoverbar-state";
 import { hoverbarProviderVisual } from "./provider-visuals";
 
 const DEEPSEEK_EXTRA_IDS = ["today_spend", "month_spend", "cache_hit_rate"] as const;
@@ -218,37 +223,33 @@ function RadarStrip({
   radarRefreshing: boolean;
   radarRefreshError: string | null;
 }) {
-  const analysis = radar.analysis;
-  const latest = radar.latest;
-  const summary =
-    analysis?.conclusion ??
+  // 三路证据各行独立：CodexRadar 来源行不受 AI 开关影响，AI 关闭时历史正文不得替换来源行。
+  const source =
+    radar.sourceAssessment?.headline ??
     radar.notice?.headline ??
-    latest?.summary ??
-    latest?.translatedText ??
-    latest?.text ??
-    "暂未同步重置信号来源";
-  const confidence = analysis?.confidence ?? null;
-  const analyzeError = radarRefreshError;
+    radar.latest?.summary ??
+    radar.latest?.translatedText ??
+    radar.latest?.text ??
+    "暂未同步来源内容";
+  const phase = radarPhaseLabel(radar.event?.phase);
+  const aiLine = radarAiLine(radar);
+  const quotaLine = radarQuotaLine(radar);
+  const quotaStatus = (radar.quotaVerifications ?? [])
+    .map((item) => item.status)
+    .sort(
+      (left, right) =>
+        QUOTA_STATUS_PRIORITY.indexOf(left) - QUOTA_STATUS_PRIORITY.indexOf(right),
+    )[0];
   return (
     <footer className="hb-radar-strip">
       <div className="hb-radar-strip-head">
         <Radar size={14} aria-hidden />
-        <span className="hb-radar-strip-title">重置信号</span>
-        {analysis?.conclusion ? (
-          <>
-            {confidence ? <RadarConfidenceBadge confidence={confidence} /> : null}
-            <span className="hb-radar-strip-meta hb-radar-strip-time">
-              {formatHoverbarClock(analysis.createdAt)} 分析
-            </span>
-            {analysis.coversLatest ? null : (
-              <span className="hb-radar-strip-meta hb-radar-strip-stale">可能过期</span>
-            )}
-          </>
-        ) : (
-          <span className="radar-confidence-badge" data-level="none">
-            未分析
+        <span className="hb-radar-strip-title">重置雷达</span>
+        {phase ? (
+          <span className="radar-phase-badge" data-phase={radar.event?.phase}>
+            {phase}
           </span>
-        )}
+        ) : null}
         <div className="hb-radar-strip-actions">
           {onRefreshRadar ? (
             <button
@@ -269,17 +270,28 @@ function RadarStrip({
           </button>
         </div>
       </div>
-      <p className="hb-radar-strip-summary" data-selectable="true">
-        {radarRefreshing ? "正在同步 CodexRadar…" : summary}
-      </p>
-      {analyzeError ? <p className="hb-radar-strip-error">{analyzeError}</p> : null}
-      <p className="hb-radar-strip-note">
-        {radarSourceLine(radar)}
-        {analysis?.conclusion && !analysis.coversLatest ? (
-          <span className="hb-radar-strip-note-stale"> · 结论可能过期</span>
-        ) : null}
-        {" · 仅为推测，不代表官方结论"}
-      </p>
+      <div className="hb-radar-strip-row">
+        <span className="hb-radar-strip-tag">CodexRadar</span>
+        <span className="hb-radar-strip-row-text" data-selectable="true">
+          {radarRefreshing ? "正在同步 CodexRadar…" : source}
+        </span>
+      </div>
+      <div className="hb-radar-strip-row">
+        <span className="hb-radar-strip-tag">AI 辅助</span>
+        <span className="hb-radar-strip-row-text" data-selectable="true">
+          {aiLine}
+        </span>
+      </div>
+      {quotaLine ? (
+        <div className="hb-radar-strip-row">
+          <span className="hb-radar-strip-tag">本机额度</span>
+          <span className="hb-radar-strip-row-text" data-quota={quotaStatus} data-selectable="true">
+            {quotaLine}
+          </span>
+        </div>
+      ) : null}
+      {radarRefreshError ? <p className="hb-radar-strip-error">{radarRefreshError}</p> : null}
+      <p className="hb-radar-strip-note">{radarSourceLine(radar)} · 仅为推测，不代表官方结论</p>
     </footer>
   );
 }

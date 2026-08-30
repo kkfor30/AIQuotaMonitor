@@ -265,6 +265,8 @@ fn parse_glm(body: &Value) -> Vec<CapabilityData> {
             secondary_value: Some("官方 Coding Plan".into()),
             progress: None,
             trend: vec![],
+            window_seconds: None,
+            reset_at: None,
         });
     }
     capabilities
@@ -349,6 +351,8 @@ pub(crate) fn window_capability(id: &str, label: &str, remaining: f64, reset: Op
         }),
         progress: Some(remaining / 100.0),
         trend: vec![],
+        window_seconds: None,
+        reset_at: None,
     }
 }
 

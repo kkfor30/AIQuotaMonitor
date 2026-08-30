@@ -17,6 +17,11 @@ pub struct CapabilityData {
     /// 仅用于进度条显示，不参与金额或额度汇总。
     pub progress: Option<f64>,
     pub trend: Vec<StoredTrendPoint>,
+    /// 结构化额度窗口时长（秒）。仅 Codex 额度窗口填写；窗口观察器只读这里，
+    /// 禁止反解析 secondary_value 中文文本。
+    pub window_seconds: Option<i64>,
+    /// 结构化窗口重置时间（epoch 毫秒）；无重置时间信息时为 None。
+    pub reset_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]

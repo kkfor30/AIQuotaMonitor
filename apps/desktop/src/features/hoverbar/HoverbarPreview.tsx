@@ -13,7 +13,12 @@ import type {
   SourceState,
   SourceSummaryViewModel,
 } from "@/lib/types";
-import type { RadarSnapshot } from "@/lib/ipc";
+import type {
+  RadarAnalysis,
+  RadarEvent,
+  QuotaVerification,
+  RadarSnapshot,
+} from "@/lib/ipc";
 import "@/styles/global.css";
 import { HoverbarOrb } from "./HoverbarAnchorApp";
 import { HoverbarPlatformCard } from "./HoverbarPlatformCard";
@@ -186,6 +191,83 @@ const staleGlm: PlatformSummaryViewModel = {
 
 const previewPlatforms: PlatformSummaryViewModel[] = [gptPlatform, glmPlatform, deepseekHealthy, kimiError];
 
+/** 预览分析记录：生命周期矩阵的共用示例分析。 */
+const previewAnalysis: RadarAnalysis = {
+  id: "preview-analysis",
+  createdAt: Date.now() - 39 * 60 * 1000,
+  rangeKey: "3d",
+  cutPostId: "preview-3",
+  cutLabel: null,
+  sourceId: "deepseek-balance-api",
+  model: "deepseek-chat",
+  coversLatest: true,
+  conclusion: "示例结论：按钮已按下，等待本机额度验证。",
+  analysisBasis: "Tibo 明确宣布按下重置按钮，庆祝推迟至明天，符合强信号特征。",
+  confidence: "high",
+  citations: [],
+  support: ["明确宣布按下按钮", "庆祝活动推迟"],
+  against: [],
+  uncertainty: ["全量覆盖范围未知"],
+  errorMessage: null,
+  eventId: "preview-event",
+  analysisMode: "delta",
+  eventRelation: "same_event",
+  eventPhase: "landed_claimed",
+  deltaEffect: "reinforce",
+  signalLevel: "strong",
+  contextStatus: "complete",
+};
+
+/** 预览事件：来源称已落地阶段，等待本机验证。 */
+const previewEvent: RadarEvent = {
+  id: "preview-event",
+  phase: "landed_claimed",
+  title: "按钮今日已按下，等待本机额度验证",
+  summary: "Tibo 宣布按下重置按钮，庆祝活动推迟至明天。",
+  firstSignalAt: Date.now() - 26 * 60 * 60 * 1000,
+  latestEvidenceAt: Date.now() - 39 * 60 * 1000,
+  claimedLandedAt: Date.now() - 20 * 60 * 60 * 1000,
+  observedResetAt: null,
+  closedAt: null,
+  timeline: [
+    { at: Date.now() - 26 * 60 * 60 * 1000, kind: "signal", label: "首次信号" },
+    { at: Date.now() - 20 * 60 * 60 * 1000, kind: "claimed", label: "来源称已落地" },
+  ],
+  postIds: ["preview-3", "preview-1"],
+};
+
+/** 预览本机额度验证：本机观察到非计划刷新，额外账号未见变化。 */
+const previewQuota: QuotaVerification[] = [
+  {
+    accountId: "openai-local",
+    accountName: "本机 Codex",
+    sourceId: "openai-codex-local",
+    status: "unscheduled_reset",
+    attribution: "radar_correlated",
+    windowId: "quota_window_7d",
+    windowLabel: "7 天窗口",
+    windowSeconds: 604800,
+    previous: { capturedAt: Date.now() - 30 * 60 * 60 * 1000, remaining: 0.12, resetAt: Date.now() + 60 * 60 * 1000 },
+    current: { capturedAt: Date.now() - 8 * 60 * 1000, remaining: 0.94, resetAt: Date.now() + 7 * 24 * 60 * 60 * 1000 },
+    lastSuccessAt: Date.now() - 8 * 60 * 1000,
+    note: "未到原定时间窗口已恢复，重置时间明显后移",
+  },
+  {
+    accountId: "openai-extra-2",
+    accountName: "额外账号 2",
+    sourceId: "openai-codex-extra-2",
+    status: "no_change",
+    attribution: "unknown",
+    windowId: "quota_window_30d",
+    windowLabel: "30 天窗口",
+    windowSeconds: 2592000,
+    previous: { capturedAt: Date.now() - 30 * 60 * 60 * 1000, remaining: 0.66, resetAt: Date.now() + 20 * 24 * 60 * 60 * 1000 },
+    current: { capturedAt: Date.now() - 8 * 60 * 1000, remaining: 0.64, resetAt: Date.now() + 20 * 24 * 60 * 60 * 1000 },
+    lastSuccessAt: Date.now() - 8 * 60 * 1000,
+    note: "已成功刷新，本次未观察到窗口恢复",
+  },
+];
+
 /** 预览雷达快照：仅为布局验收示例，不代表任何真实信号。 */
 const previewRadar: RadarSnapshot = {
   sourceStatus: "fresh",
@@ -254,24 +336,7 @@ const previewRadar: RadarSnapshot = {
   ],
   latest: null,
   checks: [],
-  analysis: {
-    id: "preview-analysis",
-    createdAt: Date.now() - 39 * 60 * 1000,
-    rangeKey: "3d",
-    cutPostId: "preview-3",
-    cutLabel: null,
-    sourceId: "deepseek-balance-api",
-    model: "deepseek-chat",
-    coversLatest: true,
-    conclusion: "示例结论：近期出现新的重置迹象，仍在等待更多区域确认。",
-    analysisBasis: "部分地区出现窗口翻滚信号，但尚无官方公告，区域覆盖范围也未确认。",
-    confidence: "medium",
-    citations: [],
-    support: ["部分地区窗口翻滚的动态", "限额观察未再恶化"],
-    against: ["尚无官方公告"],
-    uncertainty: ["区域覆盖范围未知"],
-    errorMessage: null,
-  },
+  analysis: previewAnalysis,
   models: [],
   analysisPrefs: {
     analyze: false,
@@ -285,8 +350,143 @@ const previewRadar: RadarSnapshot = {
     lead: "请关注 Codex 仪表板",
     items: ["这是新的官方弱信号，但尚未直接确认新一轮重置。"],
   },
+  sourceAssessment: {
+    headline: "按钮今日已按下，庆祝活动推迟至明天",
+    lead: "请关注 Codex 仪表板",
+    lastSyncedAt: Date.now() - 42 * 60 * 1000,
+    freshness: "fresh",
+  },
+  event: previewEvent,
+  aiAssessment: {
+    enabled: true,
+    state: "current",
+    current: previewAnalysis,
+    history: previewAnalysis,
+    latestError: null,
+  },
+  quotaVerifications: previewQuota,
 };
 previewRadar.latest = previewRadar.posts[0];
+
+/** 生命周期状态矩阵变体：覆盖状态验收矩阵的关键组合，全部为示例数据。 */
+function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> {
+  const withOverrides = (overrides: Partial<RadarSnapshot>): RadarSnapshot => ({
+    ...previewRadar,
+    ...overrides,
+  });
+  return [
+    {
+      label: "AI 开 · 当前匹配 · 非计划刷新",
+      snapshot: withOverrides({}),
+    },
+    {
+      label: "AI 关 · 有历史分析",
+      snapshot: withOverrides({
+        aiAssessment: { enabled: false, state: "disabled", current: null, history: previewAnalysis, latestError: null },
+      }),
+    },
+    {
+      label: "AI 失败 · 历史保留",
+      snapshot: withOverrides({
+        aiAssessment: {
+          enabled: true,
+          state: "failed",
+          current: null,
+          history: previewAnalysis,
+          latestError: "示例：当前时间窗内没有 Tibo 动态可分析",
+        },
+      }),
+    },
+    {
+      label: "CodexRadar 缓存过期",
+      snapshot: withOverrides({
+        sourceStatus: "stale",
+        lastSyncedAt: Date.now() - 6 * 60 * 60 * 1000,
+        sourceAssessment: { ...previewRadar.sourceAssessment, freshness: "stale", lastSyncedAt: Date.now() - 6 * 60 * 60 * 1000 },
+      }),
+    },
+    {
+      label: "额度网络不可达",
+      snapshot: withOverrides({
+        quotaVerifications: [
+          {
+            accountId: "openai-local",
+            accountName: "本机 Codex",
+            sourceId: "openai-codex-local",
+            status: "unavailable",
+            attribution: "unknown",
+            windowId: "quota_window_7d",
+            windowLabel: "7 天窗口",
+            windowSeconds: 604800,
+            previous: null,
+            current: null,
+            lastSuccessAt: Date.now() - 25 * 60 * 60 * 1000,
+            note: "示例：暂时无法刷新",
+          },
+        ],
+      }),
+    },
+    {
+      label: "缺少额度基线",
+      snapshot: withOverrides({
+        quotaVerifications: [
+          {
+            accountId: "openai-local",
+            accountName: "本机 Codex",
+            sourceId: "openai-codex-local",
+            status: "insufficient_data",
+            attribution: "unknown",
+            windowId: "quota_window_7d",
+            windowLabel: "7 天窗口",
+            windowSeconds: 604800,
+            previous: null,
+            current: {
+              capturedAt: Date.now() - 8 * 60 * 1000,
+              remaining: 0.9,
+              resetAt: Date.now() + 6 * 24 * 60 * 60 * 1000,
+            },
+            lastSuccessAt: Date.now() - 8 * 60 * 1000,
+            note: "缺少额度基线快照，成功刷新两次后可观察",
+          },
+        ],
+      }),
+    },
+    {
+      label: "正常计划内刷新",
+      snapshot: withOverrides({
+        event: { ...previewEvent, phase: "upcoming", title: "出现较强的即将重置信号" },
+        quotaVerifications: [
+          {
+            accountId: "openai-local",
+            accountName: "本机 Codex",
+            sourceId: "openai-codex-local",
+            status: "scheduled",
+            attribution: "scheduled",
+            windowId: "quota_window_7d",
+            windowLabel: "7 天窗口",
+            windowSeconds: 604800,
+            previous: { capturedAt: Date.now() - 9 * 24 * 60 * 60 * 1000, remaining: 0.2, resetAt: Date.now() - 2 * 24 * 60 * 60 * 1000 },
+            current: { capturedAt: Date.now() - 8 * 60 * 1000, remaining: 0.96, resetAt: Date.now() + 5 * 24 * 60 * 60 * 1000 },
+            lastSuccessAt: Date.now() - 8 * 60 * 1000,
+            note: "到达原定时间后的正常周期刷新",
+          },
+        ],
+      }),
+    },
+    {
+      label: "多账号部分观察到",
+      snapshot: withOverrides({}),
+    },
+    {
+      label: "无事件 · AI 未分析",
+      snapshot: withOverrides({
+        event: null,
+        aiAssessment: { enabled: true, state: "not_analyzed", current: null, history: null, latestError: null },
+        quotaVerifications: [],
+      }),
+    },
+  ];
+}
 
 function OrbState({
   label,
@@ -320,11 +520,13 @@ function PreviewPanel({
   platforms,
   status,
   initialView = "quota",
+  radar = previewRadar,
 }: {
   edge: HoverbarEdge;
   platforms: PlatformSummaryViewModel[];
   status: string;
   initialView?: "quota" | "radar";
+  radar?: RadarSnapshot;
 }) {
   const { theme, toggleTheme } = useHoverbarTheme();
   const [view, setView] = useState<"quota" | "radar">(initialView);
@@ -357,13 +559,18 @@ function PreviewPanel({
           <div className="hb-service-list">
             <div className="hb-service-scroll">
               {view === "radar" ? (
-                <HoverbarRadarDetail radar={previewRadar} onBack={() => setView("quota")} />
+                <HoverbarRadarDetail
+                  radar={radar}
+                  onBack={() => setView("quota")}
+                  onRefresh={noop}
+                  onRetryQuota={noop}
+                />
               ) : (
                 platforms.map((platform) => (
                   <HoverbarPlatformCard
                     key={`${edge}-${platform.providerId}`}
                     platform={platform}
-                    radar={platform.providerId === "openai" ? previewRadar : undefined}
+                    radar={platform.providerId === "openai" ? radar : undefined}
                     onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
                     onRefreshRadar={platform.providerId === "openai" ? noop : undefined}
                   />
@@ -429,6 +636,18 @@ function HoverbarPreview() {
             <h2>顶部停靠 · 雷达页</h2>
             <PreviewPanel edge="top" platforms={previewPlatforms} status="更新于 11:51" initialView="radar" />
           </div>
+        </div>
+      </section>
+
+      <section className="hb-preview-detail-section">
+        <h2>重置事件生命周期 · 状态矩阵（右侧 300px，示例数据）</h2>
+        <div className="hb-preview-edges">
+          {lifecycleVariants().map(({ label, snapshot }) => (
+            <div key={label}>
+              <h2>{label}</h2>
+              <PreviewPanel edge="right" platforms={[]} status="更新于 11:51" initialView="radar" radar={snapshot} />
+            </div>
+          ))}
         </div>
       </section>
 

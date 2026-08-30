@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 5;
+const CURRENT_SCHEMA_VERSION: i64 = 6;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -113,6 +113,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 5 {
         migrate_v5(&transaction)?;
+    }
+    if previous_version < 6 {
+        migrate_v6(&transaction)?;
     }
     transaction
         .commit()
@@ -347,6 +350,56 @@ fn migrate_v5(transaction: &Transaction<'_>) -> Result<(), String> {
             "#,
         )
         .map_err(|err| format!("执行 SQLite v5 迁移失败: {err}"))
+}
+
+fn migrate_v6(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            ALTER TABLE capability_snapshots ADD COLUMN window_seconds INTEGER;
+            ALTER TABLE capability_snapshots ADD COLUMN reset_at INTEGER;
+
+            ALTER TABLE radar_analyses ADD COLUMN event_id TEXT;
+            ALTER TABLE radar_analyses ADD COLUMN analysis_mode TEXT;
+            ALTER TABLE radar_analyses ADD COLUMN context_hash TEXT NOT NULL DEFAULT '';
+            ALTER TABLE radar_analyses ADD COLUMN prompt_hash TEXT NOT NULL DEFAULT '';
+            ALTER TABLE radar_analyses ADD COLUMN event_relation TEXT;
+            ALTER TABLE radar_analyses ADD COLUMN event_phase TEXT;
+            ALTER TABLE radar_analyses ADD COLUMN delta_effect TEXT;
+            ALTER TABLE radar_analyses ADD COLUMN signal_level TEXT;
+            ALTER TABLE radar_analyses ADD COLUMN context_status TEXT;
+
+            CREATE TABLE radar_events (
+                id TEXT PRIMARY KEY,
+                phase TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT,
+                first_signal_at INTEGER NOT NULL,
+                latest_evidence_at INTEGER NOT NULL,
+                claimed_landed_at INTEGER,
+                observed_reset_at INTEGER,
+                closed_at INTEGER,
+                close_reason TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE INDEX idx_radar_events_updated ON radar_events(updated_at DESC);
+
+            CREATE TABLE radar_event_evidence (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL REFERENCES radar_events(id) ON DELETE CASCADE,
+                post_id TEXT NOT NULL,
+                relation TEXT NOT NULL,
+                analysis_id TEXT,
+                added_at INTEGER NOT NULL,
+                UNIQUE(event_id, post_id)
+            );
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (6, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v6 迁移失败: {err}"))
 }
 
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {

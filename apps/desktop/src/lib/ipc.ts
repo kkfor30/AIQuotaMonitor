@@ -163,6 +163,10 @@ export type RadarSnapshot = {
   models: RadarModelOption[];
   analysisPrefs: RadarAnalysisPrefs;
   notice: RadarNotice | null;
+  sourceAssessment: RadarSourceAssessment;
+  event: RadarEvent | null;
+  aiAssessment: RadarAiAssessment;
+  quotaVerifications: QuotaVerification[];
 };
 
 export type RadarAnalysisPrefs = {
@@ -229,6 +233,72 @@ export type RadarAnalysis = {
   uncertainty: string[];
   errorMessage: string | null;
   coversLatest: boolean;
+  eventId: string | null;
+  analysisMode: string | null;
+  eventRelation: string | null;
+  eventPhase: string | null;
+  deltaEffect: string | null;
+  signalLevel: string | null;
+  contextStatus: string | null;
+};
+
+export type RadarSourceAssessment = {
+  headline: string | null;
+  lead: string | null;
+  lastSyncedAt: number | null;
+  freshness: string;
+};
+
+export type RadarEventNode = {
+  at: number;
+  kind: string;
+  label: string;
+};
+
+export type RadarEvent = {
+  id: string;
+  phase: string;
+  title: string;
+  summary: string | null;
+  firstSignalAt: number;
+  latestEvidenceAt: number;
+  claimedLandedAt: number | null;
+  observedResetAt: number | null;
+  closedAt: number | null;
+  timeline: RadarEventNode[];
+  postIds: string[];
+};
+
+export type RadarAiAssessment = {
+  enabled: boolean;
+  /** current | disabled | pending | failed | not_analyzed */
+  state: string;
+  current: RadarAnalysis | null;
+  history: RadarAnalysis | null;
+  latestError: string | null;
+};
+
+export type QuotaWindowPoint = {
+  capturedAt: number;
+  remaining: number | null;
+  resetAt: number | null;
+};
+
+export type QuotaVerification = {
+  accountId: string;
+  accountName: string;
+  sourceId: string;
+  /** unavailable | insufficient_data | pending | scheduled | possible_reset | unscheduled_reset | no_change */
+  status: string;
+  /** unknown | scheduled | user_confirmed | radar_correlated */
+  attribution: string;
+  windowId: string | null;
+  windowLabel: string | null;
+  windowSeconds: number | null;
+  previous: QuotaWindowPoint | null;
+  current: QuotaWindowPoint | null;
+  lastSuccessAt: number | null;
+  note: string | null;
 };
 
 export type RadarModelOption = {
@@ -241,6 +311,19 @@ export type RadarModelOption = {
 
 export async function fetchRadarSnapshot(): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("get_radar_snapshot");
+}
+
+/** 主窗口手动确认重置卡：只追加归因 user_confirmed，不篡改快照。 */
+export async function confirmRadarQuotaChange(input: {
+  accountId: string;
+  sourceId: string;
+  capturedAt: number;
+}): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("confirm_radar_quota_change", {
+    accountId: input.accountId,
+    sourceId: input.sourceId,
+    capturedAt: input.capturedAt,
+  });
 }
 
 export async function runRadarCheck(input: {

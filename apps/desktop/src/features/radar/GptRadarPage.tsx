@@ -19,10 +19,17 @@ import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
-import { fetchRadarSnapshot, ipcErrorMessage, openExternalUrl, runRadarCheck, saveRadarAnalysisPrefs } from "@/lib/ipc";
+import {
+  confirmRadarQuotaChange,
+  fetchRadarSnapshot,
+  ipcErrorMessage,
+  openExternalUrl,
+  runRadarCheck,
+  saveRadarAnalysisPrefs,
+} from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import type { RadarPost } from "@/lib/ipc";
-import { RadarConfidenceBadge } from "@/features/radar/RadarConfidenceBadge";
+import { quotaStatusText, radarPhaseLabel } from "@/features/hoverbar/hoverbar-state";
 
 export function GptRadarPage() {
   const queryClient = useQueryClient();
@@ -199,6 +206,13 @@ function sourceTone(status?: string): "success" | "warning" | "neutral" {
   return "neutral";
 }
 
+/** 本机额度验证状态的徽章色调：非计划刷新 → 蓝（重点）；不可达/缺数据 → 中性；其余正常。 */
+function quotaTone(status: string): "success" | "warning" | "neutral" | "primary" {
+  if (status === "unscheduled_reset" || status === "possible_reset") return "primary";
+  if (status === "scheduled" || status === "no_change") return "success";
+  return "neutral";
+}
+
 /** 帖子信号徽章色调：显式重置 → 红；信号/相关 → 橙；无信号 → 灰 */
 function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "primary" {
   if (post.explicitReset) return "danger";
@@ -210,15 +224,26 @@ function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "pri
 /* ————————————————— 信号摘要（设计稿 04） ————————————————— */
 
 function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined }) {
+  const queryClient = useQueryClient();
   const latest = data?.latest;
-  const notice = data?.notice;
-  const latestCheck = data?.checks[0];
-  const latestAnalyzeError = latestCheck?.analyzeStatus === "failed" ? latestCheck.errorMessage : null;
+  const event = data?.event ?? null;
+  const phase = radarPhaseLabel(event?.phase);
+  const source = data?.sourceAssessment;
+  const ai = data?.aiAssessment;
+  const verifications = data?.quotaVerifications ?? [];
+  const timeline = event?.timeline ?? [];
+  const aiState = !ai ? "not_analyzed" : ai.enabled ? ai.state : "disabled";
+  const confirmMutation = useMutation({
+    mutationFn: confirmRadarQuotaChange,
+    onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
+  });
+  const sourceHeadline =
+    source?.headline ?? data?.notice?.headline ?? latest?.summary ?? latest?.translatedText ?? latest?.text ?? "暂未同步来源内容";
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        {/* CodexRadar 来源 */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {/* 两路判断 · CodexRadar 来源 */}
         <section className="glass-panel flex flex-col gap-3 p-4">
           <div className="flex items-center gap-2.5">
             <span
@@ -227,7 +252,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             >
               <Radar size={17} aria-hidden />
             </span>
-            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">CodexRadar 来源</h2>
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">CodexRadar 来源判断</h2>
           </div>
           <div className="flex items-center gap-2">
             <StatusBadge tone={sourceTone(data?.sourceStatus)}>{sourceLabel(data?.sourceStatus)}</StatusBadge>
@@ -235,8 +260,12 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
               {data?.lastSyncedAt ? `上次同步 ${formatTime(data.lastSyncedAt)}` : "尚未同步"}
             </span>
           </div>
+          <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
+            {sourceHeadline}
+          </p>
+          {source?.lead && <p className="text-xs leading-relaxed text-q-text-secondary">{source.lead}</p>}
           <p className="text-xs leading-relaxed text-q-text-secondary">
-            内容来自 codexradar.com 公开首页转载的 Tibo 原文，同步失败时保留最后成功快照。
+            内容来自 codexradar.com 公开首页转载的 Tibo 原文，同步失败时保留最后成功快照；本行不受 AI 开关影响。
           </p>
           <Button
             variant="ghost"
@@ -249,37 +278,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
           </Button>
         </section>
 
-        {/* 顶部公告 */}
-        <section className="glass-panel flex flex-col gap-3 p-4">
-          <div className="flex items-center gap-2.5">
-            <span
-              aria-hidden
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-q-border bg-q-surface-strong text-q-warning shadow-q-sm"
-            >
-              <Megaphone size={17} aria-hidden />
-            </span>
-            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">顶部公告</h2>
-          </div>
-          {notice ? (
-            <div className="flex min-h-0 flex-col gap-1.5">
-              <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary">{notice.headline}</p>
-              {notice.lead && <p className="text-xs leading-relaxed text-q-text-secondary">{notice.lead}</p>}
-              {notice.items[0] && <p className="text-xs leading-relaxed text-q-text-muted">{notice.items[0]}</p>}
-            </div>
-          ) : latest ? (
-            <div className="flex min-h-0 flex-col gap-1.5">
-              <StatusBadge tone={postBadgeTone(latest)}>{latest.badge}</StatusBadge>
-              <p className="line-clamp-3 text-[13px] leading-relaxed text-q-text-primary">
-                {latest.summary ?? latest.translatedText ?? latest.text}
-              </p>
-              <p className="text-[11px] text-q-text-muted">{formatTime(latest.postedAt)}</p>
-            </div>
-          ) : (
-            <p className="text-xs text-q-text-muted">暂无公告</p>
-          )}
-        </section>
-
-        {/* AI 辅助结论 */}
+        {/* 两路判断 · AI 辅助 */}
         <section className="glass-panel flex flex-col gap-3 p-4">
           <div className="flex items-center gap-2.5">
             <span
@@ -288,54 +287,185 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             >
               <BrainCircuit size={17} aria-hidden />
             </span>
-            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">AI 辅助结论</h2>
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">AI 辅助判断</h2>
+            {ai?.enabled && ai.state === "pending" ? (
+              <span className="rounded-q-pill bg-q-warning-soft px-2.5 py-1 text-[11px] text-q-warning">
+                有新动态待分析
+              </span>
+            ) : null}
+            {aiState === "disabled" ? (
+              <span className="rounded-q-pill bg-q-neutral-soft px-2.5 py-1 text-[11px] text-q-neutral">已关闭</span>
+            ) : null}
           </div>
-          {latestAnalyzeError ? (
-            <p className="text-xs leading-relaxed text-q-danger">最近一次分析失败：{latestAnalyzeError}</p>
-          ) : null}
-          {data?.analysis?.conclusion ? (
+          {aiState === "disabled" ? (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-[13px] leading-relaxed text-q-text-primary">AI 分析已关闭，来源行与额度验证不受影响。</p>
+              <p className="text-[11px] text-q-text-muted">
+                {ai?.history
+                  ? `最近一次成功分析 ${formatTime(ai.history.createdAt)} · ${ai.history.model ?? "未知模型"}`
+                  : "未运行过 AI 分析"}
+              </p>
+            </div>
+          ) : aiState === "failed" ? (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs leading-relaxed text-q-danger">{ai?.latestError ?? "本次分析失败"}</p>
+              <p className="text-[11px] text-q-text-muted">
+                {ai?.history
+                  ? `历史分析保留：${formatTime(ai.history.createdAt)} · ${ai.history.conclusion ?? ""}`
+                  : "没有可展示的历史分析"}
+              </p>
+            </div>
+          ) : ai?.current?.conclusion ? (
             <div className="flex min-h-0 flex-col gap-2">
-              {data.analysisPrefs.analyze === false ? (
-                <p className="text-[11px] text-q-text-muted">AI 分析当前关闭，展示最近一次成功分析的结果</p>
-              ) : null}
-              {data.analysis.coversLatest ? null : (
-                <p className="text-[11px] text-q-warning">分析后有新动态，结论未覆盖最新内容</p>
-              )}
               <div className="flex flex-col gap-1">
                 <p className="text-[11px] font-medium text-q-text-muted">结论</p>
                 <p className="text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
-                  {data.analysis.conclusion}
+                  {ai.current.conclusion}
                 </p>
               </div>
-              {data.analysis.analysisBasis ? (
+              {ai.current.analysisBasis ? (
                 <div className="flex flex-col gap-1">
                   <p className="text-[11px] font-medium text-q-text-muted">
-                    分析依据 · {data.analysis.analysisBasis.length} 字
+                    分析依据 · {ai.current.analysisBasis.length} 字
                   </p>
                   <div
                     className="max-h-44 overflow-y-auto rounded-q-card border border-q-border bg-q-primary-softer px-3 py-2.5 text-xs leading-relaxed text-q-text-secondary"
                     data-selectable="true"
                   >
-                    {data.analysis.analysisBasis}
+                    {ai.current.analysisBasis}
                   </div>
                 </div>
               ) : null}
               <div className="mt-auto flex flex-wrap items-center gap-2">
-                <RadarConfidenceBadge confidence={data.analysis.confidence} />
-                {data.analysis.model && (
-                  <span className="text-[11px] text-q-text-muted">{data.analysis.model}</span>
-                )}
-                <span className="text-[11px] text-q-text-muted">{formatTime(data.analysis.createdAt)} 分析</span>
+                {ai.current.model && <span className="text-[11px] text-q-text-muted">{ai.current.model}</span>}
+                <span className="text-[11px] text-q-text-muted">{formatTime(ai.current.createdAt)} 分析</span>
               </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
-              <p className="text-xs leading-relaxed text-q-text-muted">
-                {latestAnalyzeError
-                  ? "最近一次分析失败，可更换模型或调整时间范围后重试。"
-                  : "未分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。"}
+            <p className="text-xs leading-relaxed text-q-text-muted">
+              未分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。
+            </p>
+          )}
+        </section>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {/* 当前重置事件 */}
+        <section className="glass-panel flex flex-col gap-3 p-4">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-q-border bg-q-surface-strong text-q-warning shadow-q-sm"
+            >
+              <Megaphone size={17} aria-hidden />
+            </span>
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">当前重置事件</h2>
+            {phase ? (
+              <span className="rounded-q-pill bg-q-primary-soft px-2.5 py-1 text-[11px] text-q-primary">{phase}</span>
+            ) : null}
+          </div>
+          {event ? (
+            <div className="flex min-h-0 flex-col gap-2">
+              <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
+                {event.title}
               </p>
-              <RadarConfidenceBadge confidence={data?.analysis?.confidence ?? null} />
+              {event.summary && (
+                <p className="text-xs leading-relaxed text-q-text-secondary" data-selectable="true">
+                  {event.summary}
+                </p>
+              )}
+              <p className="text-[11px] text-q-text-muted">
+                首次信号 {formatTime(event.firstSignalAt)} · 最新证据 {formatTime(event.latestEvidenceAt)}
+              </p>
+              {timeline.length > 0 && (
+                <div className="flex flex-col gap-1.5 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2.5">
+                  {timeline.map((node) => (
+                    <div key={`${node.kind}-${node.at}`} className="flex items-center gap-2 text-xs">
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "h-2 w-2 shrink-0 rounded-full",
+                          node.kind === "closed" ? "bg-q-neutral" : "bg-q-success",
+                        )}
+                      />
+                      <span className="text-q-text-secondary">{node.label}</span>
+                      <span className="ml-auto shrink-0 tabular-nums text-q-text-muted">{formatTime(node.at)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs leading-relaxed text-q-text-muted">
+              暂无进行中的重置事件。出现强信号并开启 AI 分析后，会自动建立事件并累计证据。
+            </p>
+          )}
+        </section>
+
+        {/* 本机额度验证 */}
+        <section className="glass-panel flex flex-col gap-3 p-4">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-q-border bg-q-surface-strong text-q-success shadow-q-sm"
+            >
+              <ShieldCheck size={17} aria-hidden />
+            </span>
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">本机额度验证</h2>
+          </div>
+          {verifications.length === 0 ? (
+            <p className="text-xs text-q-text-muted">未接入 GPT 额度来源。</p>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {verifications.map((item) => (
+                <div
+                  key={item.sourceId}
+                  className="flex flex-col gap-1.5 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <b className="text-[13px] text-q-text-primary">{item.accountName}</b>
+                    <StatusBadge tone={quotaTone(item.status)}>{quotaStatusText(item.status)}</StatusBadge>
+                    {item.attribution === "user_confirmed" ? (
+                      <span className="text-[11px] text-q-text-muted">用户已确认</span>
+                    ) : null}
+                    {item.attribution === "radar_correlated" ? (
+                      <span className="text-[11px] text-q-text-muted">与事件时间相关</span>
+                    ) : null}
+                  </div>
+                  {item.status === "unavailable" && (
+                    <p className="text-[11px] leading-relaxed text-q-text-muted">
+                      当前网络无法获取 Codex 额度，不影响来源与 AI 判断。
+                    </p>
+                  )}
+                  {item.note && <p className="text-[11px] text-q-text-muted">{item.note}</p>}
+                  <p className="text-[11px] text-q-text-muted">
+                    {item.lastSuccessAt ? `上次成功 ${formatTime(item.lastSuccessAt)}` : "尚无成功快照"}
+                    {item.previous?.remaining != null && item.current?.remaining != null
+                      ? ` · 剩余 ${Math.round(item.previous.remaining * 100)}% → ${Math.round(item.current.remaining * 100)}%`
+                      : ""}
+                    {item.current?.resetAt ? ` · 原定重置 ${formatTime(item.current.resetAt)}` : ""}
+                  </p>
+                  {["unscheduled_reset", "possible_reset"].includes(item.status) &&
+                    item.current &&
+                    item.attribution !== "user_confirmed" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="self-start"
+                        disabled={confirmMutation.isPending}
+                        onClick={() =>
+                          confirmMutation.mutate({
+                            accountId: item.accountId,
+                            sourceId: item.sourceId,
+                            capturedAt: item.current?.capturedAt ?? 0,
+                          })
+                        }
+                      >
+                        确认这是我手动使用的重置卡
+                      </Button>
+                    )}
+                </div>
+              ))}
             </div>
           )}
         </section>
@@ -591,6 +721,12 @@ function AiAnalysisView({
     const { start, end } = rangeBoundsMs(rangeKey);
     return (data?.posts ?? []).filter((post) => post.postedAt >= start && post.postedAt <= end);
   }, [data?.posts, rangeKey]);
+  // 事件上下文 = 当前事件已关联、但不在本次新增范围内的旧原帖（与后端提示词分组一致）。
+  const contextInput = useMemo(() => {
+    const eventIds = new Set(data?.event?.postIds ?? []);
+    const deltaIds = new Set(analysisInput.map((post) => post.id));
+    return (data?.posts ?? []).filter((post) => eventIds.has(post.id) && !deltaIds.has(post.id));
+  }, [data?.posts, data?.event?.postIds, analysisInput]);
   const customRange = customRangeOf(rangeKey);
   const customActive = !QUICK_RANGES.some((range) => range.id === rangeKey) && customRange !== null;
   const todayIso = toIsoDate(new Date());
@@ -691,27 +827,16 @@ function AiAnalysisView({
               只发送英文原文、时间和原帖链接。不发送 CodexRadar 的中文翻译、信号标签或模型语境解读。
             </p>
           </div>
-          {analysisInput.length === 0 ? (
+          {analysisInput.length === 0 && contextInput.length === 0 ? (
             <p className="text-xs leading-relaxed text-q-text-muted">
               当前时间窗内没有可分析的帖子。Tibo 近期没有新动态时，可切换「自定义」扩大时间范围后重试。
             </p>
           ) : (
-            <div className="flex min-h-0 flex-col gap-2">
-              <p className="text-xs text-q-text-secondary">将发送 {analysisInput.length} 条</p>
-              <div className="max-h-64 space-y-1.5 overflow-y-auto pr-0.5">
-                {analysisInput.slice(0, 8).map((post) => (
-                  <div
-                    key={post.id}
-                    className="rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2 text-[12px] leading-relaxed"
-                  >
-                    <span className="mr-2 shrink-0 tabular-nums text-q-text-muted">{formatTime(post.postedAt)}</span>
-                    <span className="text-q-text-primary">{post.text}</span>
-                  </div>
-                ))}
-                {analysisInput.length > 8 && (
-                  <p className="px-1 text-[11px] text-q-text-muted">…共 {analysisInput.length} 条</p>
-                )}
-              </div>
+            <div className="flex min-h-0 flex-col gap-3">
+              {contextInput.length > 0 && (
+                <PostGroupPreview title="事件上下文" subtitle="已关联当前事件的历史原帖，只作背景" posts={contextInput} />
+              )}
+              <PostGroupPreview title="本次新增" subtitle="按所选时间范围" posts={analysisInput} />
             </div>
           )}
         </section>
@@ -747,9 +872,8 @@ function AiAnalysisView({
       {/* 辅助结论 */}
       <section className="glass-panel flex flex-col gap-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">辅助结论</h2>
+          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">最近成功分析</h2>
           <div className="flex flex-wrap items-center gap-2">
-            <RadarConfidenceBadge confidence={analysis?.confidence ?? null} />
             {analysis?.model ? <span className="text-[11px] text-q-text-muted">{analysis.model}</span> : null}
             {analysis ? (
               <span className="text-[11px] text-q-text-muted">{formatTime(analysis.createdAt)} 分析</span>
@@ -757,8 +881,8 @@ function AiAnalysisView({
           </div>
         </div>
         {analyzeError ? <p className="text-xs leading-relaxed text-q-danger">{analyzeError}</p> : null}
-        {analysis?.conclusion && analysis.coversLatest === false ? (
-          <p className="text-xs text-q-warning">分析后有新动态，结论未覆盖最新内容</p>
+        {data?.aiAssessment.enabled && data?.aiAssessment.state === "pending" ? (
+          <p className="text-xs text-q-warning">有新动态待分析，下次「立即检查」时更新。</p>
         ) : null}
         {analysis?.conclusion ? (
           <>
@@ -799,6 +923,37 @@ function AiAnalysisView({
         <BrainCircuit size={13} aria-hidden className="shrink-0" />
         AI 是解释器而不是证据来源：每个输出必须引用实际原文；没有真实原文或分析失败时不生成结论。
       </p>
+    </div>
+  );
+}
+
+function PostGroupPreview({
+  title,
+  subtitle,
+  posts,
+}: {
+  title: string;
+  subtitle: string;
+  posts: RadarPost[];
+}) {
+  return (
+    <div className="flex min-h-0 flex-col gap-2">
+      <p className="text-xs text-q-text-secondary">
+        {title} · {posts.length} 条
+        <span className="ml-1.5 text-[11px] text-q-text-muted">{subtitle}</span>
+      </p>
+      <div className="max-h-52 space-y-1.5 overflow-y-auto pr-0.5">
+        {posts.slice(0, 8).map((post) => (
+          <div
+            key={post.id}
+            className="rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2 text-[12px] leading-relaxed"
+          >
+            <span className="mr-2 shrink-0 tabular-nums text-q-text-muted">{formatTime(post.postedAt)}</span>
+            <span className="text-q-text-primary">{post.text}</span>
+          </div>
+        ))}
+        {posts.length > 8 && <p className="px-1 text-[11px] text-q-text-muted">…共 {posts.length} 条</p>}
+      </div>
     </div>
   );
 }

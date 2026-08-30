@@ -164,6 +164,8 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
         },
         progress: None,
         trend: vec![],
+        window_seconds: None,
+        reset_at: None,
     }])
 }
 

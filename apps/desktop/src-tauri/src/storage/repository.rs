@@ -54,6 +54,10 @@ pub struct SnapshotRecord {
     pub progress: Option<f64>,
     pub trend: Vec<StoredTrendPoint>,
     pub captured_at: i64,
+    /// 结构化窗口时长（秒）；仅额度窗口快照有值。
+    pub window_seconds: Option<i64>,
+    /// 结构化窗口重置时间（epoch 毫秒）。
+    pub reset_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +114,37 @@ pub struct RadarAnalysisRecord {
     pub against_json: String,
     pub uncertainty_json: String,
     pub error_message: Option<String>,
+    /// 关联的重置事件；历史分析与无关动态分析为 None。
+    pub event_id: Option<String>,
+    /// delta | rebuild
+    pub analysis_mode: Option<String>,
+    pub context_hash: String,
+    pub prompt_hash: String,
+    /// new_event | same_event | none
+    pub event_relation: Option<String>,
+    /// watching | upcoming | landed_claimed | landed_observed | closed
+    pub event_phase: Option<String>,
+    /// reinforce | no_change | weaken | advance_phase | cancel | new_event
+    pub delta_effect: Option<String>,
+    /// none | weak | strong
+    pub signal_level: Option<String>,
+    /// complete | context_missing | conflicting
+    pub context_status: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RadarEventRecord {
+    pub id: String,
+    /// watching | upcoming | landed_claimed | landed_observed | closed
+    pub phase: String,
+    pub title: String,
+    pub summary: Option<String>,
+    pub first_signal_at: i64,
+    pub latest_evidence_at: i64,
+    pub claimed_landed_at: Option<i64>,
+    pub observed_reset_at: Option<i64>,
+    pub closed_at: Option<i64>,
+    pub close_reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -565,8 +600,8 @@ impl Database {
             .map_err(|err| format!("序列化趋势数据失败: {err}"))?;
             transaction
                 .execute(
-                    "INSERT INTO capability_snapshots(account_id, source_id, capability_id, display_name, value_kind, primary_value, secondary_value, progress, trend_json, captured_at, generation)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    "INSERT INTO capability_snapshots(account_id, source_id, capability_id, display_name, value_kind, primary_value, secondary_value, progress, trend_json, captured_at, generation, window_seconds, reset_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                     params![
                         source.account_id,
                         source.id,
@@ -579,6 +614,8 @@ impl Database {
                         trend_json,
                         now,
                         generation,
+                        capability.window_seconds,
+                        capability.reset_at,
                     ],
                 )
                 .map_err(|err| format!("保存能力快照失败: {err}"))?;
@@ -643,23 +680,11 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT capability_id, display_name, value_kind, primary_value, secondary_value, progress, trend_json, captured_at
+                "SELECT capability_id, display_name, value_kind, primary_value, secondary_value, progress, trend_json, captured_at, window_seconds, reset_at
                  FROM capability_snapshots WHERE source_id = ?1 AND capability_id = ?2
                  ORDER BY captured_at DESC, id DESC LIMIT 1",
                 params![source_id, capability_id],
-                |row| {
-                    let trend_json: String = row.get(6)?;
-                    let trend = serde_json::from_str::<Vec<StoredTrendPointDto>>(&trend_json)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|point| StoredTrendPoint { label: point.label, value: point.value })
-                        .collect();
-                    Ok(SnapshotRecord {
-                        capability_id: row.get(0)?, display_name: row.get(1)?, value_kind: row.get(2)?,
-                        primary_value: row.get(3)?, secondary_value: row.get(4)?, progress: row.get(5)?,
-                        trend, captured_at: row.get(7)?,
-                    })
-                },
+                map_snapshot_record,
             )
             .optional()
             .map_err(|err| format!("读取能力快照失败: {err}"))
@@ -670,7 +695,7 @@ impl Database {
         let mut statement = connection
             .prepare(
                 "SELECT c.capability_id, c.display_name, c.value_kind, c.primary_value, c.secondary_value,
-                        c.progress, c.trend_json, c.captured_at
+                        c.progress, c.trend_json, c.captured_at, c.window_seconds, c.reset_at
                  FROM capability_snapshots c
                  INNER JOIN (
                      SELECT capability_id, MAX(id) AS max_id
@@ -681,24 +706,7 @@ impl Database {
             )
             .map_err(|err| format!("准备窗口快照查询失败: {err}"))?;
         let rows = statement
-            .query_map(params![source_id], |row| {
-                let trend_json: String = row.get(6)?;
-                let trend = serde_json::from_str::<Vec<StoredTrendPointDto>>(&trend_json)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|point| StoredTrendPoint { label: point.label, value: point.value })
-                    .collect();
-                Ok(SnapshotRecord {
-                    capability_id: row.get(0)?,
-                    display_name: row.get(1)?,
-                    value_kind: row.get(2)?,
-                    primary_value: row.get(3)?,
-                    secondary_value: row.get(4)?,
-                    progress: row.get(5)?,
-                    trend,
-                    captured_at: row.get(7)?,
-                })
-            })
+            .query_map(params![source_id], map_snapshot_record)
             .map_err(|err| format!("读取窗口快照失败: {err}"))?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|err| format!("读取窗口快照失败: {err}"))
@@ -961,33 +969,232 @@ impl Database {
     pub fn latest_radar_analysis(&self) -> Result<Option<RadarAnalysisRecord>, String> {
         let connection = self.connect()?;
         connection
+            .query_row(&radar_analysis_select("WHERE error_message IS NULL ORDER BY created_at DESC LIMIT 1"), [], map_radar_analysis)
+            .optional()
+            .map_err(|err| format!("读取雷达分析失败: {err}"))
+    }
+
+    /// 分析复用查找：新增输入、事件上下文、提示词哈希、模型与 prompt 版本完全一致的成功分析。
+    pub fn find_reusable_radar_analysis(
+        &self,
+        input_hash: &str,
+        context_hash: &str,
+        prompt_hash: &str,
+        model: Option<&str>,
+        prompt_version: &str,
+    ) -> Result<Option<RadarAnalysisRecord>, String> {
+        let connection = self.connect()?;
+        connection
             .query_row(
-                "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message
-                 FROM radar_analyses WHERE error_message IS NULL ORDER BY created_at DESC LIMIT 1",
-                [],
+                &radar_analysis_select(
+                    "WHERE error_message IS NULL AND input_hash = ?1 AND context_hash = ?2 AND prompt_hash = ?3
+                     AND model IS ?4 AND prompt_version = ?5 ORDER BY created_at DESC LIMIT 1",
+                ),
+                params![input_hash, context_hash, prompt_hash, model, prompt_version],
                 map_radar_analysis,
             )
             .optional()
-            .map_err(|err| format!("读取雷达分析失败: {err}"))
+            .map_err(|err| format!("查找可复用雷达分析失败: {err}"))
+    }
+
+    /// 当前事件匹配分析：活动事件下最新一次成功分析。
+    pub fn latest_event_radar_analysis(&self, event_id: &str) -> Result<Option<RadarAnalysisRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                &radar_analysis_select(
+                    "WHERE error_message IS NULL AND event_id = ?1 ORDER BY created_at DESC LIMIT 1",
+                ),
+                params![event_id],
+                map_radar_analysis,
+            )
+            .optional()
+            .map_err(|err| format!("读取事件分析失败: {err}"))
     }
 
     pub fn insert_radar_analysis(&self, analysis: &RadarAnalysisRecord) -> Result<(), String> {
         let connection = self.connect()?;
         connection
             .execute(
-                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
                 params![
                     analysis.id, analysis.created_at, analysis.range_key, analysis.cut_post_id,
                     analysis.from_posted_at, analysis.to_posted_at, analysis.source_id, analysis.model,
                     analysis.prompt_version, analysis.input_hash, analysis.conclusion, analysis.analysis_basis, analysis.confidence,
                     analysis.citations_json, analysis.support_json, analysis.against_json,
-                    analysis.uncertainty_json, analysis.error_message
+                    analysis.uncertainty_json, analysis.error_message,
+                    analysis.event_id, analysis.analysis_mode, analysis.context_hash, analysis.prompt_hash,
+                    analysis.event_relation, analysis.event_phase, analysis.delta_effect,
+                    analysis.signal_level, analysis.context_status,
                 ],
             )
             .map(|_| ())
             .map_err(|err| format!("保存雷达分析失败: {err}"))
     }
+
+    pub fn active_radar_event(&self) -> Result<Option<RadarEventRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason
+                 FROM radar_events WHERE closed_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+                [],
+                map_radar_event,
+            )
+            .optional()
+            .map_err(|err| format!("读取活动重置事件失败: {err}"))
+    }
+
+    pub fn radar_event(&self, event_id: &str) -> Result<Option<RadarEventRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason
+                 FROM radar_events WHERE id = ?1",
+                params![event_id],
+                map_radar_event,
+            )
+            .optional()
+            .map_err(|err| format!("读取重置事件失败: {err}"))
+    }
+
+    pub fn insert_radar_event(&self, event: &RadarEventRecord) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT INTO radar_events(id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    event.id, event.phase, event.title, event.summary, event.first_signal_at,
+                    event.latest_evidence_at, event.claimed_landed_at, event.observed_reset_at,
+                    event.closed_at, event.close_reason, epoch_ms(), epoch_ms(),
+                ],
+            )
+            .map(|_| ())
+            .map_err(|err| format!("写入重置事件失败: {err}"))
+    }
+
+    pub fn update_radar_event(&self, event: &RadarEventRecord) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "UPDATE radar_events SET phase = ?2, title = ?3, summary = ?4, latest_evidence_at = ?5,
+                 claimed_landed_at = ?6, observed_reset_at = ?7, closed_at = ?8, close_reason = ?9, updated_at = ?10
+                 WHERE id = ?1",
+                params![
+                    event.id, event.phase, event.title, event.summary, event.latest_evidence_at,
+                    event.claimed_landed_at, event.observed_reset_at, event.closed_at, event.close_reason,
+                    epoch_ms(),
+                ],
+            )
+            .map(|_| ())
+            .map_err(|err| format!("更新重置事件失败: {err}"))
+    }
+
+    /// 事件关联原帖：同事件同帖去重；relation 为 context | delta。
+    pub fn add_radar_event_evidence(
+        &self,
+        event_id: &str,
+        post_id: &str,
+        relation: &str,
+        analysis_id: &str,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO radar_event_evidence(event_id, post_id, relation, analysis_id, added_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![event_id, post_id, relation, analysis_id, epoch_ms()],
+            )
+            .map(|_| ())
+            .map_err(|err| format!("写入事件证据失败: {err}"))
+    }
+
+    pub fn radar_event_post_ids(&self, event_id: &str) -> Result<Vec<String>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT p.id FROM radar_event_evidence e JOIN tibo_posts p ON p.id = e.post_id
+                 WHERE e.event_id = ?1 ORDER BY p.posted_at DESC",
+            )
+            .map_err(|err| format!("准备事件证据查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![event_id], |row| row.get::<_, String>(0))
+            .map_err(|err| format!("读取事件证据失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取事件证据失败: {err}"))
+    }
+
+    /// GPT 平台的额度来源（含账号信息），按账号创建顺序返回。
+    pub fn openai_quota_sources(&self) -> Result<Vec<SourceRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT s.id, s.account_id, a.display_name, a.kind, s.platform_id, s.adapter_id, s.source_type,
+                        s.display_name, s.secret_ref, s.state, s.last_validated_at, s.last_success_at, s.error_code, s.error_message
+                 FROM sources s JOIN accounts a ON a.id = s.account_id
+                 WHERE s.platform_id = 'openai'
+                 ORDER BY a.created_at, s.id",
+            )
+            .map_err(|err| format!("准备额度来源查询失败: {err}"))?;
+        let rows = statement
+            .query_map([], map_source)
+            .map_err(|err| format!("读取额度来源失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取额度来源失败: {err}"))
+    }
+
+    /// 结构化额度窗口快照（window_seconds 非空），同一能力内按捕获时间倒序；
+    /// 观察器在代码里取相邻成功快照对，不在 SQL 里做窗口函数。
+    pub fn recent_window_samples(
+        &self,
+        source_id: &str,
+    ) -> Result<Vec<SnapshotRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT capability_id, display_name, value_kind, primary_value, secondary_value, progress, trend_json, captured_at, window_seconds, reset_at
+                 FROM capability_snapshots
+                 WHERE source_id = ?1 AND capability_id LIKE 'quota_window_%' AND window_seconds IS NOT NULL
+                 ORDER BY capability_id, captured_at DESC, id DESC LIMIT 120",
+            )
+            .map_err(|err| format!("准备额度窗口样本查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![source_id], map_snapshot_record)
+            .map_err(|err| format!("读取额度窗口样本失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取额度窗口样本失败: {err}"))
+    }
+}
+
+/// radar_analyses 全列 SELECT；各查询只差异 WHERE/ORDER 子句。
+fn radar_analysis_select(suffix: &str) -> String {
+    format!(
+        "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status
+         FROM radar_analyses {suffix}"
+    )
+}
+
+fn map_snapshot_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotRecord> {
+    let trend_json: String = row.get(6)?;
+    let trend = serde_json::from_str::<Vec<StoredTrendPointDto>>(&trend_json)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|point| StoredTrendPoint { label: point.label, value: point.value })
+        .collect();
+    Ok(SnapshotRecord {
+        capability_id: row.get(0)?,
+        display_name: row.get(1)?,
+        value_kind: row.get(2)?,
+        primary_value: row.get(3)?,
+        secondary_value: row.get(4)?,
+        progress: row.get(5)?,
+        trend,
+        captured_at: row.get(7)?,
+        window_seconds: row.get(8)?,
+        reset_at: row.get(9)?,
+    })
 }
 
 fn map_tibo_post(row: &rusqlite::Row<'_>) -> rusqlite::Result<TiboPostRecord> {
@@ -1032,6 +1239,30 @@ fn map_radar_analysis(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarAnalysis
         against_json: row.get(15)?,
         uncertainty_json: row.get(16)?,
         error_message: row.get(17)?,
+        event_id: row.get(18)?,
+        analysis_mode: row.get(19)?,
+        context_hash: row.get(20)?,
+        prompt_hash: row.get(21)?,
+        event_relation: row.get(22)?,
+        event_phase: row.get(23)?,
+        delta_effect: row.get(24)?,
+        signal_level: row.get(25)?,
+        context_status: row.get(26)?,
+    })
+}
+
+fn map_radar_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarEventRecord> {
+    Ok(RadarEventRecord {
+        id: row.get(0)?,
+        phase: row.get(1)?,
+        title: row.get(2)?,
+        summary: row.get(3)?,
+        first_signal_at: row.get(4)?,
+        latest_evidence_at: row.get(5)?,
+        claimed_landed_at: row.get(6)?,
+        observed_reset_at: row.get(7)?,
+        closed_at: row.get(8)?,
+        close_reason: row.get(9)?,
     })
 }
 

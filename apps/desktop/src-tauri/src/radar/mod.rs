@@ -1,13 +1,16 @@
 //! GPT 重置雷达：从 CodexRadar 公开首页同步 Tibo 动态，并保留可选 AI 分析。
 //! 与平台额度域隔离，失败不改写 Source 聚合状态。
+//! 三路证据并行：CodexRadar 来源判断 / AI 增量分析 / 本机额度观察（quota_watch）。
 
 mod codexradar;
+mod quota_watch;
 
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
-use crate::storage::repository::{RadarAnalysisRecord, RadarCheckRecord, TiboPostRecord};
+use crate::storage::repository::{RadarAnalysisRecord, RadarCheckRecord, RadarEventRecord, TiboPostRecord};
 use crate::storage::vault;
 use chrono::{Duration as ChronoDuration, Local, NaiveDate, TimeZone};
+use quota_watch::QuotaVerificationView;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -15,7 +18,7 @@ use std::error::Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const FEED_URL: &str = "https://codexradar.com/";
-pub const PROMPT_VERSION: &str = "radar-v4";
+pub const PROMPT_VERSION: &str = "radar-v5";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” 等措辞，视为即将重置的强信号，把握度应偏高，即使没有给出确切时间。\n已落地的历史重置只作背景，不能当成否定新一轮重置的证据。\n没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
 
@@ -75,6 +78,69 @@ pub struct RadarAnalysisView {
     pub uncertainty: Vec<String>,
     pub error_message: Option<String>,
     pub covers_latest: bool,
+    pub event_id: Option<String>,
+    /// delta | rebuild
+    pub analysis_mode: Option<String>,
+    /// new_event | same_event | none
+    pub event_relation: Option<String>,
+    /// watching | upcoming | landed_claimed | landed_observed | closed
+    pub event_phase: Option<String>,
+    /// reinforce | no_change | weaken | advance_phase | cancel | new_event
+    pub delta_effect: Option<String>,
+    /// none | weak | strong
+    pub signal_level: Option<String>,
+    /// complete | context_missing | conflicting
+    pub context_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarSourceAssessmentView {
+    pub headline: Option<String>,
+    pub lead: Option<String>,
+    pub last_synced_at: Option<i64>,
+    /// fresh | stale | missing
+    pub freshness: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarEventNodeView {
+    pub at: i64,
+    /// signal | claimed | observed | closed
+    pub kind: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarEventView {
+    pub id: String,
+    /// watching | upcoming | landed_claimed | landed_observed | closed
+    pub phase: String,
+    pub title: String,
+    pub summary: Option<String>,
+    pub first_signal_at: i64,
+    pub latest_evidence_at: i64,
+    pub claimed_landed_at: Option<i64>,
+    pub observed_reset_at: Option<i64>,
+    pub closed_at: Option<i64>,
+    pub timeline: Vec<RadarEventNodeView>,
+    pub post_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarAiAssessmentView {
+    pub enabled: bool,
+    /// current | disabled | pending | failed | not_analyzed
+    pub state: String,
+    /// 当前事件匹配的最新成功分析。
+    pub current: Option<RadarAnalysisView>,
+    /// 最近一次成功分析（历史）。
+    pub history: Option<RadarAnalysisView>,
+    /// 最近一次失败检查的分析错误。
+    pub latest_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,6 +165,10 @@ pub struct RadarSnapshot {
     pub models: Vec<RadarModelOption>,
     pub analysis_prefs: RadarAnalysisPrefs,
     pub notice: Option<RadarNotice>,
+    pub source_assessment: RadarSourceAssessmentView,
+    pub event: Option<RadarEventView>,
+    pub ai_assessment: RadarAiAssessmentView,
+    pub quota_verifications: Vec<QuotaVerificationView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,6 +218,19 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         };
         analysis_view(record, covers_latest)
     });
+    let notice = load_notice(database)?;
+    let source_assessment = RadarSourceAssessmentView {
+        headline: notice.as_ref().map(|item| item.headline.clone()),
+        lead: notice.as_ref().and_then(|item| item.lead.clone()),
+        last_synced_at,
+        freshness: source_status.to_string(),
+    };
+    let event_record = database.active_radar_event()?;
+    let event_view_data = event_record.as_ref().map(|record| event_view(database, record));
+    let ai_assessment = build_ai_assessment(database, event_record.as_ref(), analysis.as_ref(), &checks);
+    let quota_verifications =
+        quota_watch::assess_quota_verifications(database, event_record.as_ref().map(|item| item.first_signal_at))
+            .unwrap_or_default();
     Ok(RadarSnapshot {
         source_status: source_status.into(),
         last_synced_at,
@@ -157,8 +240,109 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         analysis,
         models: chat_models(database)?,
         analysis_prefs: load_analysis_prefs(database)?,
-        notice: load_notice(database)?,
+        notice,
+        source_assessment,
+        event: event_view_data,
+        ai_assessment,
+        quota_verifications,
     })
+}
+
+/// 事件视图：从事件记录推导时间线节点，并挂上事件关联原帖。
+fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView {
+    let mut timeline = vec![RadarEventNodeView {
+        at: record.first_signal_at,
+        kind: "signal".into(),
+        label: "首次信号".into(),
+    }];
+    if let Some(at) = record.claimed_landed_at {
+        timeline.push(RadarEventNodeView {
+            at,
+            kind: "claimed".into(),
+            label: "来源称已落地".into(),
+        });
+    }
+    if let Some(at) = record.observed_reset_at {
+        timeline.push(RadarEventNodeView {
+            at,
+            kind: "observed".into(),
+            label: "本机观察到刷新".into(),
+        });
+    }
+    if let Some(at) = record.closed_at {
+        timeline.push(RadarEventNodeView {
+            at,
+            kind: "closed".into(),
+            label: record.close_reason.clone().unwrap_or_else(|| "事件关闭".into()),
+        });
+    }
+    let post_ids = database.radar_event_post_ids(&record.id).unwrap_or_default();
+    RadarEventView {
+        id: record.id.clone(),
+        phase: record.phase.clone(),
+        title: record.title.clone(),
+        summary: record.summary.clone(),
+        first_signal_at: record.first_signal_at,
+        latest_evidence_at: record.latest_evidence_at,
+        claimed_landed_at: record.claimed_landed_at,
+        observed_reset_at: record.observed_reset_at,
+        closed_at: record.closed_at,
+        timeline,
+        post_ids,
+    }
+}
+
+/// AI 评估：当前事件匹配分析 / 历史成功分析 / 最近失败，派生 UI 状态。
+fn build_ai_assessment(
+    database: &Database,
+    event: Option<&RadarEventRecord>,
+    latest_success: Option<&RadarAnalysisView>,
+    checks: &[RadarCheckView],
+) -> RadarAiAssessmentView {
+    let enabled = load_analysis_prefs(database).map(|prefs| prefs.analyze).unwrap_or(false);
+    let newest_post_at = database
+        .list_tibo_posts(1)
+        .ok()
+        .and_then(|posts| posts.first().map(|post| post.posted_at));
+    let covers = |to_posted_at: Option<i64>| match (to_posted_at, newest_post_at) {
+        (Some(covered_to), Some(newest)) => newest <= covered_to,
+        _ => true,
+    };
+    let current = event
+        .and_then(|record| database.latest_event_radar_analysis(&record.id).ok())
+        .flatten()
+        .map(|record| {
+            let covered_to = record.to_posted_at;
+            analysis_view(record, covers(covered_to))
+        });
+    let latest_error = checks
+        .iter()
+        .find(|check| check.analyze_status.as_deref() == Some("failed"))
+        .and_then(|check| check.error_message.clone());
+    let state = if !enabled {
+        "disabled"
+    } else if current.is_some() {
+        let covered_to = database
+            .latest_event_radar_analysis(event.expect("current implies event").id.as_str())
+            .ok()
+            .flatten()
+            .and_then(|record| record.to_posted_at);
+        match newest_post_at {
+            Some(posted_at) if posted_at > covered_to.unwrap_or(0) => "pending",
+            _ => "current",
+        }
+    } else if latest_error.is_some() {
+        "failed"
+    } else {
+        "not_analyzed"
+    };
+    RadarAiAssessmentView {
+        enabled,
+        state: state.into(),
+        current,
+        history: latest_success.cloned(),
+        latest_error,
+    }
 }
 
 pub async fn run_check(
@@ -471,6 +655,13 @@ fn analysis_view(record: RadarAnalysisRecord, covers_latest: bool) -> RadarAnaly
         uncertainty: json_list(&record.uncertainty_json),
         error_message: record.error_message,
         covers_latest,
+        event_id: record.event_id,
+        analysis_mode: record.analysis_mode,
+        event_relation: record.event_relation,
+        event_phase: record.event_phase,
+        delta_effect: record.delta_effect,
+        signal_level: record.signal_level,
+        context_status: record.context_status,
     }
 }
 
@@ -584,6 +775,63 @@ fn glm_chat_candidates(api_base: Option<&str>, intl: bool) -> Vec<(String, bool)
     urls
 }
 
+/// 本轮分析的新增/上下文分组：用户所选范围是「本次新增」，
+/// 当前活动事件已关联的旧原帖是「事件上下文」，两组输入在提示词里明确分隔。
+struct DeltaInputs {
+    range_key: String,
+    /// delta | rebuild
+    mode: &'static str,
+    delta: Vec<TiboPostView>,
+    context: Vec<TiboPostView>,
+}
+
+fn delta_post_block(post: &TiboPostView) -> String {
+    format!(
+        "POST {}\nTIME {}\nURL {}\nTEXT {}",
+        post.id,
+        format_iso(post.posted_at),
+        post.url,
+        post.text
+    )
+}
+
+fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInputs, String> {
+    let views = database
+        .list_tibo_posts(80)?
+        .into_iter()
+        .map(to_view)
+        .collect::<Vec<_>>();
+    let (window_start, window_end) = range_bounds(range_key);
+    let delta: Vec<_> = views
+        .iter()
+        .filter(|post| post.posted_at >= window_start && post.posted_at <= window_end)
+        .cloned()
+        .collect();
+    if delta.is_empty() {
+        return Err("当前时间窗内没有 Tibo 动态可分析".into());
+    }
+    let event = database.active_radar_event()?;
+    let delta_ids: std::collections::HashSet<&str> = delta.iter().map(|post| post.id.as_str()).collect();
+    let context: Vec<TiboPostView> = match &event {
+        Some(record) => database
+            .radar_event_post_ids(&record.id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|id| views.iter().find(|post| post.id == id).cloned())
+            .filter(|post| !delta_ids.contains(post.id.as_str()))
+            .take(12)
+            .collect(),
+        None => Vec::new(),
+    };
+    let mode = if event.is_some() { "delta" } else { "rebuild" };
+    Ok(DeltaInputs {
+        range_key: range_key.into(),
+        mode,
+        delta,
+        context,
+    })
+}
+
 async fn run_analysis(
     database: &Database,
     coordinator: &RefreshCoordinator,
@@ -591,7 +839,38 @@ async fn run_analysis(
     source_id: Option<&str>,
     model: Option<&str>,
 ) -> Result<(), String> {
-    match run_analysis_inner(database, coordinator.client(), range_key, source_id, model).await {
+    let inputs = collect_delta_inputs(database, range_key)?;
+    let user_prompt = load_analysis_prefs(database)?.user_prompt;
+    let joined = |posts: &[TiboPostView]| {
+        posts
+            .iter()
+            .map(delta_post_block)
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    let input_hash = format!("{:x}", simple_hash(&joined(&inputs.delta)));
+    let context_hash = format!("{:x}", simple_hash(&joined(&inputs.context)));
+    let prompt_hash = format!("{:x}", simple_hash(&user_prompt));
+    let target = resolve_chat_target(database, source_id, model)?;
+    if database
+        .find_reusable_radar_analysis(&input_hash, &context_hash, &prompt_hash, Some(&target.model), PROMPT_VERSION)?
+        .is_some()
+    {
+        // 新增输入、事件上下文、提示词与模型完全一致：复用成功结果，不再调用模型，也不再推进事件。
+        return Ok(());
+    }
+    match run_analysis_inner(
+        database,
+        coordinator.client(),
+        &inputs,
+        &target,
+        &user_prompt,
+        &input_hash,
+        &context_hash,
+        &prompt_hash,
+    )
+    .await
+    {
         Ok(()) => Ok(()),
         Err(error) => {
             let _ = persist_failed_analysis(database, range_key, source_id, model, &error);
@@ -600,31 +879,39 @@ async fn run_analysis(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_analysis_inner(
     database: &Database,
     client: &Client,
-    range_key: &str,
-    source_id: Option<&str>,
-    model: Option<&str>,
+    inputs: &DeltaInputs,
+    target: &ChatTarget,
+    user_prompt: &str,
+    input_hash: &str,
+    context_hash: &str,
+    prompt_hash: &str,
 ) -> Result<(), String> {
-    let posts = database.list_tibo_posts(80)?;
-    let views = posts.into_iter().map(to_view).collect::<Vec<_>>();
-    let (window_start, window_end) = range_bounds(range_key);
-    let selected: Vec<_> = views
-        .into_iter()
-        .filter(|post| post.posted_at >= window_start && post.posted_at <= window_end)
-        .collect();
-    if selected.is_empty() {
-        return Err("当前时间窗内没有 Tibo 动态可分析".into());
+    let mut sections = Vec::new();
+    if !inputs.context.is_empty() {
+        sections.push(format!(
+            "EVENT CONTEXT POSTS (already associated with the ongoing event; background only):\n{}",
+            inputs
+                .context
+                .iter()
+                .map(delta_post_block)
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        ));
     }
-    let target = resolve_chat_target(database, source_id, model)?;
-    let input = selected
-        .iter()
-        .map(|post| format!("{}\n{}\n{}", format_iso(post.posted_at), post.url, post.text))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let input_hash = format!("{:x}", simple_hash(&input));
-    let user_prompt = load_analysis_prefs(database)?.user_prompt;
+    sections.push(format!(
+        "NEW POSTS (analyze these):\n{}",
+        inputs
+            .delta
+            .iter()
+            .map(delta_post_block)
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    ));
+    let input = sections.join("\n\n");
     let mut messages = vec![json!({"role": "system", "content": ANALYSIS_SYSTEM_PROMPT})];
     if !user_prompt.is_empty() {
         messages.push(json!({
@@ -634,7 +921,7 @@ async fn run_analysis_inner(
     }
     messages.push(json!({
         "role": "user",
-        "content": format!("Analyze every post in the selected time window. Do not skip any of them:\n{input}")
+        "content": format!("Judge the NEW posts against the EVENT CONTEXT posts when present. Do not skip any new post:\n{input}")
     }));
     let body = json!({
         "model": target.model,
@@ -642,36 +929,160 @@ async fn run_analysis_inner(
         "stream": false,
         "messages": messages
     });
-    let text = send_chat(client, &target, &body).await?;
+    let text = send_chat(client, target, &body).await?;
     let parsed = parse_model_json(&text)?;
-    database.insert_radar_analysis(&RadarAnalysisRecord {
+    let record = RadarAnalysisRecord {
         id: format!("analysis-{}", epoch_ms()),
         created_at: epoch_ms(),
-        range_key: range_key.into(),
+        range_key: inputs.range_key.clone(),
         cut_post_id: None,
-        from_posted_at: selected.last().map(|post| post.posted_at),
-        to_posted_at: selected.first().map(|post| post.posted_at),
-        source_id: Some(target.source_id),
-        model: Some(target.model),
+        from_posted_at: inputs.delta.last().map(|post| post.posted_at),
+        to_posted_at: inputs.delta.first().map(|post| post.posted_at),
+        source_id: Some(target.source_id.clone()),
+        model: Some(target.model.clone()),
         prompt_version: PROMPT_VERSION.into(),
-        input_hash,
-        conclusion: parsed.conclusion,
-        analysis_basis: parsed.analysis_basis,
-        confidence: parsed.confidence,
+        input_hash: input_hash.to_string(),
+        conclusion: parsed.conclusion.clone(),
+        analysis_basis: parsed.analysis_basis.clone(),
+        confidence: parsed.confidence.clone(),
         citations_json: serde_json::to_string(&parsed.citations).unwrap_or_else(|_| "[]".into()),
         support_json: serde_json::to_string(&parsed.support).unwrap_or_else(|_| "[]".into()),
         against_json: serde_json::to_string(&parsed.against).unwrap_or_else(|_| "[]".into()),
         uncertainty_json: serde_json::to_string(&parsed.uncertainty).unwrap_or_else(|_| "[]".into()),
         error_message: None,
-    })
+        event_id: None,
+        analysis_mode: Some(inputs.mode.into()),
+        context_hash: context_hash.to_string(),
+        prompt_hash: prompt_hash.to_string(),
+        event_relation: parsed.event_relation.clone(),
+        event_phase: parsed.event_phase.clone(),
+        delta_effect: parsed.delta_effect.clone(),
+        signal_level: parsed.signal_level.clone(),
+        context_status: parsed.context_status.clone(),
+    };
+    // 事件推进先于落库，得到的 event_id 一并写入分析记录。
+    let event_id = apply_analysis_to_event(database, inputs, &parsed, &record.id)?;
+    let record = RadarAnalysisRecord { event_id, ..record };
+    database.insert_radar_analysis(&record)?;
+    Ok(())
+}
+
+/// 把 AI 的结构化增量输出套到当前事件上，返回本条分析应关联的事件 id。
+/// 普通无关帖子（none / no_change）不推进、不关闭事件。
+fn apply_analysis_to_event(
+    database: &Database,
+    inputs: &DeltaInputs,
+    parsed: &ModelJson,
+    analysis_id: &str,
+) -> Result<Option<String>, String> {
+    match parsed.event_relation.as_deref() {
+        Some("new_event") => {
+            if let Some(active) = database.active_radar_event()? {
+                let mut closed = active;
+                closed.closed_at = Some(epoch_ms());
+                closed.close_reason = Some("出现新一轮重置信号".into());
+                database.update_radar_event(&closed)?;
+            }
+            let event_id = create_radar_event(database, inputs, parsed, analysis_id)?;
+            Ok(Some(event_id))
+        }
+        Some("same_event") => {
+            let Some(active) = database.active_radar_event()? else {
+                let event_id = create_radar_event(database, inputs, parsed, analysis_id)?;
+                return Ok(Some(event_id));
+            };
+            let mut updated = active;
+            updated.latest_evidence_at = epoch_ms();
+            if let Some(conclusion) = &parsed.conclusion {
+                updated.title = conclusion.clone();
+            }
+            if let Some(basis) = &parsed.analysis_basis {
+                updated.summary = Some(basis.clone());
+            }
+            match parsed.delta_effect.as_deref() {
+                Some("cancel") => {
+                    updated.phase = "closed".into();
+                    updated.closed_at = Some(epoch_ms());
+                    updated.close_reason = parsed
+                        .conclusion
+                        .clone()
+                        .or_else(|| Some("信号取消或失效".into()));
+                }
+                Some("advance_phase") => {
+                    if let Some(phase) = ai_settable_phase(parsed.event_phase.as_deref()) {
+                        if phase != updated.phase {
+                            updated.phase = phase.into();
+                            if phase == "landed_claimed" && updated.claimed_landed_at.is_none() {
+                                updated.claimed_landed_at = Some(epoch_ms());
+                            }
+                        }
+                    }
+                }
+                // reinforce / no_change / weaken：保留既有阶段
+                _ => {}
+            }
+            database.update_radar_event(&updated)?;
+            for post in &inputs.delta {
+                database.add_radar_event_evidence(&updated.id, &post.id, "delta", analysis_id)?;
+            }
+            Ok(Some(updated.id))
+        }
+        // none 或缺失：普通无关动态，不推进事件
+        _ => Ok(None),
+    }
+}
+
+fn create_radar_event(
+    database: &Database,
+    inputs: &DeltaInputs,
+    parsed: &ModelJson,
+    analysis_id: &str,
+) -> Result<String, String> {
+    let now = epoch_ms();
+    let phase = ai_settable_phase(parsed.event_phase.as_deref()).unwrap_or("watching");
+    let event = RadarEventRecord {
+        id: format!("event-{now}"),
+        phase: phase.into(),
+        title: parsed.conclusion.clone().unwrap_or_else(|| "新重置信号".into()),
+        summary: parsed.analysis_basis.clone(),
+        first_signal_at: inputs.delta.last().map(|post| post.posted_at).unwrap_or(now),
+        latest_evidence_at: now,
+        claimed_landed_at: (phase == "landed_claimed").then_some(now),
+        observed_reset_at: None,
+        closed_at: None,
+        close_reason: None,
+    };
+    database.insert_radar_event(&event)?;
+    for post in &inputs.context {
+        database.add_radar_event_evidence(&event.id, &post.id, "context", analysis_id)?;
+    }
+    for post in &inputs.delta {
+        database.add_radar_event_evidence(&event.id, &post.id, "delta", analysis_id)?;
+    }
+    Ok(event.id)
+}
+
+/// AI 可以设置的事件阶段：landed_observed 只能来自本机额度观察，closed 只能由取消逻辑设置。
+fn ai_settable_phase(value: Option<&str>) -> Option<&'static str> {
+    match value? {
+        "watching" => Some("watching"),
+        "upcoming" => Some("upcoming"),
+        "landed_claimed" => Some("landed_claimed"),
+        _ => None,
+    }
 }
 
 const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
-    "You analyze public Tibo/Codex reset-related posts in the selected time window. ",
-    "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
+    "You analyze public Tibo/Codex reset-related posts. NEW POSTS are the batch to judge; ",
+    "EVENT CONTEXT POSTS (when present) are previously associated originals of an ongoing reset event, background only. ",
+    "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed|landed_observed|closed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
     "Write conclusion and analysis_basis in Simplified Chinese. ",
     "conclusion must be a direct decision of at most 40 Chinese characters, without markdown, evidence, or repeated reasoning. ",
     "analysis_basis must contain the reasoning separately in 1 to 3 concise sentences and must not repeat the conclusion verbatim. ",
+    "event_relation: new_event when the new posts start a distinct reset cycle; same_event when they update the ongoing event; none when unrelated. ",
+    "Ordinary chatter or unrelated replies must be event_relation none with delta_effect no_change and signal_level none; never overwrite or close the ongoing event for them. ",
+    "event_phase is your read of the event stage after the new posts; delta_effect describes what the new posts do to the event. ",
+    "context_status: complete when the context posts give enough background, context_missing when not, conflicting when they contradict the new posts. ",
     "Apply the user's semantic hints when judging upcoming-reset signals and confidence. ",
     "If no user hints are provided, read the posts ordinarily without inventing extra rules. ",
     "This output is speculation, not an official conclusion. ",
@@ -704,6 +1115,15 @@ fn persist_failed_analysis(
         against_json: "[]".into(),
         uncertainty_json: "[]".into(),
         error_message: Some(error.to_string()),
+        event_id: None,
+        analysis_mode: None,
+        context_hash: String::new(),
+        prompt_hash: String::new(),
+        event_relation: None,
+        event_phase: None,
+        delta_effect: None,
+        signal_level: None,
+        context_status: None,
     })
 }
 
@@ -841,6 +1261,18 @@ fn describe_reqwest(error: &reqwest::Error) -> String {
     format!("{kind}{url}：{}", chain.join("；"))
 }
 
+/// 用户在主窗口手动确认「这是我手动使用的重置卡」：只追加归因 user_confirmed，
+/// 不修改任何额度快照，也不推进事件阶段。
+pub fn confirm_quota_change(
+    database: &Database,
+    account_id: &str,
+    source_id: &str,
+    captured_at: i64,
+) -> Result<RadarSnapshot, String> {
+    quota_watch::save_confirmation(database, account_id, source_id, captured_at)?;
+    snapshot(database)
+}
+
 pub fn save_analysis_prefs(
     database: &Database,
     analyze: bool,
@@ -902,6 +1334,11 @@ struct ModelJson {
     support: Vec<String>,
     against: Vec<String>,
     uncertainty: Vec<String>,
+    event_relation: Option<String>,
+    event_phase: Option<String>,
+    delta_effect: Option<String>,
+    signal_level: Option<String>,
+    context_status: Option<String>,
 }
 
 fn parse_model_json(body: &str) -> Result<ModelJson, String> {
@@ -929,6 +1366,23 @@ fn parse_model_json(body: &str) -> Result<ModelJson, String> {
         support: string_list(&parsed, "support"),
         against: string_list(&parsed, "against"),
         uncertainty: string_list(&parsed, "uncertainty"),
+        event_relation: parsed
+            .get("event_relation")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        event_phase: parsed.get("event_phase").and_then(Value::as_str).map(str::to_string),
+        delta_effect: parsed
+            .get("delta_effect")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        signal_level: parsed
+            .get("signal_level")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        context_status: parsed
+            .get("context_status")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 

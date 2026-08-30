@@ -148,14 +148,6 @@ export function formatHoverbarClock(value: number): string {
   return sameDay ? hhmm : `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${hhmm}`;
 }
 
-/** 雷达把握度中文标签；未知值原样返回，不臆造等级。 */
-export function radarConfidenceLabel(confidence: string): string {
-  if (confidence === "high") return "高";
-  if (confidence === "medium") return "中";
-  if (confidence === "low") return "低";
-  return confidence;
-}
-
 /** 摘要条第二行：只保留更新时间，不附加来源站名。 */
 export function radarSourceLine(radar: RadarSnapshot): string {
   if (radar.lastSyncedAt && radar.sourceStatus === "stale") {
@@ -163,6 +155,89 @@ export function radarSourceLine(radar: RadarSnapshot): string {
   }
   if (radar.lastSyncedAt) return `更新 ${formatHoverbarClock(radar.lastSyncedAt)}`;
   return "尚未同步";
+}
+
+/** 重置事件阶段中文标签；未知阶段不臆造文案。 */
+export function radarPhaseLabel(phase: string | null | undefined): string | null {
+  switch (phase) {
+    case "watching":
+      return "观察中";
+    case "upcoming":
+      return "即将重置";
+    case "landed_claimed":
+      return "来源称已落地";
+    case "landed_observed":
+      return "本机观察到刷新";
+    case "closed":
+      return "已结束";
+    default:
+      return null;
+  }
+}
+
+/** 摘要条 AI 状态行：关闭/失败/待分析时不得用历史结论正文替代来源行。 */
+export function radarAiLine(radar: RadarSnapshot): string {
+  const ai = radar.aiAssessment;
+  if (!ai.enabled) {
+    return ai.history ? `已关闭 · 历史 ${formatHoverbarClock(ai.history.createdAt)}` : "已关闭";
+  }
+  switch (ai.state) {
+    case "pending":
+      return "有新动态待分析";
+    case "failed":
+      return ai.history ? `分析失败 · 历史 ${formatHoverbarClock(ai.history.createdAt)}` : "分析失败";
+    case "current":
+      return ai.current?.conclusion ?? "已分析";
+    default:
+      return "未分析";
+  }
+}
+
+/** 本机额度验证状态中文文案。 */
+export function quotaStatusText(status: string): string {
+  switch (status) {
+    case "unavailable":
+      return "暂无法验证";
+    case "insufficient_data":
+      return "缺少基线";
+    case "pending":
+      return "待验证";
+    case "scheduled":
+      return "正常计划刷新";
+    case "possible_reset":
+      return "疑似刷新";
+    case "unscheduled_reset":
+      return "观察到非计划刷新";
+    case "no_change":
+      return "未见变化";
+    default:
+      return status;
+  }
+}
+
+export const QUOTA_STATUS_PRIORITY: string[] = [
+  "unscheduled_reset",
+  "possible_reset",
+  "scheduled",
+  "pending",
+  "insufficient_data",
+  "unavailable",
+  "no_change",
+];
+
+/** 摘要条本机额度行：取最显著的验证状态；多账号状态不一致时带计数。 */
+export function radarQuotaLine(radar: RadarSnapshot): string | null {
+  const list = radar.quotaVerifications ?? [];
+  if (list.length === 0) return null;
+  const sorted = [...list].sort(
+    (left, right) => QUOTA_STATUS_PRIORITY.indexOf(left.status) - QUOTA_STATUS_PRIORITY.indexOf(right.status),
+  );
+  const primary = sorted[0];
+  const sameCount = list.filter((item) => item.status === primary.status).length;
+  if (primary.status === "unscheduled_reset" && sameCount < list.length) {
+    return `${sameCount}/${list.length} 账号观察到非计划刷新`;
+  }
+  return quotaStatusText(primary.status);
 }
 
 /** 悬浮球头部状态文案：成功/部分/失败同时用文字表达。 */

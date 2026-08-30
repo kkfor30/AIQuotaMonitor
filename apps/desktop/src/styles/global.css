@@ -785,12 +785,6 @@ html.hoverbar-window #root {
   color: var(--q-hoverbar-warning);
 }
 
-/* 过期提示的窄停靠变体：头部放不下时移到注释行，默认隐藏。 */
-.hb-radar-strip-note-stale {
-  display: none;
-  color: var(--q-hoverbar-warning);
-}
-
 .hb-radar-strip-actions {
   display: inline-flex;
   flex: none;
@@ -1149,6 +1143,216 @@ html.hoverbar-window #root {
   line-height: 16px;
 }
 
+/* 摘要条三路证据行：标签 + 可换行正文，块级布局天然兼容四边宽度。 */
+.hb-radar-strip-row {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.hb-radar-strip-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 6px;
+  color: var(--q-hoverbar-muted);
+  background: var(--q-hoverbar-empty-bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.hb-radar-strip-row-text {
+  min-width: 0;
+  color: var(--q-hoverbar-ink);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.hb-radar-strip-row-text[data-quota="unscheduled_reset"],
+.hb-radar-strip-row-text[data-quota="possible_reset"] {
+  color: var(--q-hoverbar-warning);
+}
+
+.hb-radar-strip-row-text[data-quota="unavailable"],
+.hb-radar-strip-row-text[data-quota="insufficient_data"],
+.hb-radar-strip-row-text[data-quota="pending"] {
+  color: var(--q-hoverbar-muted);
+}
+
+/* 事件阶段徽章：按阶段着色，不再表达把握度。 */
+.radar-phase-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 12%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.radar-phase-badge[data-phase="upcoming"] {
+  color: var(--q-hoverbar-warning);
+  background: color-mix(in srgb, var(--q-hoverbar-warning) 14%, transparent);
+}
+
+.radar-phase-badge[data-phase="landed_claimed"],
+.radar-phase-badge[data-phase="landed_observed"] {
+  color: var(--q-hoverbar-success);
+  background: color-mix(in srgb, var(--q-hoverbar-success) 14%, transparent);
+}
+
+.radar-phase-badge[data-phase="closed"] {
+  color: var(--q-hoverbar-muted);
+  background: var(--q-hoverbar-empty-bg);
+}
+
+/* 雷达二级页：事件卡头 / 两路判断 / 本机额度验证 / 时间线。 */
+.hb-radar-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.hb-radar-judge {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.hb-radar-judge + .hb-radar-judge {
+  margin-top: 8px;
+}
+
+.hb-radar-judge-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hb-quota-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: var(--q-hoverbar-empty-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+}
+
+.hb-quota-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.hb-quota-row-head b {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--q-hoverbar-ink);
+}
+
+.hb-quota-status {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+  color: var(--q-hoverbar-muted-strong);
+}
+
+.hb-quota-row[data-status="unscheduled_reset"] .hb-quota-status,
+.hb-quota-row[data-status="possible_reset"] .hb-quota-status {
+  color: var(--q-hoverbar-warning);
+}
+
+.hb-quota-row[data-status="unavailable"] .hb-quota-status,
+.hb-quota-row[data-status="insufficient_data"] .hb-quota-status {
+  color: var(--q-hoverbar-muted);
+}
+
+.hb-quota-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 10%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.hb-quota-retry:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.hb-quota-retry-short {
+  display: none;
+}
+
+.hb-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hb-timeline-node {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.hb-timeline-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--q-hoverbar-primary);
+}
+
+.hb-timeline-dot[data-kind="claimed"],
+.hb-timeline-dot[data-kind="observed"] {
+  background: var(--q-hoverbar-success);
+}
+
+.hb-timeline-dot[data-kind="closed"] {
+  background: var(--q-hoverbar-muted);
+}
+
+.hb-timeline-label {
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 15px;
+  color: var(--q-hoverbar-ink);
+}
+
+.hb-timeline-time {
+  flex: none;
+  margin-left: auto;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--q-hoverbar-muted);
+}
+
 .hb-radar-stale {
   margin: 7px 0 0;
   color: var(--q-hoverbar-warning);
@@ -1307,19 +1511,28 @@ html.hoverbar-window #root {
   display: none;
 }
 
-.hb-detail-root[data-edge="left"] .hb-radar-strip-time,
-.hb-detail-root[data-edge="right"] .hb-radar-strip-time {
+/* 左右侧停靠：验证卡详细前后值收进内部滚动，重试按钮紧凑化。 */
+.hb-detail-root[data-edge="left"] .hb-quota-detail,
+.hb-detail-root[data-edge="right"] .hb-quota-detail {
   display: none;
 }
 
-.hb-detail-root[data-edge="left"] .hb-radar-strip-stale,
-.hb-detail-root[data-edge="right"] .hb-radar-strip-stale {
+.hb-detail-root[data-edge="left"] .hb-quota-retry-full,
+.hb-detail-root[data-edge="right"] .hb-quota-retry-full {
   display: none;
 }
 
-.hb-detail-root[data-edge="left"] .hb-radar-strip-note-stale,
-.hb-detail-root[data-edge="right"] .hb-radar-strip-note-stale {
+.hb-detail-root[data-edge="left"] .hb-quota-retry-short,
+.hb-detail-root[data-edge="right"] .hb-quota-retry-short {
   display: inline;
+}
+
+.hb-detail-root[data-edge="left"] .hb-quota-retry,
+.hb-detail-root[data-edge="right"] .hb-quota-retry {
+  align-self: flex-end;
+  padding: 2px 4px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .hb-detail-root[data-edge="left"] .hb-service-card,

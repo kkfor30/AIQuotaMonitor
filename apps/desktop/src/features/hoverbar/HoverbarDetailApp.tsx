@@ -21,6 +21,7 @@ import {
   ipcErrorMessage,
   openMainWindow,
   refreshAllPlatforms,
+  refreshPlatform,
   runRadarCheck,
 } from "@/lib/ipc";
 import {
@@ -101,6 +102,14 @@ export function HoverbarDetailApp() {
   const radarRefreshError = radarCheck.error
     ? ipcErrorMessage(radarCheck.error, "重置信号刷新失败")
     : null;
+  // 本机额度重试：只刷新 GPT 平台额度，不重跑雷达 AI。
+  const quotaRetry = useMutation({
+    mutationFn: () => refreshPlatform("openai"),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: RADAR_SNAPSHOT_QUERY_KEY });
+    },
+  });
 
   const setMotion = useCallback((phase: HoverbarMotionPhase) => {
     motionPhaseRef.current = phase;
@@ -256,6 +265,8 @@ export function HoverbarDetailApp() {
                 onRefresh={refreshRadar}
                 refreshing={radarCheck.isPending}
                 refreshError={radarRefreshError}
+                onRetryQuota={() => quotaRetry.mutate()}
+                quotaRefreshing={quotaRetry.isPending}
               />
             ) : orderedPlatforms.length === 0 ? (
               <div className="hb-empty">

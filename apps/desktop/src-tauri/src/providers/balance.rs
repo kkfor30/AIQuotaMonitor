@@ -236,6 +236,8 @@ fn balance_capability(primary: String, secondary: String) -> Vec<CapabilityData>
         secondary_value: Some(secondary),
         progress: None,
         trend: vec![],
+        window_seconds: None,
+        reset_at: None,
     }]
 }
 
@@ -315,6 +317,8 @@ fn parse_openrouter(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityD
             secondary_value: Some(format!("总额度 {} · 已用 {}", format_usd(total_credits), format_usd(total_usage))),
             progress: None,
             trend: vec![],
+            window_seconds: None,
+            reset_at: None,
         },
         CapabilityData {
             capability_id: "total_spend".into(),
@@ -324,6 +328,8 @@ fn parse_openrouter(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityD
             secondary_value: Some("OpenRouter 官方已用额度".into()),
             progress: None,
             trend: vec![],
+            window_seconds: None,
+            reset_at: None,
         },
     ])
 }

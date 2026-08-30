@@ -307,6 +307,8 @@ fn amount_capabilities(amount: &Value, _range: &MonthRange) -> Result<Vec<Capabi
             )),
             progress: cache_ratio,
             trend: vec![],
+            window_seconds: None,
+            reset_at: None,
         },
     ])
 }
@@ -342,6 +344,8 @@ fn cost_capabilities(cost: &Value, range: &MonthRange) -> Result<Vec<CapabilityD
             secondary_value: Some("人民币定点金额".into()),
             progress: None,
             trend,
+            window_seconds: None,
+            reset_at: None,
         },
     ])
 }
@@ -664,6 +668,8 @@ fn tokens_capability(id: &str, name: &str, value: u64) -> CapabilityData {
         secondary_value: None,
         progress: None,
         trend: vec![],
+        window_seconds: None,
+        reset_at: None,
     }
 }
 
@@ -676,6 +682,8 @@ fn money_capability(id: &str, name: &str, value: Decimal) -> CapabilityData {
         secondary_value: None,
         progress: None,
         trend: vec![],
+        window_seconds: None,
+        reset_at: None,
     }
 }
 

@@ -74,3 +74,19 @@ pub fn save_radar_analysis_prefs(
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
 }
+
+/// 用户在主窗口手动确认重置卡：只追加归因 user_confirmed，不篡改快照、不推进事件。
+#[tauri::command]
+pub fn confirm_radar_quota_change(
+    account_id: String,
+    source_id: String,
+    captured_at: i64,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main"])?;
+    let snapshot = radar::confirm_quota_change(&database, &account_id, &source_id, captured_at)?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
+}

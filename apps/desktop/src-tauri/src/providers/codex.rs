@@ -614,7 +614,11 @@ fn window_capability(window: &Value) -> Option<CapabilityData> {
         value => (format!("quota_window_{value}s"), duration_label(value)),
     };
     let remaining = (100.0 - used).clamp(0.0, 100.0);
-    let reset = reset_label(window);
+    let reset_ms = structured_reset_at(window);
+    let reset = reset_ms.and_then(|ms| {
+        chrono::DateTime::from_timestamp_millis(ms)
+            .map(|time| format!("重置 {}", time.with_timezone(&chrono::Local).format("%m-%d %H:%M")))
+    });
     Some(CapabilityData {
         capability_id: id,
         display_name: label,
@@ -626,6 +630,8 @@ fn window_capability(window: &Value) -> Option<CapabilityData> {
         }),
         progress: Some(remaining / 100.0),
         trend: vec![],
+        window_seconds: Some(duration as i64),
+        reset_at: reset_ms,
     })
 }
 
@@ -645,6 +651,8 @@ fn append_plan_and_credits(capabilities: &mut Vec<CapabilityData>, plan: Option<
             secondary_value: Some("ChatGPT / Codex 订阅".into()),
             progress: None,
             trend: vec![],
+            window_seconds: None,
+            reset_at: None,
         });
     }
     let credits = body
@@ -660,6 +668,8 @@ fn append_plan_and_credits(capabilities: &mut Vec<CapabilityData>, plan: Option<
             secondary_value: Some("仅展示额度接口实际返回值".into()),
             progress: None,
             trend: vec![],
+            window_seconds: None,
+            reset_at: None,
         });
     }
 }
@@ -693,17 +703,24 @@ fn decimal_text(value: &Value) -> Option<String> {
     Decimal::from_str(&text).ok().map(|value| value.normalize().to_string())
 }
 
-fn reset_label(window: &Value) -> Option<String> {
+/// 结构化重置时间：ISO 字符串或秒/毫秒时间戳统一为 epoch 毫秒。
+fn structured_reset_at(window: &Value) -> Option<i64> {
     let value = window.get("reset_at").or_else(|| window.get("resetsAt"))?;
-    if let Some(text) = value.as_str().filter(|text| text.contains('T')) {
-        return Some(format!("重置 {text}"));
+    if let Some(text) = value.as_str() {
+        if let Ok(time) = chrono::DateTime::parse_from_rfc3339(text.trim()) {
+            return Some(time.timestamp_millis());
+        }
+        return normalized_reset_ms(text.trim().parse().ok()?);
     }
-    let timestamp = value
-        .as_i64()
-        .or_else(|| value.as_str().and_then(|text| text.parse::<i64>().ok()))?;
-    let seconds = if timestamp > 10_000_000_000 { timestamp / 1000 } else { timestamp };
-    chrono::DateTime::from_timestamp(seconds, 0)
-        .map(|time| format!("重置 {}", time.with_timezone(&chrono::Local).format("%m-%d %H:%M")))
+    normalized_reset_ms(value.as_i64()?)
+}
+
+fn normalized_reset_ms(raw: i64) -> Option<i64> {
+    if raw <= 0 {
+        return None;
+    }
+    let seconds = if raw > 10_000_000_000 { raw / 1000 } else { raw };
+    chrono::DateTime::from_timestamp(seconds, 0).map(|time| time.timestamp_millis())
 }
 
 fn duration_label(seconds: u64) -> String {
