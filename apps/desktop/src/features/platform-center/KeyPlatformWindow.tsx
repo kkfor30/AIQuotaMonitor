@@ -263,8 +263,9 @@ export function KeyPlatformWindow({
     return 0;
   };
 
-  /** 动画结束后清理拖拽残留：inline 样式与拖拽态 class */
+  /** 动画结束后清理拖拽残留：inline 样式与拖拽态 class。若该卡已被重新抓住（新拖拽进行中），交给新一轮 settle 清理。 */
   const cleanupCardStyles = (id: string) => {
+    if (cardDrag.current?.id === id) return;
     const el = cardRefs.current.get(id);
     if (!el) return;
     el.style.transition = "";
@@ -317,7 +318,15 @@ export function KeyPlatformWindow({
               el.style.transform = "translate3d(0, 0, 0)";
             }
           }
-          window.setTimeout(() => cleanupCardStyles(state.id), 240);
+          // 归零动画结束后统一清理全部卡的 inline 残留（让位卡与被拖卡）
+          window.setTimeout(() => {
+            for (const [pid, el] of cardRefs.current) {
+              if (pid === state.id) continue;
+              el.style.transition = "";
+              el.style.transform = "";
+            }
+            cleanupCardStyles(state.id);
+          }, 240);
         }
         updateScrollState();
         return;
@@ -410,12 +419,17 @@ export function KeyPlatformWindow({
     if (!strip || index < 0 || !draggedEl || cardDrag.current) return;
     const stripRect = strip.getBoundingClientRect();
     const cardRect = draggedEl.getBoundingClientRect();
-    // 实测卡宽与槽位步长（按下时全部卡片无 transform，测量可靠；邻居在左/右侧取绝对值）
+    // 实测卡宽与槽位步长（按下时全部卡片无 transform，测量可靠）。邻居必须取被拖卡
+    // 真正相邻的卡（index±1）：若取第一张卡且被拖的是后面的卡，差值会是 n×272，
+    // 让位量按 n 倍槽距计算，中间卡片会被推出数个槽位外（"拖拽时中间卡片消失"根因）。
     const cardWidth = cardRect.width;
     let step = CARD_STEP;
-    const neighborId =
-      connected[0]?.providerId === id ? connected[1]?.providerId : connected[0]?.providerId;
-    const neighborEl = neighborId ? cardRefs.current.get(neighborId) : null;
+    const dragConnectedIds = orderRef.current.filter(
+      (pid) => byId.get(pid)?.aggregateStatus !== "setup_required",
+    );
+    const neighborEl =
+      cardRefs.current.get(dragConnectedIds[index + 1] ?? "")
+      ?? cardRefs.current.get(dragConnectedIds[index - 1] ?? "");
     if (neighborEl) {
       step = Math.max(CARD_GAP + 1, Math.abs(Math.round(neighborEl.getBoundingClientRect().left - cardRect.left)));
     }
@@ -451,6 +465,29 @@ export function KeyPlatformWindow({
     }
     scheduleFrameRef.current();
   };
+
+  // 窗口失焦 / 页面隐藏时指针事件不再派发（如切窗、系统截图覆盖层），
+  // 拖拽会永久挂在"悬浮态"——此时立即取消：卡片回原位、不提交排序。
+  const onWindowBlurCancel = useCallback(() => {
+    if (!cardDrag.current) return;
+    detachDragListeners();
+    finishRef.current(false);
+  }, [detachDragListeners]);
+
+  const onVisibilityCancel = useCallback(() => {
+    if (!document.hidden || !cardDrag.current) return;
+    detachDragListeners();
+    finishRef.current(false);
+  }, [detachDragListeners]);
+
+  useEffect(() => {
+    window.addEventListener("blur", onWindowBlurCancel);
+    document.addEventListener("visibilitychange", onVisibilityCancel);
+    return () => {
+      window.removeEventListener("blur", onWindowBlurCancel);
+      document.removeEventListener("visibilitychange", onVisibilityCancel);
+    };
+  }, [onWindowBlurCancel, onVisibilityCancel]);
 
   // 卸载兜底：组件销毁时清理监听与动画帧
   useEffect(() => {
