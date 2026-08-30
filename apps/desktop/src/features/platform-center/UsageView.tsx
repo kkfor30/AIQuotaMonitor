@@ -4,6 +4,8 @@ import { SourceHealthSummary } from "./SourceHealthSummary";
 import { UsageTrend } from "./UsageTrend";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { cn } from "@/lib/cn";
+import { useContainerWidth } from "@/lib/use-container-width";
 import type {
   AccountKind,
   AccountSummaryViewModel,
@@ -57,7 +59,11 @@ function groupedCapabilitySections(
     }));
 }
 
-/** 语义分组能力卡列表；账号区块与单账号平台共用。 */
+/**
+ * 语义分组能力卡列表；账号区块与单账号平台共用。
+ * 列数由实际容器宽度决定（auto-fit + 单卡最小可读 250px），不依赖全局 xl/2xl 断点：
+ * 放不下两张自动单列，能放两张才双列，极宽时三列。
+ */
 function CapabilitySections({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
   return (
     <>
@@ -71,7 +77,7 @@ function CapabilitySections({ capabilities }: { capabilities: CapabilitySnapshot
               {section.capabilityNames.join(" / ")}
             </span>
           </div>
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,250px),1fr))] gap-4">
             {section.capabilities.map((capability) => (
               <CapabilityCard
                 key={`${capability.sourceId}-${capability.capabilityId}`}
@@ -104,11 +110,18 @@ function AccountHeader({ account }: { account: AccountSummaryViewModel }) {
 }
 
 /**
- * 平台中心 / 额度与用量（Apple Glass V6）：
+ * 平台中心 / 额度与用量（Apple Glass V6/V7）：
  * 多账号平台先按账号分组（本机 → 默认 → 额外，顺序由后端决定），账号内再语义分组；
- * 单账号平台保持原布局，不因分组变复杂。Capability 通过 accountId 归属账号，跨账号不合并。
+ * 单账号平台保持原布局。Capability 通过 accountId 归属账号，跨账号不合并。
+ * 布局由本组件实际宽度驱动（不依赖全局视口断点）：
+ * - wide（≥960）：主内容 + 最近刷新记录双栏；历史栏 sticky 跟随滚动容器，不被拉伸；
+ * - medium/compact：单栏，刷新记录折叠卡放在来源状态之后、账号额度之前。
+ * 滚动由外层 TabContent 统一承担，本组件自身不产生第二个滚动区。
  */
 export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) {
+  const { ref, mode } = useContainerWidth<HTMLDivElement>();
+  const wide = mode === "wide";
+
   if (platform.aggregateStatus === "setup_required") {
     return (
       <EmptyState
@@ -130,31 +143,44 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
     capabilities: cardCapabilities.filter((capability) => capability.accountId === account.accountId),
   }));
 
+  const mainContent = (
+    <div className="flex min-w-0 flex-col gap-4">
+      <SourceHealthSummary platform={platform} />
+      {!wide && <RefreshHistory platform={platform} variant="inline" />}
+      {multiAccount ? (
+        <div className="flex flex-col gap-6">
+          {accountSections.map(({ account, capabilities }) => (
+            <section key={account.accountId} className="flex min-w-0 flex-col gap-3">
+              <AccountHeader account={account} />
+              {capabilities.length > 0 ? (
+                <CapabilitySections capabilities={capabilities} />
+              ) : (
+                <p className="px-1 text-xs text-q-text-muted">该账号暂无额度数据。</p>
+              )}
+            </section>
+          ))}
+        </div>
+      ) : (
+        <CapabilitySections capabilities={cardCapabilities} />
+      )}
+      {trendCapability && trendCapability.trend.length > 0 && (
+        <UsageTrend capability={trendCapability} />
+      )}
+    </div>
+  );
+
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] gap-4 overflow-y-auto pr-1">
-      <div className="flex min-w-0 flex-col gap-4">
-        <SourceHealthSummary platform={platform} />
-        {multiAccount ? (
-          <div className="flex flex-col gap-6">
-            {accountSections.map(({ account, capabilities }) => (
-              <section key={account.accountId} className="flex min-w-0 flex-col gap-3">
-                <AccountHeader account={account} />
-                {capabilities.length > 0 ? (
-                  <CapabilitySections capabilities={capabilities} />
-                ) : (
-                  <p className="px-1 text-xs text-q-text-muted">该账号暂无额度数据。</p>
-                )}
-              </section>
-            ))}
-          </div>
-        ) : (
-          <CapabilitySections capabilities={cardCapabilities} />
-        )}
-        {trendCapability && trendCapability.trend.length > 0 && (
-          <UsageTrend capability={trendCapability} />
-        )}
-      </div>
-      <RefreshHistory platform={platform} />
+    <div
+      ref={ref}
+      className={cn(
+        "min-w-0",
+        wide
+          ? "grid grid-cols-[minmax(0,1fr)_clamp(260px,28%,320px)] items-start gap-4"
+          : "flex flex-col gap-4",
+      )}
+    >
+      {mainContent}
+      {wide && <RefreshHistory platform={platform} variant="panel" />}
     </div>
   );
 }

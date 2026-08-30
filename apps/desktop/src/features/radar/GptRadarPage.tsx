@@ -33,6 +33,8 @@ import {
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import type { RadarModelOption, RadarPost } from "@/lib/ipc";
 import { quotaStatusText, radarPhaseLabel } from "@/features/hoverbar/hoverbar-state";
+import { useContainerWidth, TIBO_SPLIT_MIN_PX } from "@/lib/use-container-width";
+import { ArrowLeft } from "lucide-react";
 
 export function GptRadarPage() {
   const queryClient = useQueryClient();
@@ -105,9 +107,9 @@ export function GptRadarPage() {
   const selected = visible.find((post) => post.id === selectedId) ?? visible[0] ?? null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-2 pr-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 pt-2 pr-2">
       {/* 页头：图标磁贴 + 标题 + 推测声明 + 立即检查 */}
-      <header className="glass-panel flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+      <header className="glass-panel flex shrink-0 flex-wrap items-start justify-between gap-3 px-5 py-4">
         <div className="flex min-w-0 items-start gap-3.5">
           <span
             aria-hidden
@@ -141,7 +143,7 @@ export function GptRadarPage() {
       {/* 分段 Tab（胶囊分段控件） */}
       <div
         role="tablist"
-        className="inline-flex w-fit items-center gap-1 rounded-q-pill border border-q-border bg-q-surface-muted p-1"
+        className="inline-flex w-fit shrink-0 items-center gap-1 rounded-q-pill border border-q-border bg-q-surface-muted p-1"
       >
         {RADAR_TABS.map((item) => (
           <button
@@ -162,7 +164,7 @@ export function GptRadarPage() {
         ))}
       </div>
 
-      {isLoading && <p className="text-sm text-q-text-muted">正在加载雷达数据…</p>}
+      {isLoading && <p className="shrink-0 text-sm text-q-text-muted">正在加载雷达数据…</p>}
       {tab === "signal" && <SignalSummaryView data={data} />}
       {tab === "tibo" && (
         <TiboFeedView
@@ -256,8 +258,8 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
     source?.headline ?? data?.notice?.headline ?? latest?.summary ?? latest?.translatedText ?? latest?.text ?? "暂未同步来源内容";
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
         {/* 两路判断 · CodexRadar 来源 */}
         <section className="glass-panel flex flex-col gap-3 p-4">
           <div className="flex items-center gap-2.5">
@@ -364,7 +366,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
         </section>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
         {/* 当前重置事件 */}
         <section className="glass-panel flex flex-col gap-3 p-4">
           <div className="flex items-center gap-2.5">
@@ -568,11 +570,36 @@ function TiboFeedView({
     { id: "related", label: "重置相关", count: relatedCount },
     { id: "none", label: "无重置信号", count: noneCount },
   ];
+  // 主从分栏由内容容器实际宽度决定（≥680 左右并排；不足时切列表/详情单面板，不上下堆叠）
+  const container = useContainerWidth<HTMLDivElement>();
+  const splitView = container.width >= TIBO_SPLIT_MIN_PX;
+  const [pane, setPane] = useState<"list" | "detail">("list");
+  // 详情滚动容器：选择新动态时回到顶部
+  const detailRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (detailRef.current) detailRef.current.scrollTop = 0;
+  }, [selected?.id]);
+  // 紧凑单面板：display:none 会重置 scrollTop，切换前保存、返回后恢复列表滚动位置
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const listScrollTop = useRef(0);
+  const goBackToList = () => {
+    setPane("list");
+    requestAnimationFrame(() => {
+      if (listScrollRef.current) listScrollRef.current.scrollTop = listScrollTop.current;
+    });
+  };
+  const pick = (id: string) => {
+    onSelect(id);
+    if (!splitView) {
+      listScrollTop.current = listScrollRef.current?.scrollTop ?? 0;
+      setPane("detail");
+    }
+  };
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* 筛选 chips：带计数 */}
-      <div className="flex flex-wrap items-center gap-2 px-1">
+    <div ref={container.ref} className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+      {/* 筛选 chips：带计数（不随列表滚走） */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-1">
         {chips.map((chip) => (
           <button
             key={chip.id}
@@ -599,10 +626,22 @@ function TiboFeedView({
         ))}
       </div>
 
-      <div className="grid min-h-[420px] max-h-[calc(100vh-264px)] grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.4fr)]">
-        {/* 动态列表：视口相关限高，超出在自身窗口内滚动，不把页面无限撑长 */}
-        <section className="glass-panel flex min-h-0 flex-col gap-2.5 p-3.5">
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5">
+      {/* 主从区域：高度由 Flex 分配，列表与详情各自独立滚动 */}
+      <div
+        className={cn(
+          "min-h-0 flex-1 gap-4",
+          splitView ? "grid grid-cols-[minmax(270px,0.85fr)_minmax(360px,1.4fr)]" : "flex",
+        )}
+      >
+        {/* 动态列表：保持挂载（compact 切换详情时用 hidden），滚动位置与选中状态不丢 */}
+        <section
+          className={cn(
+            "glass-panel flex min-h-0 min-w-0 flex-col gap-2.5 p-3.5",
+            !splitView && pane !== "list" && "hidden",
+            splitView && "min-w-0",
+          )}
+        >
+          <div ref={listScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5">
             {posts.length === 0 && (
               <p className="px-1 py-6 text-center text-xs text-q-text-muted">点「立即检查」同步 CodexRadar。</p>
             )}
@@ -610,7 +649,7 @@ function TiboFeedView({
               <button
                 key={post.id}
                 type="button"
-                onClick={() => onSelect(post.id)}
+                onClick={() => pick(post.id)}
                 aria-current={selected?.id === post.id ? "true" : undefined}
                 className={cn(
                   "w-full cursor-pointer rounded-[14px] border p-3.5 text-left transition-colors duration-150",
@@ -647,8 +686,24 @@ function TiboFeedView({
           </div>
         </section>
 
-        {/* 动态详情 */}
-        <section className="glass-panel flex min-h-0 flex-col gap-3.5 overflow-y-auto p-4">
+        {/* 动态详情：独立滚动；英文原文随详情整体滚动，不再套第三层滚动框 */}
+        <section
+          ref={detailRef}
+          className={cn(
+            "glass-panel flex min-h-0 min-w-0 flex-col gap-3.5 overflow-y-auto p-4",
+            !splitView && pane !== "detail" && "hidden",
+          )}
+        >
+          {!splitView && selected && (
+            <button
+              type="button"
+              onClick={goBackToList}
+              className="flex w-fit cursor-pointer items-center gap-1.5 self-start rounded-q-pill border border-q-border bg-white/70 px-3 py-1.5 text-[12px] font-medium text-q-text-secondary shadow-q-sm transition-colors hover:border-q-border-selected hover:text-q-primary"
+            >
+              <ArrowLeft size={13} aria-hidden />
+              返回动态列表
+            </button>
+          )}
           {selected ? (
             <>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -669,7 +724,7 @@ function TiboFeedView({
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-q-text-secondary">英文原文</p>
                 <div
-                  className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-q-control border border-q-border bg-q-surface-muted px-3.5 py-3 text-[13px] leading-relaxed text-q-text-secondary"
+                  className="whitespace-pre-wrap rounded-q-control border border-q-border bg-q-surface-muted px-3.5 py-3 text-[13px] leading-relaxed text-q-text-secondary"
                   data-selectable="true"
                 >
                   {selected.text}
@@ -699,7 +754,9 @@ function TiboFeedView({
               </div>
             </>
           ) : (
-            <p className="text-xs text-q-text-muted">从左侧选择一条动态</p>
+            <p className="text-xs text-q-text-muted">
+              {splitView ? "从左侧选择一条动态" : "从动态列表选择一条动态"}
+            </p>
           )}
         </section>
       </div>
@@ -770,8 +827,8 @@ function AiAnalysisView({
     "h-10 w-full cursor-pointer rounded-q-control border border-q-border bg-q-surface-strong px-3 text-sm text-q-text-primary outline-none focus:border-q-primary";
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
         {/* 分析配置 */}
         <section className="glass-panel flex flex-col gap-4 p-4">
           <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">分析配置</h2>
@@ -949,7 +1006,7 @@ function AiAnalysisView({
                 </div>
               </div>
             ) : null}
-            <div className="grid grid-cols-1 gap-x-8 gap-y-3 xl:grid-cols-2">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-x-8 gap-y-3">
               <ListBlock title="引用" icon={<Link2 size={13} aria-hidden />} items={analysis.citations} />
               <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={analysis.support} />
               <ListBlock title="反向依据" icon={<ThumbsDown size={13} aria-hidden />} items={analysis.against} />
