@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
 import { PlatformMark } from "./ProviderRail";
@@ -59,8 +60,9 @@ export function KeyPlatformWindow({
 
   const reorderMutation = useMutation({
     mutationFn: (ids: string[]) => reorderPlatforms(ids),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
+    onSuccess: (platforms) => {
+      // 后端返回的就是全量 summaries，直接回填缓存，避免失效重拉造成的二次渲染闪烁
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
     },
   });
 
@@ -203,23 +205,56 @@ export function KeyPlatformWindow({
       if (idx > state.index && px > center) target += 1;
       else if (idx < state.index && px < center) target -= 1;
     }
-    clearCardTransforms();
-    setDraggingId(null);
-
-    if (target === state.index) return;
-    const nextConnected = state.connectedIds.filter((id) => id !== state.id);
-    nextConnected.splice(Math.max(0, Math.min(nextConnected.length, target)), 0, state.id);
-    // 以新连接顺序回填完整排序（未接入平台保持原位）
-    let cursor = 0;
-    const nextFull = orderRef.current.map((id) =>
-      state.connectedIds.includes(id) ? nextConnected[cursor++] ?? id : id,
-    );
-    setOrder(nextFull);
-    orderRef.current = nextFull;
-    if (nextFull.join("\n") !== initialOrderRef.current.join("\n")) {
-      reorderMutation.mutate(nextFull);
-      initialOrderRef.current = nextFull;
+    let nextFull = orderRef.current;
+    if (target !== state.index) {
+      const nextConnected = state.connectedIds.filter((id) => id !== state.id);
+      nextConnected.splice(Math.max(0, Math.min(nextConnected.length, target)), 0, state.id);
+      // 以新连接顺序回填完整排序（未接入平台保持原位）
+      let cursor = 0;
+      nextFull = orderRef.current.map((id) =>
+        state.connectedIds.includes(id) ? nextConnected[cursor++] ?? id : id,
+      );
     }
+
+    // FLIP：先记录各卡当前视觉位置（加 scrollLeft 消除窗口滚动影响），再重排 DOM
+    const strip = stripRef.current;
+    const before = new Map<string, number>();
+    for (const [id, el] of cardRefs.current) {
+      before.set(id, el.getBoundingClientRect().left + (strip?.scrollLeft ?? 0));
+    }
+    flushSync(() => {
+      setDraggingId(null);
+      if (target !== state.index) setOrder(nextFull);
+    });
+    if (target !== state.index) {
+      orderRef.current = nextFull;
+      if (nextFull.join("\n") !== initialOrderRef.current.join("\n")) {
+        reorderMutation.mutate(nextFull);
+        initialOrderRef.current = nextFull;
+      }
+    }
+
+    // 重排后从旧视觉位置反向补偿，再过渡到 0：卡片连续滑入新槽位而不是闪跳
+    for (const [id, el] of cardRefs.current) {
+      const old = before.get(id);
+      if (old === undefined) continue;
+      const dx0 = Math.round(old - (el.getBoundingClientRect().left + (strip?.scrollLeft ?? 0)));
+      if (Math.abs(dx0) < 1) {
+        el.style.transform = "";
+        el.style.transition = "";
+        continue;
+      }
+      el.style.transition = "none";
+      el.style.transform = `translate(${dx0}px, 0)`;
+      el.style.zIndex = id === state.id ? "30" : "";
+    }
+    // 强制提交起始态后开启过渡
+    void strip?.offsetWidth;
+    for (const el of cardRefs.current.values()) {
+      el.style.transition = "transform 220ms cubic-bezier(0.2, 0.78, 0.24, 1)";
+      el.style.transform = "";
+    }
+    window.setTimeout(() => clearCardTransforms(), 230);
   };
 
   const onCardPointerCancel = () => {
