@@ -429,16 +429,18 @@ function RefreshSection() {
       />
       {mutation.error ? <ErrorText error={mutation.error} fallback="保存刷新间隔失败" /> : null}
       <div className="glass-panel flex flex-col gap-4 p-5">
-        <SettingRow title="刷新间隔" description="5 / 15 / 30 分钟，或关闭自动刷新">
+        <SettingRow title="刷新间隔" description="3 / 5 / 15 / 30 / 60 分钟，或关闭自动刷新">
           <select
             value={String(minutes)}
             onChange={(event) => mutation.mutate(Number(event.target.value))}
             className="h-10 min-w-[140px] rounded-q-control border border-q-border bg-q-surface px-3 text-sm"
           >
             <option value="0">关闭</option>
+            <option value="3">3 分钟</option>
             <option value="5">5 分钟</option>
             <option value="15">15 分钟</option>
             <option value="30">30 分钟</option>
+            <option value="60">60 分钟</option>
           </select>
         </SettingRow>
       </div>

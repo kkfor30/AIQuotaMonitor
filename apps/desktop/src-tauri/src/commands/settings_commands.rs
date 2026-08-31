@@ -77,8 +77,8 @@ pub fn set_refresh_interval(
     database: State<'_, Database>,
 ) -> Result<AppSettingsView, String> {
     require_label(&window, &["main"])?;
-    if !matches!(minutes, 0 | 5 | 15 | 30) {
-        return Err("刷新间隔只支持关闭、5、15 或 30 分钟".into());
+    if !matches!(minutes, 0 | 3 | 5 | 15 | 30 | 60) {
+        return Err("刷新间隔只支持关闭、3、5、15、30 或 60 分钟".into());
     }
     database.set_setting_string("refresh_interval_minutes", &minutes.to_string())?;
     let _ = app.emit("app-settings-changed", ());
