@@ -229,13 +229,9 @@ function RadarStrip({
   radarRefreshError: string | null;
 }) {
   // 三路证据各行独立：CodexRadar 来源行不受 AI 开关影响，AI 关闭时历史正文不得替换来源行。
-  const source =
-    radar.sourceAssessment?.headline ??
-    radar.notice?.headline ??
-    radar.latest?.summary ??
-    radar.latest?.translatedText ??
-    radar.latest?.text ??
-    "暂未同步来源内容";
+  // 来源行只表达 CodexRadar 站点公告；站点无公告时如实说明，不用 Tibo 帖冒充
+  //（Tibo 言论属于动态列表与 AI 分析那两路证据）。
+  const source = radar.sourceAssessment?.headline ?? radar.notice?.headline ?? "暂无站点公告（同步正常）";
   const phase = radarPhaseLabel(radar.event?.phase);
   const aiLine = radarAiLine(radar);
   const quotaLine = radarQuotaLine(radar);

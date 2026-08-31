@@ -1699,6 +1699,11 @@ html.hoverbar-window #root {
   }
 }
 
+/* 通用旋转：刷新/重试/终止按钮的图标 loading 态。 */
+.hb-spin {
+  animation: hb-spin 0.85s linear infinite;
+}
+
 @keyframes hb-spin {
   to {
     transform: rotate(360deg);

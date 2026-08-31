@@ -70,8 +70,7 @@ export function HoverbarRadarDetail({
     ? (radar?.posts ?? []).filter((post) => event.postIds.includes(post.id))
     : (radar?.posts ?? []).slice(0, 3);
 
-  const sourceText =
-    source?.headline ?? radar?.notice?.headline ?? radar?.latest?.summary ?? radar?.latest?.translatedText ?? radar?.latest?.text ?? "暂未同步来源内容";
+  const sourceText = source?.headline ?? radar?.notice?.headline ?? "暂无站点公告（同步正常）";
   const sourceSub = source?.lead ?? null;
   const sourceFreshness =
     source?.lastSyncedAt == null

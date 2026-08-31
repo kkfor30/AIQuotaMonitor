@@ -253,7 +253,6 @@ function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "pri
 
 function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined }) {
   const queryClient = useQueryClient();
-  const latest = data?.latest;
   const event = data?.event ?? null;
   const phase = radarPhaseLabel(event?.phase);
   const source = data?.sourceAssessment;
@@ -265,8 +264,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
     mutationFn: confirmRadarQuotaChange,
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
   });
-  const sourceHeadline =
-    source?.headline ?? data?.notice?.headline ?? latest?.summary ?? latest?.translatedText ?? latest?.text ?? "暂未同步来源内容";
+  const sourceHeadline = source?.headline ?? data?.notice?.headline ?? "暂无站点公告（同步正常）";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
