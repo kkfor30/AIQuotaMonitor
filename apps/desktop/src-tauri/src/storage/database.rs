@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 8;
+const CURRENT_SCHEMA_VERSION: i64 = 9;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -125,6 +125,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 8 {
         migrate_v8(&transaction)?;
+    }
+    if previous_version < 9 {
+        migrate_v9(&transaction)?;
     }
     transaction
         .commit()
@@ -497,6 +500,29 @@ fn migrate_v8(transaction: &Transaction<'_>) -> Result<(), String> {
         .map_err(|err| format!("执行 SQLite v8 迁移失败: {err}"))
 }
 
+fn migrate_v9(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            -- 归一化窗口能力 id：旧版 GPT/Codex 适配器曾把标准时长写成 quota_window_{秒}s，
+            -- 与规范 id（quota_window_5h/7d/30d）并存，导致同一窗口在界面重复展示（一个 fresh、
+            -- 一个 missing）。此处把 5 小时/7 天/30 天三种标准时长重写为规范 id，其余时长保留。
+            UPDATE capability_snapshots
+            SET capability_id = CASE capability_id
+                WHEN 'quota_window_18000s'  THEN 'quota_window_5h'
+                WHEN 'quota_window_604800s' THEN 'quota_window_7d'
+                WHEN 'quota_window_2592000s' THEN 'quota_window_30d'
+                ELSE capability_id
+            END
+            WHERE capability_id IN ('quota_window_18000s','quota_window_604800s','quota_window_2592000s');
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (9, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v9 迁移失败: {err}"))
+}
+
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {
     let now = epoch_ms();
     let transaction = connection
@@ -598,6 +624,45 @@ mod tests {
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].id, "openai-codex-local");
         assert_eq!(sources[0].platform_id, "openai");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn v9_migration_normalizes_legacy_window_ids() {
+        let path = std::env::temp_dir().join(format!(
+            "ai-quota-monitor-v9-{}-{}.db",
+            std::process::id(),
+            epoch_ms()
+        ));
+        let database = Database::initialize_at(path.clone()).expect("db");
+        let mut connection = database.connect().expect("connect");
+        let transaction = connection.transaction().expect("tx");
+        // 让 v9 迁移可重跑：清除版本标记，塞入旧版遗留 id，再执行 migrate_v9。
+        transaction
+            .execute("DELETE FROM schema_migrations WHERE version = 9", [])
+            .expect("clear v9 marker");
+        transaction
+            .execute(
+                "INSERT INTO capability_snapshots(account_id, source_id, capability_id, display_name, value_kind, primary_value, secondary_value, progress, trend_json, captured_at, generation)
+                 VALUES ('openai-codex-local','openai-codex-local','quota_window_2592000s','30 天窗口','percent','100%','已使用 0%',1.0,'[]',0,0)",
+                [],
+            )
+            .expect("insert legacy window");
+        migrate_v9(&transaction).expect("migrate v9");
+        transaction.commit().expect("commit");
+        let id: String = connection
+            .query_row(
+                "SELECT capability_id FROM capability_snapshots WHERE source_id='openai-codex-local' AND display_name='30 天窗口'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read");
+        assert_eq!(id, "quota_window_30d");
+        let version: i64 = connection
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get(0))
+            .expect("version");
+        assert_eq!(version, 9);
+        drop(connection);
         let _ = fs::remove_file(path);
     }
 }
