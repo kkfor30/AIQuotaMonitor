@@ -17,9 +17,36 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::error::Error;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::Notify;
 
 pub const FEED_URL: &str = "https://codexradar.com/";
+
+/// 检查取消控制：cancel() 使代号 +1 并唤醒等待者；
+/// 运行中的检查在 await 点（抓取/模型请求）被丢弃，不写入检查与分析记录。
+#[derive(Default)]
+pub struct RadarControl {
+    pub(crate) generation: AtomicU64,
+    notify: Notify,
+}
+
+impl RadarControl {
+    pub fn cancel(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        self.notify.notify_waiters();
+    }
+
+    /// 等待本代检查被取消；代号已变立即返回（覆盖取消发生在注册前的竞态）。
+    pub(crate) async fn wait_cancelled(&self, my_generation: u64) {
+        loop {
+            if self.generation.load(Ordering::Relaxed) != my_generation {
+                return;
+            }
+            self.notify.notified().await;
+        }
+    }
+}
 pub const PROMPT_VERSION: &str = "radar-v6";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
@@ -1453,20 +1480,70 @@ struct ModelJson {
     context_status: Option<String>,
 }
 
+/// 去掉思考型模型输出中的 <think>…</think> 段（大小写不敏感）；未闭合时丢弃其后全部内容。
+fn strip_think_blocks(text: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    let mut out = String::new();
+    let mut cursor = 0usize;
+    while let Some(rel) = lower[cursor..].find("<think>") {
+        let open = cursor + rel;
+        out.push_str(&text[cursor..open]);
+        match lower[open..].find("</think>") {
+            Some(close_rel) => cursor = open + close_rel + "</think>".len(),
+            None => return out,
+        }
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
+/// 提取第一个括号平衡的 JSON 对象：容忍围栏、前后说明文字；字符串内的括号不参与计数。
+fn extract_json_object(text: &str) -> Option<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let start = chars.iter().position(|ch| *ch == '{')?;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for index in start..chars.len() {
+        let ch = chars[index];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(chars[start..=index].iter().collect());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 fn parse_model_json(body: &str) -> Result<ModelJson, String> {
     let value: Value = serde_json::from_str(body).map_err(|_| "分析返回不是 JSON".to_string())?;
     let content = value
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
         .unwrap_or(body);
-    let trimmed = content
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
+    // 思考型模型（如 GLM 系列）会把推理包在 <think> 段或围栏/闲话里；
+    // 先剥思考段，再从剩余文本中提取第一个括号平衡的 JSON 对象。
+    let cleaned = strip_think_blocks(content);
+    let json_text =
+        extract_json_object(&cleaned).ok_or_else(|| "模型未返回可解析的分析 JSON".to_string())?;
     let parsed: Value =
-        serde_json::from_str(trimmed).map_err(|_| "模型未返回可解析的分析 JSON".to_string())?;
+        serde_json::from_str(&json_text).map_err(|_| "模型未返回可解析的分析 JSON".to_string())?;
     Ok(ModelJson {
         conclusion: parsed.get("conclusion").and_then(Value::as_str).map(str::to_string),
         analysis_basis: parsed
@@ -1607,6 +1684,20 @@ mod tests {
         assert!(urls.iter().any(|(url, _)| url == "https://open.bigmodel.cn/api/paas/v4/chat/completions"));
         let intl = glm_chat_candidates(Some("https://api.z.ai"), true);
         assert_eq!(intl[0].0, "https://api.z.ai/api/coding/paas/v4/chat/completions");
+    }
+
+    #[test]
+    fn extracts_json_from_think_fence_and_prose() {
+        let raw = "<think>让我想想 {这里有大括号的推理}</think>好的，结果如下：```json
+{\"conclusion\":\"测试\",\"event_relation\":\"same_event\"}
+``` 以上。";
+        let text = strip_think_blocks(raw);
+        let json = extract_json_object(&text).expect("should extract");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert_eq!(parsed.get("conclusion").and_then(serde_json::Value::as_str), Some("测试"));
+        // 字符串里的括号不参与配对
+        let tricky = "{\"text\":\"包含 } 的大括号\"}";
+        assert_eq!(extract_json_object(tricky).as_deref(), Some(tricky));
     }
 
     #[test]

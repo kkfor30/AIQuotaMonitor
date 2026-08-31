@@ -20,6 +20,7 @@ import {
   fetchRadarSnapshot,
   ipcErrorMessage,
   openMainWindow,
+  cancelRadarCheck,
   refreshAllPlatforms,
   refreshPlatform,
   runRadarCheck,
@@ -107,6 +108,12 @@ export function HoverbarDetailApp() {
   const radarRefreshError = radarCheck.error
     ? ipcErrorMessage(radarCheck.error, "重置信号刷新失败")
     : null;
+  const radarCheckCancelled = radarCheck.error
+    ? ipcErrorMessage(radarCheck.error, "重置信号刷新失败").includes("已终止")
+    : false;
+  const cancelRadar = useCallback(() => {
+    void cancelRadarCheck();
+  }, []);
   // 本机额度重试：只刷新 GPT 平台额度，不重跑雷达 AI。
   const quotaRetry = useMutation({
     mutationFn: () => refreshPlatform("openai"),
@@ -268,7 +275,8 @@ export function HoverbarDetailApp() {
                 onBack={() => setView("quota")}
                 onRefresh={refreshRadar}
                 refreshing={radarCheck.isPending}
-                refreshError={radarRefreshError}
+                refreshError={radarCheckCancelled ? null : radarRefreshError}
+                onCancel={cancelRadar}
                 onRetryQuota={() => quotaRetry.mutate()}
                 quotaRefreshing={quotaRetry.isPending}
               />
@@ -285,8 +293,9 @@ export function HoverbarDetailApp() {
                   radar={platform.providerId === "openai" ? radar : undefined}
                   onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
                   onRefreshRadar={platform.providerId === "openai" ? refreshRadar : undefined}
+                  onCancelRadar={platform.providerId === "openai" ? cancelRadar : undefined}
                   radarRefreshing={platform.providerId === "openai" ? radarCheck.isPending : false}
-                  radarRefreshError={platform.providerId === "openai" ? radarRefreshError : null}
+                  radarRefreshError={platform.providerId === "openai" ? (radarCheckCancelled ? null : radarRefreshError) : null}
                 />
               ))
             )}

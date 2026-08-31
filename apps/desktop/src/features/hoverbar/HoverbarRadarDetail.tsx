@@ -38,6 +38,7 @@ export function HoverbarRadarDetail({
   onRefresh,
   refreshing = false,
   refreshError = null,
+  onCancel,
   onRetryQuota,
   quotaRefreshing = false,
 }: {
@@ -46,6 +47,7 @@ export function HoverbarRadarDetail({
   onRefresh?: () => void;
   refreshing?: boolean;
   refreshError?: string | null;
+  onCancel?: () => void;
   onRetryQuota?: () => void;
   quotaRefreshing?: boolean;
 }) {
@@ -84,14 +86,13 @@ export function HoverbarRadarDetail({
           <button
             type="button"
             className="hb-radar-refresh"
-            onClick={onRefresh}
-            disabled={refreshing}
+            onClick={refreshing && onCancel ? onCancel : onRefresh}
             data-loading={refreshing || undefined}
-            aria-label={refreshing ? "正在同步重置信号" : "刷新重置信号"}
-            title={refreshing ? "正在同步…" : "刷新重置信号"}
+            aria-label={refreshing ? "终止检查" : "刷新重置信号"}
+            title={refreshing ? "终止检查" : "刷新重置信号"}
           >
-            <RefreshCw size={13} aria-hidden />
-            {refreshing ? "同步中" : "刷新"}
+            <RefreshCw size={13} aria-hidden className={refreshing ? "hb-spin" : ""} />
+            {refreshing ? "终止" : "刷新"}
           </button>
         ) : null}
         <span className="hb-radar-pill">仅为推测</span>

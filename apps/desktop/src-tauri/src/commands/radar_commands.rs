@@ -1,5 +1,6 @@
 use crate::commands::require_label;
-use crate::radar::{self, RadarSnapshot};
+use crate::radar::{self, RadarControl, RadarSnapshot};
+use std::sync::atomic::Ordering;
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
@@ -20,9 +21,12 @@ pub async fn run_radar_check(
     app: AppHandle,
     database: State<'_, Database>,
     coordinator: State<'_, RefreshCoordinator>,
+    control: State<'_, RadarControl>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
-    let snapshot = radar::run_check(
+    let my_generation = control.generation.load(Ordering::Relaxed);
+    // select 在 await 点（CodexRadar 抓取 / 模型请求）打断；被丢弃的检查不落任何记录。
+    let run = radar::run_check(
         &database,
         &coordinator,
         analyze,
@@ -30,10 +34,22 @@ pub async fn run_radar_check(
         source_id.as_deref(),
         model.as_deref(),
         user_prompt.as_deref(),
-    )
-    .await?;
-    let _ = app.emit("radar-data-changed", ());
-    Ok(snapshot)
+    );
+    tokio::select! {
+        snapshot = run => {
+            let _ = app.emit("radar-data-changed", ());
+            snapshot
+        }
+        _ = control.wait_cancelled(my_generation) => Err("已终止本次检查".into()),
+    }
+}
+
+/// 终止当前进行中的雷达检查：使代号 +1，运行中的检查在下一个 await 点被打断。
+#[tauri::command]
+pub fn cancel_radar_check(control: State<'_, RadarControl>, window: WebviewWindow) -> Result<(), String> {
+    require_label(&window, &["main", "hoverbar-detail"])?;
+    control.cancel();
+    Ok(())
 }
 
 /// 翻译单条 Tibo 动态：主窗口与悬浮详情二级页都可调用。

@@ -21,6 +21,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import {
   addRadarCustomModel,
+  cancelRadarCheck,
   confirmRadarQuotaChange,
   deleteRadarCustomModel,
   fetchRadarSnapshot,
@@ -98,6 +99,9 @@ export function GptRadarPage() {
     },
   });
 
+  const checkCancelled = checkMutation.error
+    ? ipcErrorMessage(checkMutation.error, "检查失败").includes("已终止")
+    : false;
   const posts = data?.posts ?? [];
   const visible = posts.filter((post) => {
     if (filter === "all") return true;
@@ -129,12 +133,19 @@ export function GptRadarPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => checkMutation.mutate()} disabled={checkMutation.isPending}>
-          <RefreshCw size={15} aria-hidden className={checkMutation.isPending ? "animate-spin" : ""} />
-          {checkMutation.isPending ? "检查中…" : "立即检查"}
-        </Button>
+        {checkMutation.isPending ? (
+          <Button variant="ghost" onClick={() => void cancelRadarCheck()}>
+            <RefreshCw size={15} aria-hidden className="animate-spin" />
+            终止检查
+          </Button>
+        ) : (
+          <Button onClick={() => checkMutation.mutate()}>
+            <RefreshCw size={15} aria-hidden />
+            立即检查
+          </Button>
+        )}
       </header>
-      {checkMutation.error && (
+      {checkMutation.error && !checkCancelled && (
         <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
           {ipcErrorMessage(checkMutation.error, "检查失败")}
         </p>

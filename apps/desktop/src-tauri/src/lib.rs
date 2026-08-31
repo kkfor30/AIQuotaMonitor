@@ -136,6 +136,7 @@ pub fn run() {
             commands::platform_commands::test_api_endpoints,
             commands::radar_commands::get_radar_snapshot,
             commands::radar_commands::run_radar_check,
+            commands::radar_commands::cancel_radar_check,
             commands::radar_commands::translate_radar_post,
             commands::radar_commands::save_radar_analysis_prefs,
             commands::radar_commands::test_radar_model,
@@ -166,6 +167,7 @@ pub fn run() {
             app.manage(database);
             let refresh = refresh::RefreshCoordinator::new().map_err(std::io::Error::other)?;
             app.manage(refresh);
+            app.manage(radar::RadarControl::default());
 
             let prefs = storage::load_preferences(app.handle());
             app.manage(windows::hoverbar::HoverbarRuntime::new((

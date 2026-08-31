@@ -321,6 +321,11 @@ export async function fetchRadarSnapshot(): Promise<RadarSnapshot> {
 }
 
 /** 主窗口手动确认重置卡：只追加归因 user_confirmed，不篡改快照。 */
+/** 终止进行中的雷达检查：后端在下一个网络等待点打断，不落检查与分析记录。 */
+export async function cancelRadarCheck(): Promise<void> {
+  return invoke<void>("cancel_radar_check");
+}
+
 export async function confirmRadarQuotaChange(input: {
   accountId: string;
   sourceId: string;

@@ -81,6 +81,7 @@ export function HoverbarPlatformCard({
   radar,
   onOpenRadar,
   onRefreshRadar,
+  onCancelRadar,
   radarRefreshing = false,
   radarRefreshError = null,
 }: {
@@ -88,6 +89,7 @@ export function HoverbarPlatformCard({
   radar?: RadarSnapshot;
   onOpenRadar?: () => void;
   onRefreshRadar?: () => void;
+  onCancelRadar?: () => void;
   radarRefreshing?: boolean;
   radarRefreshError?: string | null;
 }) {
@@ -154,6 +156,7 @@ export function HoverbarPlatformCard({
           radar={radar}
           onOpenRadar={onOpenRadar}
           onRefreshRadar={onRefreshRadar}
+          onCancelRadar={onCancelRadar}
           radarRefreshing={radarRefreshing}
           radarRefreshError={radarRefreshError}
         />
@@ -214,12 +217,14 @@ function RadarStrip({
   radar,
   onOpenRadar,
   onRefreshRadar,
+  onCancelRadar,
   radarRefreshing,
   radarRefreshError,
 }: {
   radar: RadarSnapshot;
   onOpenRadar: () => void;
   onRefreshRadar?: () => void;
+  onCancelRadar?: () => void;
   radarRefreshing: boolean;
   radarRefreshError: string | null;
 }) {
@@ -255,13 +260,11 @@ function RadarStrip({
             <button
               type="button"
               className="hb-radar-strip-refresh"
-              onClick={onRefreshRadar}
-              disabled={radarRefreshing}
-              data-loading={radarRefreshing || undefined}
-              aria-label={radarRefreshing ? "正在同步重置信号" : "刷新重置信号"}
-              title={radarRefreshing ? "正在同步…" : "刷新重置信号"}
+              onClick={radarRefreshing && onCancelRadar ? onCancelRadar : onRefreshRadar}
+              aria-label={radarRefreshing ? "终止检查" : "刷新重置信号"}
+              title={radarRefreshing ? "终止检查" : "刷新重置信号"}
             >
-              <RefreshCw size={13} aria-hidden />
+              <RefreshCw size={13} aria-hidden className={radarRefreshing ? "hb-spin" : ""} />
             </button>
           ) : null}
           <button type="button" className="hb-radar-strip-link" onClick={onOpenRadar}>
