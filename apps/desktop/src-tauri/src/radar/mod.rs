@@ -47,7 +47,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v7";
+pub const PROMPT_VERSION: &str = "radar-v8";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -871,6 +871,8 @@ struct DeltaInputs {
     mode: &'static str,
     delta: Vec<TiboPostView>,
     context: Vec<TiboPostView>,
+    /// 活动事件状态摘要（阶段/首信号/本机是否已观察到重置），随输入发给模型。
+    event_status: Option<String>,
 }
 
 fn delta_post_block(post: &TiboPostView) -> String {
@@ -912,11 +914,24 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
         None => Vec::new(),
     };
     let mode = if event.is_some() { "delta" } else { "rebuild" };
+    let event_status = event.as_ref().map(|record| {
+        let observed = record
+            .observed_reset_at
+            .map(|ms| format_iso(ms))
+            .unwrap_or_else(|| "none".into());
+        format!(
+            "phase={}; first_signal={}; local_quota_reset_observed={}",
+            record.phase,
+            format_iso(record.first_signal_at),
+            observed
+        )
+    });
     Ok(DeltaInputs {
         range_key: range_key.into(),
         mode,
         delta,
         context,
+        event_status,
     })
 }
 
@@ -979,6 +994,12 @@ async fn run_analysis_inner(
     prompt_hash: &str,
 ) -> Result<(), String> {
     let mut sections = Vec::new();
+    sections.push(format!("NOW (Beijing time): {}", format_iso(epoch_ms())));
+    if let Some(status) = &inputs.event_status {
+        sections.push(format!(
+            "ONGOING EVENT STATUS: {status} (phase order: watching < upcoming < landed_claimed < landed_observed)"
+        ));
+    }
     if !inputs.context.is_empty() {
         sections.push(format!(
             "EVENT CONTEXT POSTS (already associated with the ongoing event; background only):\n{}",
@@ -1081,12 +1102,7 @@ fn apply_analysis_to_event(
             };
             let mut updated = active;
             updated.latest_evidence_at = epoch_ms();
-            if let Some(conclusion) = &parsed.conclusion {
-                updated.title = conclusion.clone();
-            }
-            if let Some(basis) = &parsed.analysis_basis {
-                updated.summary = Some(basis.clone());
-            }
+            // 阶段单调向前：模型输出不得把 landed_observed 拉回早期阶段。
             match parsed.delta_effect.as_deref() {
                 Some("cancel") => {
                     updated.phase = "closed".into();
@@ -1098,7 +1114,7 @@ fn apply_analysis_to_event(
                 }
                 Some("advance_phase") => {
                     if let Some(phase) = ai_settable_phase(parsed.event_phase.as_deref()) {
-                        if phase != updated.phase {
+                        if phase_rank(phase) > phase_rank(&updated.phase) {
                             updated.phase = phase.into();
                             if phase == "landed_claimed" && updated.claimed_landed_at.is_none() {
                                 updated.claimed_landed_at = Some(epoch_ms());
@@ -1108,6 +1124,15 @@ fn apply_analysis_to_event(
                 }
                 // reinforce / no_change / weaken：保留既有阶段
                 _ => {}
+            }
+            // 已落地事件的事实标题不再被模型的对旧帖复述覆盖（避免未来时态回退）。
+            if updated.phase != "landed_observed" {
+                if let Some(conclusion) = &parsed.conclusion {
+                    updated.title = conclusion.clone();
+                }
+            }
+            if let Some(basis) = &parsed.analysis_basis {
+                updated.summary = Some(basis.clone());
             }
             database.update_radar_event(&updated)?;
             for post in &inputs.delta {
@@ -1150,6 +1175,17 @@ fn create_radar_event(
     Ok(event.id)
 }
 
+/// 事件阶段次序：单调推进用。
+fn phase_rank(phase: &str) -> u8 {
+    match phase {
+        "watching" => 0,
+        "upcoming" => 1,
+        "landed_claimed" => 2,
+        "landed_observed" => 3,
+        _ => 4,
+    }
+}
+
 /// AI 可以设置的事件阶段：landed_observed 只能来自本机额度观察，closed 只能由取消逻辑设置。
 fn ai_settable_phase(value: Option<&str>) -> Option<&'static str> {
     match value? {
@@ -1173,6 +1209,11 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "3) add the same span to the POST TIME to get the reset moment in Beijing time. ",
     "Worked example: POST TIME 2026-08-31T03:24 Beijing, post says 6pm PST: 03:24-16h=08-30 11:24 PST; span to 18:00 PST is 6h36m; 03:24+6h36m = 北京时间2026年8月31日10:00. ",
     "Never write the PST clock hour directly as a Beijing time. ",
+    "am/pm: 6pm is 18:00 and 6am is 06:00; re-check each meridiem before converting. ",
+    "The input gives NOW (current Beijing time) and ONGOING EVENT STATUS. ",
+    "If an announced reset time is already in the past, or the event status shows local_quota_reset_observed is set, the reset has already landed: ",
+    "treat the posts as historical confirmation, say 已落地 in the conclusion, never predict a future landing time that is already past, ",
+    "and prefer delta_effect no_change for that landed event. ",
     "Write converted times as 北京时间M月D日HH:MM in conclusion or analysis_basis, mark assumptions when ambiguous, and never invent a time that no post states. ",
     "conclusion must be a direct decision of at most 40 Chinese characters, without markdown, evidence, or repeated reasoning. ",
     "analysis_basis must contain the reasoning separately in 1 to 3 concise sentences and must not repeat the conclusion verbatim. ",
