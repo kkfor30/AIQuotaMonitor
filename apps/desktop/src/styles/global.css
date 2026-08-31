@@ -109,6 +109,30 @@ button {
   display: none;
 }
 
+/* 「实时」新鲜度胶囊：低饱和蓝灰，表达数据新鲜度而非主操作；两主题同构换色 */
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--q-radius-pill);
+  padding: 3px 10px;
+  background: var(--q-live-bg);
+  border: 1px solid var(--q-live-border);
+  color: var(--q-live-text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.live-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--q-radius-pill);
+  background: var(--q-live-dot);
+  flex: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -858,7 +882,8 @@ html.hoverbar-window #root {
   min-width: 0;
   overflow: hidden;
   text-align: right;
-  color: var(--q-hoverbar-primary);
+  /* 消费是金额次级数据：跟随金额 Token，不借用主操作蓝 */
+  color: var(--q-hoverbar-money-secondary);
   font-size: 12.5px;
   font-weight: 720;
   line-height: 16px;

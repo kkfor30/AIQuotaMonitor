@@ -672,6 +672,20 @@ function accountCapability(
   );
 }
 
+/** 套餐徽章归类（与平台中心/悬浮球同款语义配色）。 */
+function planKey(plan: string): "pro" | "plus" | "lite" | "free" | "other" {
+  const key = plan.trim().toLowerCase();
+  return key === "plus" || key === "pro" || key === "lite" || key === "free" ? key : "other";
+}
+
+function planOf(platform: PlatformSummaryViewModel, accountId: string): string | null {
+  return (
+    platform.capabilities.find(
+      (capability) => capability.accountId === accountId && capability.capabilityId === "plan_level",
+    )?.value.primary ?? null
+  );
+}
+
 /**
  * 一个平台的账号卡组槽位：卡头拖拽带移动整组排序，卡头箭头切换账号（到端禁用），
  * 卡内文字与数值保持可选中。
@@ -727,7 +741,9 @@ function PlatformDeckCard({
   );
 }
 
-/** 账户卡内容：卡头（logo + 名称 + 中间拖拽带 + 账号切换）→ 账号别名 → 窗口剩余额度 → 余额块 → 查看全部账户 */
+/** 账户卡内容（统一四区骨架）：① 平台头 → ② 账户行（别名+类型+套餐徽章）→ ③ 能力内容区 → ④ 固定底栏。
+ *  所有平台同构：最多两个优先窗口（5h→7d→30d→其他），超出显示「+N 个窗口」；
+ *  有余额时固定底部资金行，纯余额账号展示资金主行 + 可选消费次行；没有的能力不渲染、不补假数据。 */
 function AccountCardBody({
   platform,
   account,
@@ -747,9 +763,13 @@ function AccountCardBody({
   onSelectAccount: (accountId: string) => void;
   onOpenAll: () => void;
 }) {
+  // 最多展示两个优先窗口（5h → 7d → 30d → 其他动态窗口），其余聚合为「+N 个窗口」
   const windows = accountWindows(platform, account.accountId);
+  const priorityWindows = windows.slice(0, 2);
+  const hiddenWindowCount = windows.length - priorityWindows.length;
   const balance = accountCapability(platform, account.accountId, "balance");
   const totalSpend = accountCapability(platform, account.accountId, "total_spend");
+  const plan = planOf(platform, account.accountId);
 
   return (
     <>
@@ -798,7 +818,7 @@ function AccountCardBody({
         )}
       </div>
 
-      {/* 账号别名 + 不可变类型标签 */}
+      {/* ② 账户行：别名 + 不可变类型标签 + 套餐徽章（订阅计划不单独成卡） */}
       <div className="mt-2 flex min-w-0 items-center gap-1.5">
         <span className="min-w-0 truncate text-[12px] font-medium text-q-text-primary" title={account.displayName}>
           {account.displayName}
@@ -806,20 +826,28 @@ function AccountCardBody({
         <span className="shrink-0 rounded-q-pill bg-q-neutral-soft px-1.5 py-px text-[10px] font-medium text-q-text-secondary">
           {ACCOUNT_KIND_LABEL[account.kind]}
         </span>
+        {plan && (
+          <span className="plan-chip" data-plan={planKey(plan)} title="订阅计划">
+            {plan}
+          </span>
+        )}
       </div>
 
-      {/* 卡身：窗口剩余额度（5h/7d/30d/其他），missing 灰轨道「未获取」；纯余额账号不制造比例 */}
+      {/* ③ 能力内容区：按真实 Capability 组合，所有平台同一布局骨架 */}
       <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-        {windows.length > 0 ? (
-          windows.map((capability) => (
-            <div key={capability.capabilityId} className="flex min-w-0 flex-col gap-1">
-              <QuotaProgress capability={capability} label={windowShortLabel(capability)} />
-              <WindowFootnote capability={capability} />
-            </div>
-          ))
-        ) : balance ? (
-          <BalanceBlock balance={balance} totalSpend={totalSpend} large />
-        ) : (
+        {priorityWindows.map((capability) => (
+          <div key={capability.capabilityId} className="flex min-w-0 flex-col gap-1">
+            <QuotaProgress capability={capability} label={windowShortLabel(capability)} />
+            <WindowFootnote capability={capability} />
+          </div>
+        ))}
+        {hiddenWindowCount > 0 && (
+          <p className="text-[11px] leading-4 text-q-text-muted" title="更多窗口请在平台中心查看">
+            +{hiddenWindowCount} 个窗口
+          </p>
+        )}
+        {windows.length === 0 && balance && <BalanceBlock balance={balance} totalSpend={totalSpend} large />}
+        {windows.length === 0 && !balance && (
           <p className="flex flex-1 items-center text-[11px] leading-relaxed text-q-text-muted">
             暂无该账号的额度数据，刷新后展示。
           </p>
@@ -831,7 +859,7 @@ function AccountCardBody({
         )}
       </div>
 
-      {/* 卡底：进入平台中心额度与用量并定位该平台 */}
+      {/* ④ 固定底栏：进入平台中心额度与用量并定位该平台；所有平台同一底部基线 */}
       <button
         type="button"
         onClick={onOpenAll}
@@ -863,7 +891,8 @@ function WindowFootnote({ capability }: { capability: CapabilitySnapshotViewMode
   return null;
 }
 
-/** 余额块：有窗口账号的紧凑版 / 纯余额账号的大号版；只展示后端金额文本，不画比例。 */
+/** 资金行：有窗口账号为紧凑底行（mt-auto 固定卡底），纯余额账号为资金主行；
+ *  金额右对齐 tabular 使用 money Token，消费次级行使用 money-secondary，不画比例。 */
 function BalanceBlock({
   balance,
   totalSpend,
@@ -875,23 +904,28 @@ function BalanceBlock({
 }) {
   return (
     <div className="rounded-[10px] border border-q-border bg-q-surface-muted/60 px-3 py-2">
-      <p className="text-[11px] text-q-text-muted">{balance.displayName}</p>
-      <p
-        className={cn(
-          "truncate font-bold leading-7 tabular-nums text-[var(--q-money)]",
-          large ? "text-[24px]" : "text-[16px]",
-        )}
-        data-selectable="true"
-      >
-        {compactPercentText(balance.value.primary ?? "")}
-      </p>
-      {totalSpend && (
-        <p
-          className="truncate text-[11px] font-semibold tabular-nums text-q-text-secondary"
+      <div className="flex min-w-0 items-baseline justify-between gap-2">
+        <span className="min-w-0 truncate text-[11px] text-q-text-muted">{balance.displayName}</span>
+        <span
+          className={cn(
+            "min-w-0 truncate text-right font-bold tabular-nums text-[var(--q-money)]",
+            large ? "text-[24px] leading-8" : "text-[16px] leading-6",
+          )}
           data-selectable="true"
         >
-          {totalSpend.displayName} {compactPercentText(totalSpend.value.primary ?? "")}
-        </p>
+          {compactPercentText(balance.value.primary ?? "")}
+        </span>
+      </div>
+      {totalSpend && (
+        <div className="mt-0.5 flex min-w-0 items-baseline justify-between gap-2">
+          <span className="min-w-0 truncate text-[11px] text-q-text-muted">{totalSpend.displayName}</span>
+          <span
+            className="min-w-0 truncate text-right text-[11px] font-semibold tabular-nums text-[var(--q-money-secondary)]"
+            data-selectable="true"
+          >
+            {compactPercentText(totalSpend.value.primary ?? "")}
+          </span>
+        </div>
       )}
     </div>
   );

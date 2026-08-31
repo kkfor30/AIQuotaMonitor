@@ -1,4 +1,5 @@
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ChartSpline } from "lucide-react";
 import { FreshnessTag } from "@/components/ui/StatusBadge";
 import { formatTime } from "@/lib/format";
 import type { CapabilitySnapshotViewModel } from "@/lib/types";
@@ -9,8 +10,8 @@ function formatTrendMoney(value: number): string {
 }
 
 /**
- * 近 7 日消费趋势：只绘制真实 usage_trend 消费序列，不插值、不补零。
- * 蓝色渐变面积图与设计稿一致；无点时显示空状态；stale 状态显式标注。
+ * 趋势模块（近 7 日消费趋势）：只绘制真实 usage_trend 消费序列，不插值、不补零；
+ * 无点时显示空状态，不造曲线；stale 状态显式标注。图标与能力模块体系统一（ChartSpline）。
  */
 export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewModel }) {
   const data = capability.trend.map((point) => ({
@@ -20,17 +21,23 @@ export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewM
 
   return (
     <div className="glass-panel flex flex-col gap-3 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-[13px] font-medium text-q-text-secondary">{capability.displayName}</p>
-          {capability.freshness === "stale" && capability.lastGoodAt !== null && (
-            <p className="mt-0.5 text-[11px] text-q-warning">
-              缓存数据 · 上次成功 {formatTime(capability.lastGoodAt)}
-            </p>
-          )}
-        </div>
+      <div className="flex items-center gap-2.5">
+        <span
+          aria-hidden
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] border border-q-border/70 bg-q-surface-muted text-q-text-secondary"
+        >
+          <ChartSpline size={15} />
+        </span>
+        <h3 className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-tight text-q-text-primary">
+          {capability.displayName}
+        </h3>
         <FreshnessTag freshness={capability.freshness} />
       </div>
+      {capability.freshness === "stale" && capability.lastGoodAt !== null && (
+        <p className="-mt-1.5 text-[11px] text-q-warning">
+          缓存数据 · 上次成功 {formatTime(capability.lastGoodAt)}
+        </p>
+      )}
 
       {data.length === 0 ? (
         <div

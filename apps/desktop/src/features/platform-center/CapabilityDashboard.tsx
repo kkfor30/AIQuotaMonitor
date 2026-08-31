@@ -1,0 +1,576 @@
+/**
+ * 通用能力仪表盘（CapabilityDashboard）。
+ * 平台中心「额度与用量」按 Capability 类型组合渲染，不按 providerId 选择布局：
+ * 新平台只要返回同类能力，前端就自动组合出同构页面。模块清单：
+ * - WindowQuotaSection 窗口额度（quota_window_*）：额度卡 auto-fit，剩余/已使用/重置/采集 + 进度条；
+ * - FinanceSection 资金账户（balance / today_spend / month_spend / total_spend）：连续资金面板，
+ *   余额主值 + 消费次级行，金额右对齐 tabular（money / money-secondary，不套额度三段色）；
+ * - SubscriptionSection 订阅信息（credits）：与余额分开，仅展示接口实际返回值；
+ * - ModelUsageSection 模型用量（model_usage_*）：紧凑模型行列表；
+ * - EfficiencySection 调用效率（cache_hit_rate / *_cache_hit_rate / request_count / prompt_tokens /
+ *   response_tokens / cache_hit_tokens / cache_miss_tokens）：命中率主值固定主蓝进度条（非额度语义），
+ *   分模型命中率行 + 请求数/输入输出/缓存 Token 紧凑统计矩阵；
+ * - TrendSection 趋势（usage_trend 或 value.kind === "trend"）：真实序列，无点显示空状态；
+ * - 未知能力回退：Boxes 图标的紧凑行，不丢弃真实数据。
+ * plan_level 不进入仪表盘：由账号头渲染为套餐徽章。missing 一律「未获取」不补零，
+ * stale 保留真实值并标注最后成功时间。布局全部 auto-fit，随容器宽度响应，无平台专属断点。
+ */
+import {
+  Activity,
+  BadgeDollarSign,
+  Boxes,
+  CalendarClock,
+  CalendarDays,
+  CalendarRange,
+  CircleDollarSign,
+  Clock3,
+  Coins,
+  Cpu,
+  DatabaseZap,
+  Hourglass,
+  Landmark,
+  ReceiptText,
+  TimerReset,
+  WalletCards,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { QuotaProgress, capabilityRemainingPercent, quotaTone, quotaToneColor } from "@/components/ui/QuotaProgress";
+import { FreshnessTag } from "@/components/ui/StatusBadge";
+import { compactPercentText, formatTime } from "@/lib/format";
+import type { CapabilitySnapshotViewModel } from "@/lib/types";
+import { UsageTrend } from "./UsageTrend";
+
+/* ————————————————— 能力类型体系（capabilityId 语义归类，与平台名无关） ————————————————— */
+
+type CapabilityGroup = "window" | "finance" | "credits" | "model_usage" | "efficiency" | "trend" | "other";
+
+const FINANCE_MAIN_ID = "balance";
+const FINANCE_SECONDARY_META: Array<{ id: string; icon: LucideIcon }> = [
+  { id: "today_spend", icon: ReceiptText },
+  { id: "month_spend", icon: CalendarClock },
+  { id: "total_spend", icon: Landmark },
+];
+/** 紧凑统计矩阵（渲染在调用效率模块内）。 */
+const EFFICIENCY_STAT_META: Array<{ id: string; icon: LucideIcon }> = [
+  { id: "request_count", icon: Activity },
+  { id: "prompt_tokens", icon: Activity },
+  { id: "response_tokens", icon: Activity },
+  { id: "cache_hit_tokens", icon: Activity },
+  { id: "cache_miss_tokens", icon: Activity },
+];
+
+function classifyCapability(capability: CapabilitySnapshotViewModel): CapabilityGroup {
+  const id = capability.capabilityId;
+  if (id === "plan_level") return "other";
+  if (id.startsWith("quota_window_")) return "window";
+  if (id === "cache_hit_rate" || id.endsWith("_cache_hit_rate")) return "efficiency";
+  // 请求数与四类 Token 计数归入调用效率模块的统计矩阵（模块渲染规则）
+  if (EFFICIENCY_STAT_META.some((meta) => meta.id === id)) return "efficiency";
+  if (id.startsWith("model_usage_")) return "model_usage";
+  if (id === FINANCE_MAIN_ID || FINANCE_SECONDARY_META.some((meta) => meta.id === id)) return "finance";
+  if (id === "credits") return "credits";
+  if (id === "usage_trend" || capability.value.kind === "trend") return "trend";
+  return "other";
+}
+
+function groupCapabilities(capabilities: CapabilitySnapshotViewModel[]): Record<CapabilityGroup, CapabilitySnapshotViewModel[]> {
+  const groups: Record<CapabilityGroup, CapabilitySnapshotViewModel[]> = {
+    window: [],
+    finance: [],
+    credits: [],
+    model_usage: [],
+    efficiency: [],
+    trend: [],
+    other: [],
+  };
+  for (const capability of capabilities) {
+    groups[classifyCapability(capability)].push(capability);
+  }
+  return groups;
+}
+
+/* ————————————————— 通用小件 ————————————————— */
+
+function findCapability(capabilities: CapabilitySnapshotViewModel[], id: string): CapabilitySnapshotViewModel | null {
+  return capabilities.find((capability) => capability.capabilityId === id) ?? null;
+}
+
+/** 没有真实值（能力缺失 / missing / 主值为空）时不补零。 */
+function isMissing(capability: CapabilitySnapshotViewModel | null): boolean {
+  return capability === null || capability.freshness === "missing" || capability.value.primary === null;
+}
+
+function primaryText(capability: CapabilitySnapshotViewModel): string {
+  return compactPercentText(capability.value.primary ?? "");
+}
+
+/** 资金/效率项时间线：stale 标注缓存与最后成功时间，fresh 展示采集时间，missing 不展示。 */
+function freshnessLine(capability: CapabilitySnapshotViewModel | null): { text: string; stale: boolean } | null {
+  if (capability === null || capability.freshness === "missing" || capability.value.primary === null) {
+    return null;
+  }
+  if (capability.freshness === "stale") {
+    const at = capability.lastGoodAt ?? capability.capturedAt;
+    return { text: `缓存 · 上次成功 ${formatTime(at)}`, stale: true };
+  }
+  return capability.capturedAt !== null ? { text: formatTime(capability.capturedAt), stale: false } : null;
+}
+
+/** 模块容器：图标软底座 + 标题 + 右侧徽章插槽，两主题由 Token 驱动。 */
+function ModulePanel({
+  icon: Icon,
+  title,
+  aside,
+  children,
+  className,
+}: {
+  icon: LucideIcon;
+  title: string;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`glass-panel flex min-w-0 flex-col gap-3 p-4 ${className ?? ""}`}>
+      <div className="flex items-center gap-2.5">
+        <span
+          aria-hidden
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] border border-q-border/70 bg-q-surface-muted text-q-text-secondary"
+        >
+          <Icon size={15} />
+        </span>
+        <h3 className="min-w-0 text-[14px] font-semibold tracking-tight text-q-text-primary">{title}</h3>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** 窗口类型图标：5 小时 → 7 天 → 30 天 → 其他动态窗口。 */
+function windowIcon(capabilityId: string): LucideIcon {
+  if (capabilityId === "quota_window_5h") return Clock3;
+  if (capabilityId === "quota_window_7d") return CalendarDays;
+  if (capabilityId === "quota_window_30d") return CalendarRange;
+  return Hourglass;
+}
+
+/* ————————————————— 窗口额度模块 ————————————————— */
+
+function WindowQuotaCard({ capability }: { capability: CapabilitySnapshotViewModel }) {
+  const Icon = windowIcon(capability.capabilityId);
+  const missing = isMissing(capability);
+  const remaining = missing ? null : capabilityRemainingPercent(capability);
+  const tone = quotaTone(remaining);
+  const color = quotaToneColor(tone);
+  const line = freshnessLine(capability);
+  return (
+    <div className="flex min-w-0 flex-col gap-2 rounded-[12px] border border-q-border bg-q-surface-muted/60 p-3.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon size={14} aria-hidden className="shrink-0 text-q-text-muted" />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-q-text-secondary">
+          {capability.displayName}
+        </span>
+        <FreshnessTag freshness={capability.freshness} />
+      </div>
+      <p
+        className="text-[26px] font-bold leading-8 tracking-tight tabular-nums"
+        style={missing ? { color: "var(--q-text-muted)", fontWeight: 400 } : { color: color ?? "var(--q-text-primary)" }}
+        data-selectable="true"
+      >
+        {missing ? "未获取" : primaryText(capability)}
+      </p>
+      <QuotaProgress capability={capability} />
+      {capability.value.secondary && !missing && (
+        <p className="truncate text-[11px] leading-4 text-q-text-muted" title={capability.value.secondary}>
+          {capability.value.secondary}
+        </p>
+      )}
+      {line && (
+        <p className="text-[11px] leading-4" style={{ color: line.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}>
+          {line.text}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function WindowQuotaSection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  return (
+    <ModulePanel icon={TimerReset} title="窗口额度">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,250px),1fr))] gap-4">
+        {capabilities.map((capability) => (
+          <WindowQuotaCard key={`${capability.sourceId}-${capability.capabilityId}`} capability={capability} />
+        ))}
+      </div>
+    </ModulePanel>
+  );
+}
+
+/* ————————————————— 资金账户模块 ————————————————— */
+
+function FinanceSection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  const balance = findCapability(capabilities, FINANCE_MAIN_ID);
+  const balanceMissing = isMissing(balance);
+  const balanceLine = freshnessLine(balance);
+  const secondary = FINANCE_SECONDARY_META.map(({ id, icon }) => {
+    const capability = findCapability(capabilities, id);
+    return capability ? { capability, icon } : null;
+  }).filter((item): item is { capability: CapabilitySnapshotViewModel; icon: LucideIcon } => item !== null);
+  return (
+    <ModulePanel
+      icon={WalletCards}
+      title="资金账户"
+      aside={balance && balance.freshness !== "fresh" ? <FreshnessTag freshness={balance.freshness} /> : null}
+    >
+      {/* 余额主值：冰霜白蓝 money Token，右对齐 tabular，字重约 650，无渐变无发光 */}
+      <div className="flex min-w-0 flex-col gap-1 border-t border-q-border pt-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <CircleDollarSign size={14} aria-hidden className="shrink-0 text-q-text-muted" />
+          <span className="min-w-0 flex-1 truncate text-xs text-q-text-muted">{balance?.displayName ?? "余额"}</span>
+        </div>
+        <div className="flex min-w-0 items-baseline justify-between gap-3">
+          <span
+            className="min-w-0 truncate text-[28px] leading-9 tracking-tight text-[var(--q-money)]"
+            style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
+            data-selectable="true"
+            data-missing={balanceMissing || undefined}
+          >
+            {balanceMissing ? "未获取" : balance ? primaryText(balance) : ""}
+          </span>
+        </div>
+        {balanceLine && (
+          <p
+            className="text-[11px]"
+            style={{ color: balanceLine.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}
+          >
+            {balanceLine.text}
+          </p>
+        )}
+      </div>
+
+      {/* 消费次级行：只渲染真实存在的字段，次级 money-secondary */}
+      {secondary.length > 0 && (
+        <div className="flex min-w-0 flex-col border-t border-q-border pt-2">
+          {secondary.map(({ capability, icon: Icon }, index) => {
+            const missing = isMissing(capability);
+            const line = freshnessLine(capability);
+            return (
+              <div
+                key={capability.capabilityId}
+                className={`flex min-w-0 flex-col gap-0.5 py-2 ${index > 0 ? "border-t border-q-border/60" : ""}`}
+              >
+                <div className="flex min-w-0 items-baseline justify-between gap-3">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Icon size={13} aria-hidden className="shrink-0 text-q-text-muted" />
+                    <span className="truncate text-xs text-q-text-muted">{capability.displayName}</span>
+                    {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
+                  </span>
+                  <span
+                    className="min-w-0 shrink-0 truncate text-right text-[16px] leading-6 text-[var(--q-money-secondary)]"
+                    style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
+                    data-selectable="true"
+                    data-missing={missing || undefined}
+                  >
+                    {missing ? "未获取" : primaryText(capability)}
+                  </span>
+                </div>
+                {line && (
+                  <p
+                    className="text-right text-[10.5px]"
+                    style={{ color: line.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}
+                  >
+                    {line.text}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </ModulePanel>
+  );
+}
+
+/* ————————————————— 订阅信息模块（Credits） ————————————————— */
+
+function SubscriptionSection({ capability }: { capability: CapabilitySnapshotViewModel }) {
+  const missing = isMissing(capability);
+  const line = freshnessLine(capability);
+  return (
+    <ModulePanel icon={BadgeDollarSign} title="订阅信息">
+      <div className="flex min-w-0 flex-col gap-1 border-t border-q-border pt-3">
+        <div className="flex min-w-0 items-baseline justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2">
+            <Coins size={14} aria-hidden className="shrink-0 text-q-text-muted" />
+            <span className="truncate text-xs text-q-text-muted">{capability.displayName}</span>
+            {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
+          </span>
+          <span
+            className="min-w-0 shrink-0 truncate text-right text-[16px] leading-6 text-q-text-primary"
+            style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
+            data-selectable="true"
+            data-missing={missing || undefined}
+          >
+            {missing ? "未获取" : primaryText(capability)}
+          </span>
+        </div>
+        <p className="truncate text-[11px] text-q-text-muted" title={capability.value.secondary ?? undefined}>
+          {capability.value.secondary ?? "仅展示接口实际返回值"}
+        </p>
+        {line && (
+          <p className="text-[11px]" style={{ color: line.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}>
+            {line.text}
+          </p>
+        )}
+      </div>
+    </ModulePanel>
+  );
+}
+
+/* ————————————————— 模型用量模块 ————————————————— */
+
+function ModelUsageSection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  return (
+    <ModulePanel icon={Cpu} title="模型用量">
+      <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
+        {capabilities.map((capability) => {
+          const missing = isMissing(capability);
+          const line = freshnessLine(capability);
+          return (
+            <div
+              key={`${capability.sourceId}-${capability.capabilityId}`}
+              className="flex min-w-0 flex-col gap-0.5 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
+            >
+              <div className="flex min-w-0 items-baseline justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Cpu size={13} aria-hidden className="shrink-0 text-q-text-muted" />
+                  <span className="truncate text-[13px] font-medium text-q-text-primary">{capability.displayName}</span>
+                  {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
+                </span>
+                <span
+                  className="min-w-0 shrink-0 truncate text-right text-[16px] leading-6 text-q-text-primary"
+                  style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
+                  data-selectable="true"
+                  data-missing={missing || undefined}
+                >
+                  {missing ? "未获取" : primaryText(capability)}
+                </span>
+              </div>
+              {capability.value.secondary && (
+                <p className="truncate text-[11px] text-q-text-muted" title={capability.value.secondary}>
+                  {capability.value.secondary}
+                </p>
+              )}
+              {line && (
+                <p className="text-[10.5px]" style={{ color: line.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}>
+                  {line.text}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </ModulePanel>
+  );
+}
+
+/* ————————————————— 调用效率模块 ————————————————— */
+
+/** 固定主蓝细进度条：缓存命中率是非额度语义，不套剩余额度三段色阶。 */
+function RateBar({ percent, label }: { percent: number | null; label: string }) {
+  return (
+    <div
+      className="h-1.5 min-w-0 overflow-hidden rounded-full bg-[var(--q-quota-track)]"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent === null ? undefined : Math.round(percent)}
+      aria-label={label}
+    >
+      <div
+        className="h-full rounded-full transition-[width] duration-300"
+        style={{ width: `${percent === null ? 0 : Math.min(100, Math.max(0, percent))}%`, background: "var(--q-primary)" }}
+      />
+    </div>
+  );
+}
+
+function EfficiencySection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  const rate = findCapability(capabilities, "cache_hit_rate");
+  const rateMissing = isMissing(rate);
+  const rateLine = freshnessLine(rate);
+  const modelRates = capabilities.filter(
+    (capability) => capability.capabilityId !== "cache_hit_rate" && capability.capabilityId.endsWith("_cache_hit_rate"),
+  );
+  const stats = EFFICIENCY_STAT_META.map(({ id, icon }) => {
+    const capability = findCapability(capabilities, id);
+    return capability ? { capability, icon } : null;
+  }).filter((item): item is { capability: CapabilitySnapshotViewModel; icon: LucideIcon } => item !== null);
+  const staleAt = capabilities.reduce<number | null>((latest, capability) => {
+    if (capability.freshness !== "stale") return latest;
+    const at = capability.lastGoodAt ?? capability.capturedAt;
+    return at !== null && at !== undefined && (latest === null || at > latest) ? at : latest;
+  }, null);
+  return (
+    <ModulePanel icon={DatabaseZap} title="调用效率">
+      {/* 全局命中率主值 */}
+      <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
+        <div className="flex min-w-0 items-baseline justify-between gap-3">
+          <span className="truncate text-xs text-q-text-muted">{rate?.displayName ?? "缓存命中率"}（全部模型）</span>
+          <span
+            className="min-w-0 shrink-0 text-[22px] leading-7 tracking-tight text-q-text-primary"
+            style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
+            data-selectable="true"
+            data-missing={rateMissing || undefined}
+          >
+            {rateMissing ? "未获取" : rate ? primaryText(rate) : ""}
+          </span>
+        </div>
+        <RateBar
+          percent={rate && !rateMissing && rate.value.progress !== null ? rate.value.progress * 100 : null}
+          label="缓存命中率"
+        />
+        {rate?.value.secondary && !rateMissing && (
+          <p className="truncate text-[11px] text-q-text-muted" title={rate.value.secondary}>
+            {rate.value.secondary}
+          </p>
+        )}
+        {rateLine?.stale && <p className="text-[11px] text-q-warning">{rateLine.text}</p>}
+      </div>
+
+      {/* 分模型命中率行 */}
+      {modelRates.length > 0 && (
+        <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
+          {modelRates.map((capability) => {
+            const missing = capability.freshness === "missing";
+            const primary = capability.value.primary;
+            const secondary = capability.value.secondary;
+            // 未调用：后端 primary/secondary 均为空；不补零、不显示空进度条
+            const uncalled = !missing && primary === null && secondary === null;
+            const percent = primary !== null && primary !== "" ? capabilityRemainingPercent(capability) : null;
+            return (
+              <div
+                key={`${capability.sourceId}-${capability.capabilityId}`}
+                className="flex min-w-0 flex-col gap-1.5 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <Activity size={13} aria-hidden className="shrink-0 text-q-text-muted" />
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-q-text-primary">
+                    {capability.displayName}
+                  </span>
+                  <span
+                    className="shrink-0 text-[14px] tabular-nums text-q-text-primary"
+                    style={{ fontWeight: 650 }}
+                    data-selectable="true"
+                    data-missing={(missing || primary === null) || undefined}
+                  >
+                    {missing ? "未获取" : uncalled ? "未调用" : primaryText(capability)}
+                  </span>
+                </div>
+                {percent !== null && <RateBar percent={percent} label={`${capability.displayName}`} />}
+                {secondary && (
+                  <p className="truncate text-[10.5px] text-q-text-muted" title={secondary} data-selectable="true">
+                    {secondary}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 紧凑统计矩阵：请求数 / 输入输出 / 缓存命中未命中 Token，只展示真实存在的字段 */}
+      {stats.length > 0 && (
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,140px),1fr))] gap-2 border-t border-q-border pt-3">
+          {stats.map(({ capability, icon: Icon }) => {
+            const missing = isMissing(capability);
+            return (
+              <div
+                key={`${capability.sourceId}-${capability.capabilityId}`}
+                className="flex min-w-0 flex-col gap-0.5 rounded-[10px] bg-q-surface-muted px-2.5 py-2"
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <Icon size={12} aria-hidden className="shrink-0 text-q-text-muted" />
+                  <span className="truncate text-[11px] text-q-text-muted">{capability.displayName}</span>
+                </span>
+                <span
+                  className="truncate text-right text-[14px] leading-5 tabular-nums text-q-text-primary"
+                  style={{ fontWeight: 650 }}
+                  data-selectable="true"
+                  data-missing={missing || undefined}
+                >
+                  {missing ? "未获取" : primaryText(capability)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {staleAt ? <p className="text-[11px] text-q-warning">缓存 · 上次成功 {formatTime(staleAt)}</p> : null}
+    </ModulePanel>
+  );
+}
+
+/* ————————————————— 未知能力回退 ————————————————— */
+
+function OtherCapabilitySection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  return (
+    <ModulePanel icon={Boxes} title="其他数据">
+      <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
+        {capabilities.map((capability) => {
+          const missing = isMissing(capability);
+          return (
+            <div key={`${capability.sourceId}-${capability.capabilityId}`} className="flex min-w-0 items-baseline justify-between gap-3">
+              <span className="flex min-w-0 items-center gap-2">
+                <Boxes size={13} aria-hidden className="shrink-0 text-q-text-muted" />
+                <span className="truncate text-xs text-q-text-muted">{capability.displayName}</span>
+                {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
+              </span>
+              <span
+                className="min-w-0 shrink-0 truncate text-right text-[13px] tabular-nums text-q-text-primary"
+                data-selectable="true"
+                data-missing={missing || undefined}
+              >
+                {missing ? "未获取" : primaryText(capability)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </ModulePanel>
+  );
+}
+
+/* ————————————————— 组合入口 ————————————————— */
+
+/**
+ * 账号能力组合渲染：窗口额度 → 资金账户 → 订阅信息 → 模型用量 → 调用效率 → 趋势 → 其他。
+ * 只渲染账号真实拥有的模块；没有的能力不渲染、不补空卡。
+ */
+export function CapabilityDashboard({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  const groups = groupCapabilities(capabilities);
+  const credits = groups.credits[0] ?? null;
+  const trend = groups.trend[0] ?? null;
+  if (capabilities.length === 0) {
+    return <p className="px-1 text-xs text-q-text-muted">该账号暂无额度数据。</p>;
+  }
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      {groups.window.length > 0 && <WindowQuotaSection capabilities={groups.window} />}
+
+      {(groups.finance.length > 0 || groups.model_usage.length > 0 || groups.efficiency.length > 0) && (
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
+          {groups.finance.length > 0 && <FinanceSection capabilities={groups.finance} />}
+          {groups.model_usage.length > 0 && <ModelUsageSection capabilities={groups.model_usage} />}
+          {groups.efficiency.length > 0 && <EfficiencySection capabilities={groups.efficiency} />}
+        </div>
+      )}
+
+      {credits && <SubscriptionSection capability={credits} />}
+      {trend && <UsageTrend capability={trend} />}
+      {groups.other.length > 0 && <OtherCapabilitySection capabilities={groups.other} />}
+    </div>
+  );
+}

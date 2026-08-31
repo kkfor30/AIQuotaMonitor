@@ -192,7 +192,7 @@ export function GptRadarPage() {
             className={cn(
               "cursor-pointer rounded-q-pill px-4 py-1.5 text-[13px] font-medium transition-colors duration-150",
               "text-q-text-secondary hover:text-q-text-primary",
-              "data-[active=true]:bg-white data-[active=true]:text-q-primary data-[active=true]:shadow-q-sm",
+              "data-[active=true]:bg-[var(--q-chip-active-bg)] data-[active=true]:text-[var(--q-chip-active-text)] data-[active=true]:shadow-q-sm",
             )}
           >
             {item.label}
@@ -656,17 +656,19 @@ function TiboFeedView({
             onClick={() => onFilter(chip.id)}
             aria-pressed={filter === chip.id}
             className={cn(
-              "inline-flex cursor-pointer items-center gap-1.5 rounded-q-pill px-3 py-1.5 text-[12px] font-medium transition-colors duration-150",
+              "inline-flex cursor-pointer items-center gap-1.5 rounded-q-pill border px-3 py-1.5 text-[12px] font-medium transition-colors duration-150",
               filter === chip.id
-                ? "bg-q-primary text-white shadow-[0_4px_12px_rgba(10,102,255,0.28)]"
-                : "border border-q-border bg-white/70 text-q-text-secondary shadow-q-sm hover:border-q-border-selected hover:text-q-primary",
+                ? "border-[var(--q-chip-active-border)] bg-[var(--q-chip-active-bg)] text-[var(--q-chip-active-text)]"
+                : "border-[var(--q-chip-border)] bg-[var(--q-chip-bg)] text-[var(--q-chip-text)] hover:border-[var(--q-chip-active-border)] hover:text-[var(--q-chip-active-text)]",
             )}
           >
             {chip.label}
             <span
               className={cn(
                 "rounded-full px-1.5 text-[10px] tabular-nums",
-                filter === chip.id ? "bg-white/25" : "bg-q-primary-soft text-q-primary",
+                filter === chip.id
+                  ? "bg-[var(--q-chip-count-bg)] text-[var(--q-chip-count-text)]"
+                  : "bg-[var(--q-live-bg)] text-[var(--q-chip-text)]",
               )}
             >
               {chip.count}
@@ -747,7 +749,7 @@ function TiboFeedView({
             <button
               type="button"
               onClick={goBackToList}
-              className="flex w-fit cursor-pointer items-center gap-1.5 self-start rounded-q-pill border border-q-border bg-white/70 px-3 py-1.5 text-[12px] font-medium text-q-text-secondary shadow-q-sm transition-colors hover:border-q-border-selected hover:text-q-primary"
+              className="flex w-fit cursor-pointer items-center gap-1.5 self-start rounded-q-pill border border-[var(--q-chip-border)] bg-[var(--q-chip-bg)] px-3 py-1.5 text-[12px] font-medium text-[var(--q-chip-text)] transition-colors hover:border-[var(--q-chip-active-border)] hover:text-[var(--q-chip-active-text)]"
             >
               <ArrowLeft size={13} aria-hidden />
               返回动态列表
@@ -1424,11 +1426,12 @@ const QUICK_RANGES: Array<{ id: string; label: string }> = [
   { id: "7d", label: "过去 7 天" },
 ];
 
+/** 时间范围快捷档与筛选 Chip 的统一样式：两主题各由 Chip Token 驱动，不再写死白底。 */
 function rangeChipClass(active: boolean): string {
   return cn(
-    "inline-flex cursor-pointer items-center rounded-q-pill px-3 py-1.5 text-[12px] font-medium transition-colors duration-150",
+    "inline-flex cursor-pointer items-center rounded-q-pill border px-3 py-1.5 text-[12px] font-medium transition-colors duration-150",
     active
-      ? "bg-q-primary text-white shadow-[0_4px_12px_rgba(10,102,255,0.28)]"
-      : "border border-q-border bg-white/70 text-q-text-secondary shadow-q-sm hover:border-q-border-selected hover:text-q-primary",
+      ? "border-[var(--q-chip-active-border)] bg-[var(--q-chip-active-bg)] text-[var(--q-chip-active-text)]"
+      : "border-[var(--q-chip-border)] bg-[var(--q-chip-bg)] text-[var(--q-chip-text)] hover:border-[var(--q-chip-active-border)] hover:text-[var(--q-chip-active-text)]",
   );
 }

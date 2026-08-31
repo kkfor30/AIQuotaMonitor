@@ -1,10 +1,12 @@
 /*
  * AIQuotaMonitor 设计 Token — Aurora Acrylic V2（2026-08-31 已认可稿）
+ * 深色主题 2026-09-01 统一为「午夜石墨蓝」：#091520 石墨蓝基底，卡片三级明度，
+ * 金额冰霜白蓝 #D7E5EF，主蓝 #5B9CFF；禁止纯黑、大面积青绿、霓虹与金额发光。
  * 视觉方向：
  * - 浅色：低饱和冰蓝银白渐变画布（#EAF2F7 → #F7FAFC）+ 珠光冰晶亚克力卡片；
  *   主文字深墨蓝 #142536；金额清晰深蓝，禁止黄色/暖金。
- * - 深色：深蓝灰亚克力基底（#0C2B3A 参考系），卡片略亮深蓝灰层次、低对比细边；
- *   主文字近白，辅助文字浅蓝灰 #B8CBD6；禁止纯黑、墨绿、高饱和青。
+ * - 深色：午夜石墨蓝亚克力基底，卡片略亮深蓝层次、低对比细边；
+ *   主文字近白，辅助文字浅蓝灰 #CBD7E1；禁止纯黑、墨绿、高饱和青。
  * - 额度三段色（#00A67D/#0A66FF/#E5484D）主题间保持同一组色值；
  *   状态同时以文字/图标辅助表达，禁止仅靠颜色传达信息。
  */
@@ -42,8 +44,27 @@
   --q-primary-soft: rgba(10, 102, 255, 0.09);
   --q-primary-softer: rgba(10, 102, 255, 0.05);
 
-  /* 金额：清晰深蓝（禁止黄色/暖金） */
+  /* 金额：清晰深蓝（禁止黄色/暖金）；次级消费用深蓝灰，不与主值争抢 */
   --q-money: #0a66ff;
+  --q-money-secondary: #3d5a74;
+
+  /* 「实时」新鲜度：低饱和蓝灰胶囊（新鲜度语义，不是主操作） */
+  --q-live-bg: rgba(100, 116, 139, 0.08);
+  --q-live-border: rgba(100, 116, 139, 0.16);
+  --q-live-text: #52708a;
+  --q-live-dot: #7b93a7;
+
+  /* 主题化控件（Tab / 筛选 Chip / 时间范围按钮）：两主题各有一套可读配色 */
+  --q-chip-bg: rgba(255, 255, 255, 0.85);
+  --q-chip-text: #3a4c63;
+  --q-chip-border: rgba(96, 130, 160, 0.22);
+  --q-chip-active-bg: rgba(10, 102, 255, 0.1);
+  --q-chip-active-border: rgba(10, 102, 255, 0.38);
+  --q-chip-active-text: #0a66ff;
+  --q-chip-count-bg: rgba(10, 102, 255, 0.1);
+  --q-chip-count-text: #0a66ff;
+  --q-chip-disabled-bg: rgba(100, 116, 139, 0.08);
+  --q-chip-disabled-text: #8b9bb0;
 
   /* 状态：成功（绿） */
   --q-success: #009c76;
@@ -92,6 +113,7 @@
   --q-hoverbar-muted: #45637a;
   --q-hoverbar-muted-strong: #1e4157;
   --q-hoverbar-money: #0a66ff;
+  --q-hoverbar-money-secondary: #1467d6;
   --q-hoverbar-primary: #1467d6;
   --q-hoverbar-success: #07875d;
   --q-hoverbar-warning: #a46318;
@@ -128,28 +150,43 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --q-bg: #0c2b3a;
+    /* 午夜石墨蓝：背景 → 一级卡 → 二级卡至少三级明度，不用纯黑与大面积青绿 */
+    --q-bg: #091520;
     --q-canvas:
-      radial-gradient(1100px 520px at 6% -8%, rgba(64, 140, 190, 0.1), transparent 55%),
-      radial-gradient(900px 620px at 104% 112%, rgba(0, 166, 125, 0.05), transparent 55%),
-      linear-gradient(180deg, #0e3040 0%, #0c2b3a 55%, #0a2534 100%);
-    --q-surface: rgba(32, 68, 88, 0.6);
-    --q-surface-strong: rgba(36, 74, 95, 0.9);
-    --q-surface-solid: #14384b;
-    --q-surface-muted: rgba(255, 255, 255, 0.05);
-    --q-surface-hover: rgba(255, 255, 255, 0.08);
-    --q-surface-highlight: rgba(255, 255, 255, 0.07);
-    --q-border: rgba(184, 203, 214, 0.14);
-    --q-border-strong: rgba(184, 203, 214, 0.24);
-    --q-border-selected: rgba(117, 165, 255, 0.55);
-    --q-text-primary: #f2f7fa;
-    --q-text-secondary: #b8cbd6;
-    --q-text-muted: #8fabb9;
-    --q-primary: #4f95ff;
-    --q-primary-hover: #6ca7ff;
-    --q-primary-soft: rgba(79, 149, 255, 0.16);
-    --q-primary-softer: rgba(79, 149, 255, 0.1);
-    --q-money: #58a1ff;
+      radial-gradient(900px 480px at 18% -10%, rgba(65, 116, 170, 0.1), transparent 58%),
+      linear-gradient(180deg, #0d1d2a 0%, #091520 100%);
+    --q-surface: rgba(17, 36, 51, 0.76);
+    --q-surface-strong: rgba(22, 45, 63, 0.92);
+    --q-surface-solid: #142b3d;
+    --q-surface-muted: rgba(150, 185, 210, 0.055);
+    --q-surface-hover: rgba(150, 185, 210, 0.1);
+    --q-surface-highlight: rgba(190, 215, 235, 0.07);
+    --q-border: rgba(160, 191, 211, 0.15);
+    --q-border-strong: rgba(160, 191, 211, 0.27);
+    --q-border-selected: rgba(91, 156, 255, 0.55);
+    --q-text-primary: #f6fafd;
+    --q-text-secondary: #cbd7e1;
+    --q-text-muted: #a7b8c7;
+    --q-primary: #5b9cff;
+    --q-primary-hover: #75adff;
+    --q-primary-soft: rgba(91, 156, 255, 0.16);
+    --q-primary-softer: rgba(91, 156, 255, 0.09);
+    --q-money: #d7e5ef;
+    --q-money-secondary: #b8c9d6;
+    --q-live-bg: rgba(139, 166, 187, 0.11);
+    --q-live-border: rgba(159, 185, 204, 0.18);
+    --q-live-text: #afc3d2;
+    --q-live-dot: #7898af;
+    --q-chip-bg: rgba(255, 255, 255, 0.04);
+    --q-chip-text: #cbd7e1;
+    --q-chip-border: rgba(160, 191, 211, 0.15);
+    --q-chip-active-bg: rgba(91, 156, 255, 0.16);
+    --q-chip-active-border: rgba(91, 156, 255, 0.45);
+    --q-chip-active-text: #75adff;
+    --q-chip-count-bg: rgba(91, 156, 255, 0.16);
+    --q-chip-count-text: #75adff;
+    --q-chip-disabled-bg: rgba(255, 255, 255, 0.035);
+    --q-chip-disabled-text: #708395;
     --q-success: #3ecfa6;
     --q-success-strong: #58e1c7;
     --q-success-soft: rgba(62, 207, 166, 0.14);
@@ -157,34 +194,35 @@
     --q-warning-soft: rgba(255, 177, 100, 0.12);
     --q-danger: #ff8a70;
     --q-danger-soft: rgba(255, 138, 112, 0.12);
-    --q-quota-track: rgba(184, 203, 214, 0.16);
-    --q-grid-line: rgba(184, 203, 214, 0.12);
-    --q-tooltip-bg: rgba(17, 48, 64, 0.97);
-    --q-status-card-bg: linear-gradient(135deg, rgba(38, 84, 108, 0.7), rgba(24, 60, 80, 0.7));
-    --q-status-bar-a: #2f6f9b;
-    --q-status-bar-b: #6ca7ff;
+    --q-quota-track: rgba(150, 185, 210, 0.14);
+    --q-grid-line: rgba(160, 191, 211, 0.1);
+    --q-tooltip-bg: rgba(16, 33, 46, 0.97);
+    --q-status-card-bg: linear-gradient(135deg, rgba(24, 52, 72, 0.72), rgba(14, 34, 49, 0.72));
+    --q-status-bar-a: #356e97;
+    --q-status-bar-b: #75adff;
     --q-hoverbar-panel-bg:
-      radial-gradient(120% 74% at 50% -24%, rgba(70, 135, 175, 0.35), transparent 58%),
-      linear-gradient(142deg, rgba(16, 48, 65, 0.985), rgba(9, 33, 46, 0.995));
-    --q-hoverbar-panel-border: rgba(170, 205, 225, 0.42);
+      radial-gradient(120% 74% at 50% -24%, rgba(70, 125, 170, 0.3), transparent 58%),
+      linear-gradient(142deg, rgba(15, 36, 50, 0.985), rgba(9, 21, 32, 0.995));
+    --q-hoverbar-panel-border: rgba(160, 191, 211, 0.4);
     --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.08);
     --q-hoverbar-panel-shadow: rgba(0, 0, 0, 0.28);
     --q-hoverbar-card-bg:
-      linear-gradient(112deg, rgba(26, 62, 82, 0.92), rgba(14, 40, 55, 0.88));
-    --q-hoverbar-card-border: rgba(178, 210, 228, 0.26);
+      linear-gradient(112deg, rgba(22, 47, 66, 0.92), rgba(13, 30, 43, 0.88));
+    --q-hoverbar-card-border: rgba(160, 191, 211, 0.26);
     --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.07);
-    --q-hoverbar-ink: #f1f8fc;
-    --q-hoverbar-muted: #a9c3d1;
-    --q-hoverbar-muted-strong: #d5e7f0;
-    --q-hoverbar-money: #58a1ff;
+    --q-hoverbar-ink: #f6fafd;
+    --q-hoverbar-muted: #afc3d2;
+    --q-hoverbar-muted-strong: #d5e5f0;
+    --q-hoverbar-money: #d7e5ef;
+    --q-hoverbar-money-secondary: #b8c9d6;
     --q-hoverbar-primary: #6ba4ff;
     --q-hoverbar-success: #45d6a8;
     --q-hoverbar-warning: #ffc37f;
     --q-hoverbar-danger: #ff8a70;
     --q-hoverbar-action-hover: rgba(214, 238, 249, 0.13);
-    --q-hoverbar-focus: rgba(117, 165, 255, 0.95);
+    --q-hoverbar-focus: rgba(117, 173, 255, 0.95);
     --q-hoverbar-orb-ring: rgba(69, 214, 168, 0.36);
-    --q-hoverbar-empty-bg: rgba(255, 255, 255, 0.055);
+    --q-hoverbar-empty-bg: rgba(150, 185, 210, 0.06);
     --q-hoverbar-plan-pro: #c4b5fd;
     --q-hoverbar-plan-pro-bg: rgba(167, 139, 250, 0.22);
     --q-hoverbar-plan-lite: #67e8f9;
@@ -195,28 +233,43 @@
 }
 
 :root[data-theme="dark"] {
-  --q-bg: #0c2b3a;
+  /* 午夜石墨蓝（手动深色档；与系统深色档保持同一组值） */
+  --q-bg: #091520;
   --q-canvas:
-    radial-gradient(1100px 520px at 6% -8%, rgba(64, 140, 190, 0.1), transparent 55%),
-    radial-gradient(900px 620px at 104% 112%, rgba(0, 166, 125, 0.05), transparent 55%),
-    linear-gradient(180deg, #0e3040 0%, #0c2b3a 55%, #0a2534 100%);
-  --q-surface: rgba(32, 68, 88, 0.6);
-  --q-surface-strong: rgba(36, 74, 95, 0.9);
-  --q-surface-solid: #14384b;
-  --q-surface-muted: rgba(255, 255, 255, 0.05);
-  --q-surface-hover: rgba(255, 255, 255, 0.08);
-  --q-surface-highlight: rgba(255, 255, 255, 0.07);
-  --q-border: rgba(184, 203, 214, 0.14);
-  --q-border-strong: rgba(184, 203, 214, 0.24);
-  --q-border-selected: rgba(117, 165, 255, 0.55);
-  --q-text-primary: #f2f7fa;
-  --q-text-secondary: #b8cbd6;
-  --q-text-muted: #8fabb9;
-  --q-primary: #4f95ff;
-  --q-primary-hover: #6ca7ff;
-  --q-primary-soft: rgba(79, 149, 255, 0.16);
-  --q-primary-softer: rgba(79, 149, 255, 0.1);
-  --q-money: #58a1ff;
+    radial-gradient(900px 480px at 18% -10%, rgba(65, 116, 170, 0.1), transparent 58%),
+    linear-gradient(180deg, #0d1d2a 0%, #091520 100%);
+  --q-surface: rgba(17, 36, 51, 0.76);
+  --q-surface-strong: rgba(22, 45, 63, 0.92);
+  --q-surface-solid: #142b3d;
+  --q-surface-muted: rgba(150, 185, 210, 0.055);
+  --q-surface-hover: rgba(150, 185, 210, 0.1);
+  --q-surface-highlight: rgba(190, 215, 235, 0.07);
+  --q-border: rgba(160, 191, 211, 0.15);
+  --q-border-strong: rgba(160, 191, 211, 0.27);
+  --q-border-selected: rgba(91, 156, 255, 0.55);
+  --q-text-primary: #f6fafd;
+  --q-text-secondary: #cbd7e1;
+  --q-text-muted: #a7b8c7;
+  --q-primary: #5b9cff;
+  --q-primary-hover: #75adff;
+  --q-primary-soft: rgba(91, 156, 255, 0.16);
+  --q-primary-softer: rgba(91, 156, 255, 0.09);
+  --q-money: #d7e5ef;
+  --q-money-secondary: #b8c9d6;
+  --q-live-bg: rgba(139, 166, 187, 0.11);
+  --q-live-border: rgba(159, 185, 204, 0.18);
+  --q-live-text: #afc3d2;
+  --q-live-dot: #7898af;
+  --q-chip-bg: rgba(255, 255, 255, 0.04);
+  --q-chip-text: #cbd7e1;
+  --q-chip-border: rgba(160, 191, 211, 0.15);
+  --q-chip-active-bg: rgba(91, 156, 255, 0.16);
+  --q-chip-active-border: rgba(91, 156, 255, 0.45);
+  --q-chip-active-text: #75adff;
+  --q-chip-count-bg: rgba(91, 156, 255, 0.16);
+  --q-chip-count-text: #75adff;
+  --q-chip-disabled-bg: rgba(255, 255, 255, 0.035);
+  --q-chip-disabled-text: #708395;
   --q-success: #3ecfa6;
   --q-success-strong: #58e1c7;
   --q-success-soft: rgba(62, 207, 166, 0.14);
@@ -224,12 +277,12 @@
   --q-warning-soft: rgba(255, 177, 100, 0.12);
   --q-danger: #ff8a70;
   --q-danger-soft: rgba(255, 138, 112, 0.12);
-  --q-quota-track: rgba(184, 203, 214, 0.16);
-  --q-grid-line: rgba(184, 203, 214, 0.12);
-  --q-tooltip-bg: rgba(17, 48, 64, 0.97);
-  --q-status-card-bg: linear-gradient(135deg, rgba(38, 84, 108, 0.7), rgba(24, 60, 80, 0.7));
-  --q-status-bar-a: #2f6f9b;
-  --q-status-bar-b: #6ca7ff;
+  --q-quota-track: rgba(150, 185, 210, 0.14);
+  --q-grid-line: rgba(160, 191, 211, 0.1);
+  --q-tooltip-bg: rgba(16, 33, 46, 0.97);
+  --q-status-card-bg: linear-gradient(135deg, rgba(24, 52, 72, 0.72), rgba(14, 34, 49, 0.72));
+  --q-status-bar-a: #356e97;
+  --q-status-bar-b: #75adff;
 }
 
 /* 悬浮详情手动主题优先于系统偏好；只覆盖 hoverbar 语义 Token。 */
@@ -248,6 +301,7 @@
   --q-hoverbar-muted: #45637a;
   --q-hoverbar-muted-strong: #1e4157;
   --q-hoverbar-money: #0a66ff;
+  --q-hoverbar-money-secondary: #1467d6;
   --q-hoverbar-primary: #1467d6;
   --q-hoverbar-success: #07875d;
   --q-hoverbar-warning: #a46318;
@@ -266,27 +320,28 @@
 
 :root[data-hoverbar-theme="dark"] {
   --q-hoverbar-panel-bg:
-    radial-gradient(120% 74% at 50% -24%, rgba(70, 135, 175, 0.35), transparent 58%),
-    linear-gradient(142deg, rgba(16, 48, 65, 0.985), rgba(9, 33, 46, 0.995));
-  --q-hoverbar-panel-border: rgba(170, 205, 225, 0.42);
+    radial-gradient(120% 74% at 50% -24%, rgba(70, 125, 170, 0.3), transparent 58%),
+    linear-gradient(142deg, rgba(15, 36, 50, 0.985), rgba(9, 21, 32, 0.995));
+  --q-hoverbar-panel-border: rgba(160, 191, 211, 0.4);
   --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.08);
   --q-hoverbar-panel-shadow: rgba(0, 0, 0, 0.28);
   --q-hoverbar-card-bg:
-    linear-gradient(112deg, rgba(26, 62, 82, 0.92), rgba(14, 40, 55, 0.88));
-  --q-hoverbar-card-border: rgba(178, 210, 228, 0.26);
+    linear-gradient(112deg, rgba(22, 47, 66, 0.92), rgba(13, 30, 43, 0.88));
+  --q-hoverbar-card-border: rgba(160, 191, 211, 0.26);
   --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.07);
-  --q-hoverbar-ink: #f1f8fc;
-  --q-hoverbar-muted: #a9c3d1;
-  --q-hoverbar-muted-strong: #d5e7f0;
-  --q-hoverbar-money: #58a1ff;
+  --q-hoverbar-ink: #f6fafd;
+  --q-hoverbar-muted: #afc3d2;
+  --q-hoverbar-muted-strong: #d5e5f0;
+  --q-hoverbar-money: #d7e5ef;
+  --q-hoverbar-money-secondary: #b8c9d6;
   --q-hoverbar-primary: #6ba4ff;
   --q-hoverbar-success: #45d6a8;
   --q-hoverbar-warning: #ffc37f;
   --q-hoverbar-danger: #ff8a70;
   --q-hoverbar-action-hover: rgba(214, 238, 249, 0.13);
-  --q-hoverbar-focus: rgba(117, 165, 255, 0.95);
+  --q-hoverbar-focus: rgba(117, 173, 255, 0.95);
   --q-hoverbar-orb-ring: rgba(69, 214, 168, 0.36);
-  --q-hoverbar-empty-bg: rgba(255, 255, 255, 0.055);
+  --q-hoverbar-empty-bg: rgba(150, 185, 210, 0.06);
   --q-hoverbar-plan-pro: #c4b5fd;
   --q-hoverbar-plan-pro-bg: rgba(167, 139, 250, 0.22);
   --q-hoverbar-plan-lite: #67e8f9;

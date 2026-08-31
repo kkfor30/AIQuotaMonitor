@@ -63,8 +63,16 @@ export function AggregateStatusBadge({ status }: { status: PlatformAggregateStat
   );
 }
 
-/** 数据新鲜度徽章。 */
+/** 数据新鲜度徽章：「实时」用低饱和蓝灰胶囊（新鲜度语义，不是主操作/额度状态），其余沿用状态语义色。 */
 export function FreshnessTag({ freshness }: { freshness: DataFreshness }) {
   const meta = FRESHNESS_META[freshness];
+  if (freshness === "fresh") {
+    return (
+      <span className="live-pill">
+        <span aria-hidden className="live-pill-dot" />
+        {meta.label}
+      </span>
+    );
+  }
   return <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>;
 }
