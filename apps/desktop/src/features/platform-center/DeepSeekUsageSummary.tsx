@@ -10,6 +10,7 @@
  */
 import { BarChart3, Wallet } from "lucide-react";
 import { FlashCrystalIcon, ProCoreIcon, TargetRingIcon } from "@/components/ui/MetricIcons";
+import { capabilityRemainingPercent } from "@/components/ui/QuotaProgress";
 import { FreshnessTag } from "@/components/ui/StatusBadge";
 import { compactPercentText, formatTime } from "@/lib/format";
 import type { CapabilitySnapshotViewModel } from "@/lib/types";
@@ -18,6 +19,8 @@ import { UsageTrend } from "./UsageTrend";
 /** 参与资金概览组合的能力；total_spend 为可选第四项。 */
 const FINANCE_SECONDARY_IDS = ["today_spend", "month_spend", "total_spend"] as const;
 const MODEL_IDS = ["model_usage_v4_flash", "model_usage_v4_flash_vision", "model_usage_v4_pro"] as const;
+/** 每模型命中率能力 id = 模型能力 id + "_cache_hit_rate"（后端模板同名）。 */
+const MODEL_RATE_IDS = MODEL_IDS.map((id) => `${id}_cache_hit_rate`);
 const STAT_IDS = ["request_count", "prompt_tokens", "response_tokens"] as const;
 const CACHE_TOKEN_IDS = ["cache_hit_tokens", "cache_miss_tokens"] as const;
 
@@ -121,32 +124,68 @@ function ModelRow({ capability, id }: { capability: CapabilitySnapshotViewModel 
   );
 }
 
-/** 紧凑统计单元：真实存在才计入网格；missing 显示「未获取」。 */
-function StatCell({ label, value, missing }: { label: string; value: string | null; missing: boolean }) {
+/** 每模型命中率行：模型行同款卡片底，命中率细条（固定主蓝）+ 请求/输入/输出明细。 */
+function ModelRateRow({ capability, id }: { capability: CapabilitySnapshotViewModel | null; id: string }) {
+  const meta = MODEL_META[id] ?? MODEL_META.model_usage_v4_flash;
+  const missing = capability === null || capability.freshness === "missing";
+  const primary = capability?.value.primary ?? null;
+  const secondary = capability?.value.secondary ?? null;
+  // 未调用：后端 primary/secondary 均为空；不补零、不显示空进度条
+  const uncalled = !missing && primary === null && secondary === null;
+  const percent = hasValue(primary) ? capabilityRemainingPercent(capability!) : null;
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="truncate text-[11px] text-q-text-muted">{label}</span>
-      <span
-        className="truncate text-[15px] font-bold leading-5 tabular-nums text-q-text-primary"
-        data-selectable="true"
-        data-missing={missing || undefined}
-      >
-        {missing ? "未获取" : value}
-      </span>
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]">
+      <div className="flex min-w-0 items-center gap-2.5">
+        {id === "model_usage_v4_pro_cache_hit_rate" ? (
+          <ProCoreIcon size={14} className="shrink-0" />
+        ) : (
+          <FlashCrystalIcon size={14} className="shrink-0" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-q-text-primary">{meta.name}</span>
+        <span
+          className="shrink-0 text-[14px] font-bold leading-5 tabular-nums text-q-text-primary"
+          data-selectable="true"
+          data-missing={(missing || primary === null) || undefined}
+        >
+          {missing ? "未获取" : uncalled ? "未调用" : primaryText(capability!)}
+        </span>
+      </div>
+      {percent !== null && (
+        <div
+          className="ml-[30px] h-1 overflow-hidden rounded-full bg-[var(--q-quota-track)]"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(percent)}
+          aria-label={`${meta.name}缓存命中率`}
+        >
+          <div
+            className="h-full rounded-full transition-[width] duration-300"
+            style={{
+              width: `${Math.min(100, Math.max(0, percent))}%`,
+              background: "var(--q-primary)",
+            }}
+          />
+        </div>
+      )}
+      {secondary && (
+        <p className="ml-[30px] truncate text-[10.5px] text-q-text-muted" title={secondary} data-selectable="true">
+          {secondary}
+        </p>
+      )}
     </div>
   );
 }
 
-/** 调用与缓存效率面板：cache_hit_rate 主值 + 紧凑统计 + 可选 hit/miss Token。 */
+function hasValue(primary: string | null): boolean {
+  return primary !== null && primary !== "";
+}
+
+/** 调用与缓存效率面板：全局命中率主值 + 按模型分块（命中率细条 + 请求/输入/输出明细）。 */
 function CacheEfficiencyPanel({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
   const rate = findCapability(capabilities, "cache_hit_rate");
   const rateMissing = isMissing(rate);
   const rateLine = freshnessLine(rate);
-  const stats = STAT_IDS.map((id) => findCapability(capabilities, id));
-  const cacheTokens = CACHE_TOKEN_IDS.map((id) => findCapability(capabilities, id)).filter(
-    (capability): capability is CapabilitySnapshotViewModel =>
-      capability !== null && capability.freshness !== "missing" && capability.value.primary !== null,
-  );
   const staleAt = capabilities.reduce<number | null>((latest, capability) => {
     if (capability.freshness !== "stale") return latest;
     const at = capability.lastGoodAt ?? capability.capturedAt;
@@ -161,7 +200,7 @@ function CacheEfficiencyPanel({ capabilities }: { capabilities: CapabilitySnapsh
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-q-text-muted">{rate?.displayName ?? "缓存命中率"}</span>
+          <span className="text-xs text-q-text-muted">{rate?.displayName ?? "缓存命中率"}（全部模型）</span>
           <span
             className="text-[24px] font-bold leading-8 tracking-tight tabular-nums text-q-text-primary"
             data-selectable="true"
@@ -195,28 +234,11 @@ function CacheEfficiencyPanel({ capabilities }: { capabilities: CapabilitySnapsh
         {rateLine?.stale && <p className="text-[11px] text-q-warning">{rateLine.text}</p>}
       </div>
 
-      {(stats.some((capability) => capability !== null) || cacheTokens.length > 0) && (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,92px),1fr))] gap-x-3 gap-y-2.5 border-t border-q-border pt-3">
-          {stats.map((capability) =>
-            capability ? (
-              <StatCell
-                key={capability.capabilityId}
-                label={capability.displayName}
-                value={primaryText(capability)}
-                missing={isMissing(capability)}
-              />
-            ) : null,
-          )}
-          {cacheTokens.map((capability) => (
-            <StatCell
-              key={capability.capabilityId}
-              label={capability.displayName}
-              value={primaryText(capability)}
-              missing={false}
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
+        {MODEL_IDS.map((id, index) => (
+          <ModelRateRow key={MODEL_RATE_IDS[index]} id={id} capability={findCapability(capabilities, MODEL_RATE_IDS[index])} />
+        ))}
+      </div>
 
       {staleAt ? <p className="text-[11px] text-q-warning">缓存 · 上次成功 {formatTime(staleAt)}</p> : null}
     </section>
@@ -281,6 +303,7 @@ export function DeepSeekUsageSummary({ capabilities }: { capabilities: Capabilit
 /** 仅 DeepSeek 网页用量来源产出的能力；账号内命中任一即对该账号启用组合渲染。 */
 const DEEPSEEK_ONLY_IDS: readonly string[] = [
   ...MODEL_IDS,
+  ...MODEL_RATE_IDS,
   ...STAT_IDS,
   ...CACHE_TOKEN_IDS,
   "cache_hit_rate",

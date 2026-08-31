@@ -364,7 +364,7 @@ fn amount_capabilities(
     } else {
         Some(all.hit as f64 / cache_total as f64)
     };
-    Ok(vec![
+    let mut capabilities = vec![
         tokens_capability("model_usage_v4_flash", "V4 Flash 用量", flash.total),
         tokens_capability("model_usage_v4_pro", "V4 Pro 用量", pro.total),
         tokens_capability(
@@ -392,7 +392,63 @@ fn amount_capabilities(
             window_seconds: None,
             reset_at: None,
         },
-    ])
+    ];
+    // 按模型调用与缓存效率：每个模型的命中率 + 请求/输入/输出明细；
+    // 从未调用的模型 primary/secondary 均为空，前端显示「未调用」，不补零。
+    for (id, name, breakdown) in [
+        (
+            "model_usage_v4_flash_cache_hit_rate",
+            "V4 Flash 缓存命中率",
+            flash,
+        ),
+        (
+            "model_usage_v4_flash_vision_cache_hit_rate",
+            "V4 Flash Vision 缓存命中率",
+            flash_vision,
+        ),
+        (
+            "model_usage_v4_pro_cache_hit_rate",
+            "V4 Pro 缓存命中率",
+            pro,
+        ),
+    ] {
+        capabilities.push(model_cache_rate_capability(id, name, breakdown));
+    }
+    Ok(capabilities)
+}
+
+/// 单模型命中率能力：命中率为主值与进度，请求/输入/输出明细进 secondary。
+fn model_cache_rate_capability(id: &str, name: &str, breakdown: TokenBreakdown) -> CapabilityData {
+    let cache_total = breakdown.hit.saturating_add(breakdown.miss);
+    let ratio = if breakdown.requests == 0 || cache_total == 0 {
+        None
+    } else {
+        Some(breakdown.hit as f64 / cache_total as f64)
+    };
+    let (primary_value, secondary_value) = if breakdown.requests == 0 {
+        (None, None)
+    } else {
+        (
+            ratio.map(|value| format_percent(value * 100.0)),
+            Some(format!(
+                "请求 {} · 输入 {} · 输出 {}",
+                format_count(breakdown.requests),
+                format_count(cache_total),
+                format_count(breakdown.response)
+            )),
+        )
+    };
+    CapabilityData {
+        capability_id: id.into(),
+        display_name: name.into(),
+        value_kind: "percent".into(),
+        primary_value,
+        secondary_value,
+        progress: ratio,
+        trend: vec![],
+        window_seconds: None,
+        reset_at: None,
+    }
 }
 
 fn cost_capabilities(
@@ -946,6 +1002,26 @@ mod tests {
                 .primary_value
                 .as_deref(),
             Some("240")
+        );
+        // 按模型命中率：pro 命中 10/输入 100 = 10%，vision 命中 0/输入 210 = 0%
+        let pro_rate = caps
+            .iter()
+            .find(|c| c.capability_id == "model_usage_v4_pro_cache_hit_rate")
+            .unwrap();
+        assert_eq!(pro_rate.primary_value.as_deref(), Some("10%"));
+        assert_eq!(
+            pro_rate.secondary_value.as_deref(),
+            Some("请求 3 · 输入 100 · 输出 40")
+        );
+        assert_eq!(pro_rate.progress, Some(0.1));
+        let vision_rate = caps
+            .iter()
+            .find(|c| c.capability_id == "model_usage_v4_flash_vision_cache_hit_rate")
+            .unwrap();
+        assert_eq!(vision_rate.primary_value.as_deref(), Some("0%"));
+        assert_eq!(
+            vision_rate.secondary_value.as_deref(),
+            Some("请求 1 · 输入 210 · 输出 30")
         );
         assert_eq!(
             caps.iter()

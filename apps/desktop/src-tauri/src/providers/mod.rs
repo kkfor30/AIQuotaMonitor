@@ -123,6 +123,24 @@ fn deepseek_templates() -> Vec<CapabilityTemplate> {
             "V4 Flash Vision 用量",
             "tokens",
         ),
+        template(
+            "model_usage_v4_flash_cache_hit_rate",
+            deepseek::WEB_SOURCE_ID,
+            "V4 Flash 缓存命中率",
+            "percent",
+        ),
+        template(
+            "model_usage_v4_flash_vision_cache_hit_rate",
+            deepseek::WEB_SOURCE_ID,
+            "V4 Flash Vision 缓存命中率",
+            "percent",
+        ),
+        template(
+            "model_usage_v4_pro_cache_hit_rate",
+            deepseek::WEB_SOURCE_ID,
+            "V4 Pro 缓存命中率",
+            "percent",
+        ),
         template("request_count", deepseek::WEB_SOURCE_ID, "请求数", "tokens"),
         template(
             "prompt_tokens",
