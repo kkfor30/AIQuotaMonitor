@@ -49,7 +49,8 @@ pub const CATALOG: &[CatalogEntry] = &[
         official_url: "https://platform.moonshot.cn",
         api_base_url: Some("https://api.kimi.com/coding"),
         api_key_url: Some("https://platform.moonshot.cn/console/api-keys"),
-        api_endpoint_hint: "默认预填官方端点，用于查询 Coding Plan。请填写完整 URL，不要以斜杠结尾。",
+        api_endpoint_hint:
+            "默认预填官方端点，用于查询 Coding Plan。请填写完整 URL，不要以斜杠结尾。",
         access_hint: "API Key 查 Coding Plan 与个人余额",
         needs_api_key: true,
         needs_web_login: false,
@@ -61,7 +62,8 @@ pub const CATALOG: &[CatalogEntry] = &[
         official_url: "https://open.bigmodel.cn",
         api_base_url: Some("https://open.bigmodel.cn"),
         api_key_url: Some("https://open.bigmodel.cn/usercenter/apikeys"),
-        api_endpoint_hint: "默认预填官方端点，用于查询 Coding Plan。请填写完整 URL，不要以斜杠结尾。",
+        api_endpoint_hint:
+            "默认预填官方端点，用于查询 Coding Plan。请填写完整 URL，不要以斜杠结尾。",
         access_hint: "API Key 查 Coding Plan；网页登录查个人余额",
         needs_api_key: true,
         needs_web_login: true,
@@ -73,7 +75,8 @@ pub const CATALOG: &[CatalogEntry] = &[
         official_url: "https://z.ai",
         api_base_url: Some("https://api.z.ai"),
         api_key_url: Some("https://z.ai"),
-        api_endpoint_hint: "默认预填官方端点，用于查询 Coding Plan。请填写完整 URL，不要以斜杠结尾。",
+        api_endpoint_hint:
+            "默认预填官方端点，用于查询 Coding Plan。请填写完整 URL，不要以斜杠结尾。",
         access_hint: "API Key 查 Coding Plan",
         needs_api_key: true,
         needs_web_login: false,
@@ -85,7 +88,8 @@ pub const CATALOG: &[CatalogEntry] = &[
         official_url: "https://platform.minimaxi.com",
         api_base_url: Some("https://api.minimaxi.com"),
         api_key_url: Some("https://platform.minimaxi.com"),
-        api_endpoint_hint: "默认预填官方端点，用于查询 Token Plan。请填写完整 URL，不要以斜杠结尾。",
+        api_endpoint_hint:
+            "默认预填官方端点，用于查询 Token Plan。请填写完整 URL，不要以斜杠结尾。",
         access_hint: "API Key 查 Token Plan",
         needs_api_key: true,
         needs_web_login: false,
@@ -97,7 +101,8 @@ pub const CATALOG: &[CatalogEntry] = &[
         official_url: "https://www.minimax.io",
         api_base_url: Some("https://api.minimax.io"),
         api_key_url: Some("https://www.minimax.io"),
-        api_endpoint_hint: "默认预填官方端点，用于查询 Token Plan。请填写完整 URL，不要以斜杠结尾。",
+        api_endpoint_hint:
+            "默认预填官方端点，用于查询 Token Plan。请填写完整 URL，不要以斜杠结尾。",
         access_hint: "API Key 查 Token Plan",
         needs_api_key: true,
         needs_web_login: false,
@@ -181,7 +186,8 @@ pub const CATALOG: &[CatalogEntry] = &[
         official_url: "https://openrouter.ai",
         api_base_url: Some("https://openrouter.ai"),
         api_key_url: Some("https://openrouter.ai/keys"),
-        api_endpoint_hint: "默认预填官方端点，用于查询 Credits 余额。请填写完整 URL，不要以斜杠结尾。",
+        api_endpoint_hint:
+            "默认预填官方端点，用于查询 Credits 余额。请填写完整 URL，不要以斜杠结尾。",
         access_hint: "API Key 查 Credits 余额（USD）",
         needs_api_key: true,
         needs_web_login: false,

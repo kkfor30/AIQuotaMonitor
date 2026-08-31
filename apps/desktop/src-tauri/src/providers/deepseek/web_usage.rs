@@ -101,11 +101,15 @@ pub async fn fetch_current_month(client: &Client, token: &str) -> SourceRefreshO
 fn current_month_range() -> Option<MonthRange> {
     let tz = FixedOffset::east_opt(CNY_TZ_SECS)?;
     let now = Utc::now().with_timezone(&tz);
-    let start = tz.with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0).single()?;
+    let start = tz
+        .with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0)
+        .single()?;
     let end = if now.month() == 12 {
-        tz.with_ymd_and_hms(now.year() + 1, 1, 1, 0, 0, 0).single()?
+        tz.with_ymd_and_hms(now.year() + 1, 1, 1, 0, 0, 0)
+            .single()?
     } else {
-        tz.with_ymd_and_hms(now.year(), now.month() + 1, 1, 0, 0, 0).single()?
+        tz.with_ymd_and_hms(now.year(), now.month() + 1, 1, 0, 0, 0)
+            .single()?
     };
     Some(MonthRange {
         year: now.year(),
@@ -124,9 +128,15 @@ async fn fetch_usage_json(
     range: &MonthRange,
 ) -> Result<Value, RefreshError> {
     let new_url = if amount {
-        format!("{AMOUNT_PATH}?start={}&end={}&tz={CNY_TZ_SECS}", range.start_sec, range.end_sec)
+        format!(
+            "{AMOUNT_PATH}?start={}&end={}&tz={CNY_TZ_SECS}",
+            range.start_sec, range.end_sec
+        )
     } else {
-        format!("{COST_PATH}?start={}&end={}&tz={CNY_TZ_SECS}", range.start_sec, range.end_sec)
+        format!(
+            "{COST_PATH}?start={}&end={}&tz={CNY_TZ_SECS}",
+            range.start_sec, range.end_sec
+        )
     };
     match get_json_value(client, &new_url, token).await {
         Ok(json) if has_biz_data(&json) => Ok(json),
@@ -211,7 +221,12 @@ async fn get_json_value(client: &Client, url: &str, token: &str) -> Result<Value
             _ => {}
         }
         let body = response.text().await.map_err(|_| {
-            RefreshError::new("network_error", "DeepSeek 网页用量响应读取失败", false, true)
+            RefreshError::new(
+                "network_error",
+                "DeepSeek 网页用量响应读取失败",
+                false,
+                true,
+            )
         })?;
         let json: Value = serde_json::from_str(&body).map_err(|_| {
             RefreshError::new(
@@ -230,7 +245,10 @@ async fn get_json_value(client: &Client, url: &str, token: &str) -> Result<Value
 }
 
 fn business_error(json: &Value) -> Option<RefreshError> {
-    let code = json.get("code").or_else(|| json.get("status_code")).or_else(|| json.get("status"));
+    let code = json
+        .get("code")
+        .or_else(|| json.get("status_code"))
+        .or_else(|| json.get("status"));
     let ok = match code {
         None => true,
         Some(Value::Number(n)) => matches!(n.as_i64(), Some(0 | 200)),
@@ -269,7 +287,10 @@ fn business_error(json: &Value) -> Option<RefreshError> {
     ))
 }
 
-fn amount_capabilities(amount: &Value, _range: &MonthRange) -> Result<Vec<CapabilityData>, RefreshError> {
+fn amount_capabilities(
+    amount: &Value,
+    _range: &MonthRange,
+) -> Result<Vec<CapabilityData>, RefreshError> {
     let mut per_model = BTreeMap::<String, TokenBreakdown>::new();
     let mut all = TokenBreakdown::default();
     for (model, usage) in collect_model_usages(amount) {
@@ -278,10 +299,20 @@ fn amount_capabilities(amount: &Value, _range: &MonthRange) -> Result<Vec<Capabi
         let entry = per_model.entry(model).or_default();
         *entry = entry.saturating_add(values);
     }
-    let flash = per_model.get("deepseek-v4-flash").copied().unwrap_or_default();
-    let pro = per_model.get("deepseek-v4-pro").copied().unwrap_or_default();
+    let flash = per_model
+        .get("deepseek-v4-flash")
+        .copied()
+        .unwrap_or_default();
+    let pro = per_model
+        .get("deepseek-v4-pro")
+        .copied()
+        .unwrap_or_default();
     let cache_total = all.hit.saturating_add(all.miss);
-    let prompt = if all.prompt > 0 { all.prompt } else { cache_total };
+    let prompt = if all.prompt > 0 {
+        all.prompt
+    } else {
+        cache_total
+    };
     let cache_ratio = if cache_total == 0 {
         None
     } else {
@@ -313,7 +344,10 @@ fn amount_capabilities(amount: &Value, _range: &MonthRange) -> Result<Vec<Capabi
     ])
 }
 
-fn cost_capabilities(cost: &Value, range: &MonthRange) -> Result<Vec<CapabilityData>, RefreshError> {
+fn cost_capabilities(
+    cost: &Value,
+    range: &MonthRange,
+) -> Result<Vec<CapabilityData>, RefreshError> {
     let mut by_day: BTreeMap<String, Decimal> = BTreeMap::new();
     let mut month_cost = Decimal::ZERO;
     for (date, amount) in collect_daily_costs(cost, range.tz) {
@@ -371,13 +405,17 @@ fn collect_model_usages(root: &Value) -> Vec<(String, Value)> {
         }
     }
     for model in totals_list(biz) {
-        let usage = first_value(model, &["usage", "usages"]).cloned().unwrap_or_else(|| model.clone());
+        let usage = first_value(model, &["usage", "usages"])
+            .cloned()
+            .unwrap_or_else(|| model.clone());
         out.push((model_name(model), usage));
     }
     if out.is_empty() {
         for day in days_list(biz) {
             for model in as_array(day.get("data").or_else(|| day.get("models"))) {
-                let usage = first_value(model, &["usage", "usages"]).cloned().unwrap_or_else(|| model.clone());
+                let usage = first_value(model, &["usage", "usages"])
+                    .cloned()
+                    .unwrap_or_else(|| model.clone());
                 out.push((model_name(model), usage));
             }
         }
@@ -392,7 +430,8 @@ fn collect_daily_costs(root: &Value, tz: FixedOffset) -> Vec<(String, Decimal)> 
     };
     let blocks = cost_blocks(biz);
     for block in blocks {
-        if let Some(currency) = first_value(block, &["currency", "currency_code", "currencyCode"]).and_then(Value::as_str)
+        if let Some(currency) = first_value(block, &["currency", "currency_code", "currencyCode"])
+            .and_then(Value::as_str)
         {
             if !currency.is_empty() && !currency.eq_ignore_ascii_case("CNY") {
                 continue;
@@ -414,8 +453,14 @@ fn collect_daily_costs(root: &Value, tz: FixedOffset) -> Vec<(String, Decimal)> 
             }
             continue;
         }
-        for day in as_array(first_value(block, &["days", "daily", "daily_cost", "dailyCost"])) {
-            let Some(date) = first_value(day, &["date", "day"]).and_then(Value::as_str).map(str::to_string) else {
+        for day in as_array(first_value(
+            block,
+            &["days", "daily", "daily_cost", "dailyCost"],
+        )) {
+            let Some(date) = first_value(day, &["date", "day"])
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            else {
                 continue;
             };
             let mut amount = first_value(day, &["amount", "value", "cost", "total"])
@@ -461,7 +506,9 @@ fn token_breakdown(usage: &Value) -> TokenBreakdown {
             "REQUEST" => values.requests = values.requests.saturating_add(value),
             "PROMPT_CACHE_HIT_TOKEN" => values.hit = values.hit.saturating_add(value),
             "PROMPT_CACHE_MISS_TOKEN" => values.miss = values.miss.saturating_add(value),
-            "RESPONSE_TOKEN" | "COMPLETION_TOKEN" => values.response = values.response.saturating_add(value),
+            "RESPONSE_TOKEN" | "COMPLETION_TOKEN" => {
+                values.response = values.response.saturating_add(value)
+            }
             "PROMPT_TOKEN" => {
                 prompt = Some(prompt.unwrap_or(0u64).saturating_add(value));
                 values.prompt = values.prompt.saturating_add(value);
@@ -483,7 +530,8 @@ fn usage_entries(usage: &Value) -> Vec<(String, Decimal)> {
                 let kind = first_value(item, &["type", "usage_type", "usageType", "name", "key"])?
                     .as_str()?
                     .to_string();
-                let amount = first_value(item, &["amount", "value", "count", "total"]).and_then(json_decimal)?;
+                let amount = first_value(item, &["amount", "value", "count", "total"])
+                    .and_then(json_decimal)?;
                 Some((kind, amount))
             })
             .collect();
@@ -516,7 +564,9 @@ fn model_cost(model: &Value) -> Decimal {
     if has_entries {
         return total;
     }
-    first_value(model, &["amount", "value", "cost"]).and_then(json_decimal).unwrap_or(Decimal::ZERO)
+    first_value(model, &["amount", "value", "cost"])
+        .and_then(json_decimal)
+        .unwrap_or(Decimal::ZERO)
 }
 
 fn bucket_cost(bucket: &Value) -> Decimal {
@@ -525,7 +575,9 @@ fn bucket_cost(bucket: &Value) -> Decimal {
         return amount;
     }
     if cost.is_object() {
-        if let Some(amount) = first_value(cost, &["amount", "value", "cost", "total"]).and_then(json_decimal) {
+        if let Some(amount) =
+            first_value(cost, &["amount", "value", "cost", "total"]).and_then(json_decimal)
+        {
             return amount;
         }
         return usage_entries(cost)
@@ -537,8 +589,18 @@ fn bucket_cost(bucket: &Value) -> Decimal {
 }
 
 fn parse_total_spend(json: &Value) -> Option<Decimal> {
-    let keys = ["total_usage", "totalUsage", "total_spend", "totalSpend", "accumulated_cost", "total_cost"];
-    for root in [biz_data(json), json.get("data"), Some(json)].into_iter().flatten() {
+    let keys = [
+        "total_usage",
+        "totalUsage",
+        "total_spend",
+        "totalSpend",
+        "accumulated_cost",
+        "total_cost",
+    ];
+    for root in [biz_data(json), json.get("data"), Some(json)]
+        .into_iter()
+        .flatten()
+    {
         for key in keys {
             if let Some(amount) = root.get(key).and_then(money_value) {
                 return Some(amount);
@@ -615,12 +677,18 @@ fn bucket_date(value: &Value, tz: FixedOffset) -> Option<String> {
         }
         return None;
     }
-    let number = value.as_i64().or_else(|| value.as_u64().map(|n| n as i64))?;
+    let number = value
+        .as_i64()
+        .or_else(|| value.as_u64().map(|n| n as i64))?;
     timestamp_date(number, tz)
 }
 
 fn timestamp_date(number: i64, tz: FixedOffset) -> Option<String> {
-    let secs = if number > 1_000_000_000_000 { number / 1000 } else { number };
+    let secs = if number > 1_000_000_000_000 {
+        number / 1000
+    } else {
+        number
+    };
     Utc.timestamp_opt(secs, 0)
         .single()
         .map(|instant| instant.with_timezone(&tz).format("%Y-%m-%d").to_string())
@@ -730,9 +798,30 @@ mod tests {
             tz: gmt8(),
         };
         let caps = amount_capabilities(&json, &range).expect("parse");
-        assert_eq!(caps.iter().find(|c| c.capability_id == "request_count").unwrap().primary_value.as_deref(), Some("2"));
-        assert_eq!(caps.iter().find(|c| c.capability_id == "cache_hit_tokens").unwrap().primary_value.as_deref(), Some("100"));
-        assert_eq!(caps.iter().find(|c| c.capability_id == "response_tokens").unwrap().primary_value.as_deref(), Some("20"));
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "request_count")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("2")
+        );
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "cache_hit_tokens")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("100")
+        );
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "response_tokens")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("20")
+        );
     }
 
     #[test]
@@ -763,8 +852,22 @@ mod tests {
             tz: gmt8(),
         };
         let caps = amount_capabilities(&json, &range).expect("parse");
-        assert_eq!(caps.iter().find(|c| c.capability_id == "model_usage_v4_pro").unwrap().primary_value.as_deref(), Some("140"));
-        assert_eq!(caps.iter().find(|c| c.capability_id == "request_count").unwrap().primary_value.as_deref(), Some("3"));
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "model_usage_v4_pro")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("140")
+        );
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "request_count")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("3")
+        );
     }
 
     #[test]
@@ -791,8 +894,22 @@ mod tests {
             tz,
         };
         let caps = cost_capabilities(&new_cost, &range).expect("new cost");
-        assert_eq!(caps.iter().find(|c| c.capability_id == "today_spend").unwrap().primary_value.as_deref(), Some("¥2.30"));
-        assert_eq!(caps.iter().find(|c| c.capability_id == "month_spend").unwrap().primary_value.as_deref(), Some("¥3.50"));
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "today_spend")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("¥2.30")
+        );
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "month_spend")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("¥3.50")
+        );
 
         let legacy = serde_json::json!({
             "data": { "biz_data": [{
@@ -804,7 +921,14 @@ mod tests {
             }]}
         });
         let caps = cost_capabilities(&legacy, &range).expect("legacy cost");
-        assert_eq!(caps.iter().find(|c| c.capability_id == "today_spend").unwrap().primary_value.as_deref(), Some("¥4.00"));
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "today_spend")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("¥4.00")
+        );
     }
 
     #[test]

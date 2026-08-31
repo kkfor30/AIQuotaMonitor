@@ -88,7 +88,12 @@ async fn fetch_inner(client: &Client, cookie: &str) -> Result<Vec<CapabilityData
             _ => {}
         }
         let body: Value = response.json().await.map_err(|_| {
-            RefreshError::new("response_shape_changed", "MiMo 余额返回格式发生变化", false, false)
+            RefreshError::new(
+                "response_shape_changed",
+                "MiMo 余额返回格式发生变化",
+                false,
+                false,
+            )
         })?;
         return parse(&body);
     }
@@ -125,9 +130,15 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
             false,
         ));
     }
-    let total = pick_decimal(body, &["balance", "totalBalance", "availableBalance"]).ok_or_else(|| {
-        RefreshError::new("missing_balance", "MiMo 未返回可解析的余额字段", false, false)
-    })?;
+    let total =
+        pick_decimal(body, &["balance", "totalBalance", "availableBalance"]).ok_or_else(|| {
+            RefreshError::new(
+                "missing_balance",
+                "MiMo 未返回可解析的余额字段",
+                false,
+                false,
+            )
+        })?;
     let cash = pick_decimal(body, &["cashBalance", "cash_balance"]);
     let gift = pick_decimal(body, &["giftBalance", "gift_balance"]);
     let currency = body

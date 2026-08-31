@@ -3,8 +3,8 @@
 pub mod balance;
 pub mod catalog;
 pub mod claude;
-pub mod coding_plan;
 pub mod codex;
+pub mod coding_plan;
 pub mod deepseek;
 pub mod glm;
 pub mod grok;
@@ -55,14 +55,26 @@ fn source_definitions(platform_id: &str) -> Vec<SourceDefinition> {
             one(coding_plan::GLM_SOURCE_ID, "api_key", "Coding Plan"),
             one(glm::WEB_BALANCE_SOURCE_ID, "web_session", "网页个人余额"),
         ],
-        "glm_intl" => vec![one(coding_plan::GLM_INTL_SOURCE_ID, "api_key", "Coding Plan")],
+        "glm_intl" => vec![one(
+            coding_plan::GLM_INTL_SOURCE_ID,
+            "api_key",
+            "Coding Plan",
+        )],
         "minimax" => vec![one(coding_plan::MINIMAX_SOURCE_ID, "api_key", "Token Plan")],
-        "minimax_intl" => vec![one(coding_plan::MINIMAX_INTL_SOURCE_ID, "api_key", "Token Plan")],
+        "minimax_intl" => vec![one(
+            coding_plan::MINIMAX_INTL_SOURCE_ID,
+            "api_key",
+            "Token Plan",
+        )],
         "claude_code" => vec![one(claude::SOURCE_ID, "local_cli", "本地 Claude 订阅")],
         "grok" => vec![one(grok::SOURCE_ID, "local_cli", "本机 Grok")],
         "mimo" => vec![one(mimo::SOURCE_ID, "web_session", "网页会话")],
         "siliconflow" => vec![one(balance::SILICONFLOW_SOURCE_ID, "api_key", "账户余额")],
-        "siliconflow_intl" => vec![one(balance::SILICONFLOW_INTL_SOURCE_ID, "api_key", "账户余额")],
+        "siliconflow_intl" => vec![one(
+            balance::SILICONFLOW_INTL_SOURCE_ID,
+            "api_key",
+            "账户余额",
+        )],
         "stepfun" => vec![one(balance::STEPFUN_SOURCE_ID, "api_key", "账户余额")],
         "openrouter" => vec![one(balance::OPENROUTER_SOURCE_ID, "api_key", "账户余额")],
         "novita" => vec![one(balance::NOVITA_SOURCE_ID, "api_key", "账户余额")],
@@ -72,7 +84,10 @@ fn source_definitions(platform_id: &str) -> Vec<SourceDefinition> {
 
 pub fn supports_multiple_accounts(platform_id: &str) -> bool {
     let definitions = source_definitions(platform_id);
-    !definitions.is_empty() && definitions.iter().all(|source| source.source_type != "local_cli")
+    !definitions.is_empty()
+        && definitions
+            .iter()
+            .all(|source| source.source_type != "local_cli")
 }
 
 fn template(id: &str, source_id: &str, display_name: &str, kind: &str) -> CapabilityTemplate {
@@ -90,15 +105,55 @@ fn deepseek_templates() -> Vec<CapabilityTemplate> {
         template("today_spend", deepseek::WEB_SOURCE_ID, "今日消费", "money"),
         template("total_spend", deepseek::WEB_SOURCE_ID, "累计消费", "money"),
         template("month_spend", deepseek::WEB_SOURCE_ID, "本月消费", "money"),
-        template("model_usage_v4_flash", deepseek::WEB_SOURCE_ID, "V4 Flash 用量", "tokens"),
-        template("model_usage_v4_pro", deepseek::WEB_SOURCE_ID, "V4 Pro 用量", "tokens"),
+        template(
+            "model_usage_v4_flash",
+            deepseek::WEB_SOURCE_ID,
+            "V4 Flash 用量",
+            "tokens",
+        ),
+        template(
+            "model_usage_v4_pro",
+            deepseek::WEB_SOURCE_ID,
+            "V4 Pro 用量",
+            "tokens",
+        ),
         template("request_count", deepseek::WEB_SOURCE_ID, "请求数", "tokens"),
-        template("prompt_tokens", deepseek::WEB_SOURCE_ID, "输入 Token", "tokens"),
-        template("cache_hit_tokens", deepseek::WEB_SOURCE_ID, "输入（命中缓存）", "tokens"),
-        template("cache_miss_tokens", deepseek::WEB_SOURCE_ID, "输入（未命中缓存）", "tokens"),
-        template("response_tokens", deepseek::WEB_SOURCE_ID, "输出 Token", "tokens"),
-        template("cache_hit_rate", deepseek::WEB_SOURCE_ID, "缓存命中率", "percent"),
-        template("usage_trend", deepseek::WEB_SOURCE_ID, "近 7 日消费趋势", "trend"),
+        template(
+            "prompt_tokens",
+            deepseek::WEB_SOURCE_ID,
+            "输入 Token",
+            "tokens",
+        ),
+        template(
+            "cache_hit_tokens",
+            deepseek::WEB_SOURCE_ID,
+            "输入（命中缓存）",
+            "tokens",
+        ),
+        template(
+            "cache_miss_tokens",
+            deepseek::WEB_SOURCE_ID,
+            "输入（未命中缓存）",
+            "tokens",
+        ),
+        template(
+            "response_tokens",
+            deepseek::WEB_SOURCE_ID,
+            "输出 Token",
+            "tokens",
+        ),
+        template(
+            "cache_hit_rate",
+            deepseek::WEB_SOURCE_ID,
+            "缓存命中率",
+            "percent",
+        ),
+        template(
+            "usage_trend",
+            deepseek::WEB_SOURCE_ID,
+            "近 7 日消费趋势",
+            "trend",
+        ),
     ]
 }
 
@@ -114,7 +169,11 @@ fn coding_plan_source_id(platform_id: &str) -> &'static str {
 }
 
 fn coding_plan_templates(source_id: &str) -> Vec<CapabilityTemplate> {
-    let weekly = if source_id == coding_plan::KIMI_SOURCE_ID { "周限额" } else { "周窗口" };
+    let weekly = if source_id == coding_plan::KIMI_SOURCE_ID {
+        "周限额"
+    } else {
+        "周窗口"
+    };
     vec![
         template("quota_window_5h", source_id, "5 小时窗口", "percent"),
         template("quota_window_7d", source_id, weekly, "percent"),
@@ -124,13 +183,23 @@ fn coding_plan_templates(source_id: &str) -> Vec<CapabilityTemplate> {
 
 fn kimi_templates() -> Vec<CapabilityTemplate> {
     let mut templates = coding_plan_templates(coding_plan::KIMI_SOURCE_ID);
-    templates.push(template("balance", kimi::BALANCE_SOURCE_ID, "账户余额", "money"));
+    templates.push(template(
+        "balance",
+        kimi::BALANCE_SOURCE_ID,
+        "账户余额",
+        "money",
+    ));
     templates
 }
 
 fn glm_templates() -> Vec<CapabilityTemplate> {
     let mut templates = coding_plan_templates(coding_plan::GLM_SOURCE_ID);
-    templates.push(template("balance", glm::WEB_BALANCE_SOURCE_ID, "账户余额", "money"));
+    templates.push(template(
+        "balance",
+        glm::WEB_BALANCE_SOURCE_ID,
+        "账户余额",
+        "money",
+    ));
     templates
 }
 
@@ -139,14 +208,25 @@ fn mimo_templates() -> Vec<CapabilityTemplate> {
 }
 
 fn grok_templates() -> Vec<CapabilityTemplate> {
-    vec![template("quota_window_7d", grok::SOURCE_ID, "周窗口", "percent")]
+    vec![template(
+        "quota_window_7d",
+        grok::SOURCE_ID,
+        "周窗口",
+        "percent",
+    )]
 }
 
 /// Claude 窗口模板按最近快照动态生成（5 小时 / 周 / Opus / Sonnet 子窗口），
 /// 与 openai 同机制：首次刷新前无能力覆盖，刷新后按官方实际返回的窗口展示。
-fn claude_templates(database: &Database, sources: &[SourceRecord]) -> Result<Vec<CapabilityTemplate>, String> {
+fn claude_templates(
+    database: &Database,
+    sources: &[SourceRecord],
+) -> Result<Vec<CapabilityTemplate>, String> {
     let mut templates = Vec::new();
-    for source in sources.iter().filter(|source| source.adapter_id == claude::SOURCE_ID) {
+    for source in sources
+        .iter()
+        .filter(|source| source.adapter_id == claude::SOURCE_ID)
+    {
         for snapshot in database.latest_window_snapshots(&source.id)? {
             templates.push(template(
                 &snapshot.capability_id,
@@ -168,9 +248,15 @@ fn balance_platform_templates(source_id: &str) -> Vec<CapabilityTemplate> {
     templates
 }
 
-fn openai_templates(database: &Database, sources: &[SourceRecord]) -> Result<Vec<CapabilityTemplate>, String> {
+fn openai_templates(
+    database: &Database,
+    sources: &[SourceRecord],
+) -> Result<Vec<CapabilityTemplate>, String> {
     let mut templates = Vec::new();
-    for source in sources.iter().filter(|source| source.adapter_id == codex::SOURCE_ID) {
+    for source in sources
+        .iter()
+        .filter(|source| source.adapter_id == codex::SOURCE_ID)
+    {
         for snapshot in database.latest_window_snapshots(&source.id)? {
             templates.push(template(
                 &snapshot.capability_id,
@@ -191,8 +277,16 @@ fn materialize_templates(
 ) -> Vec<CapabilityTemplate> {
     let mut templates = Vec::new();
     for source in records {
-        for base in base_templates.iter().filter(|template| template.source_id == source.adapter_id) {
-            templates.push(template(&base.id, &source.id, &base.display_name, &base.kind));
+        for base in base_templates
+            .iter()
+            .filter(|template| template.source_id == source.adapter_id)
+        {
+            templates.push(template(
+                &base.id,
+                &source.id,
+                &base.display_name,
+                &base.kind,
+            ));
         }
     }
     templates
@@ -205,7 +299,9 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
         let entry = catalog::entry(&added.platform_id);
         let official_url = entry.map(|item| item.official_url).unwrap_or("");
         let display_name = if added.display_name.trim().is_empty() {
-            entry.map(|item| item.display_name).unwrap_or(added.platform_id.as_str())
+            entry
+                .map(|item| item.display_name)
+                .unwrap_or(added.platform_id.as_str())
         } else {
             added.display_name.as_str()
         };
@@ -218,26 +314,22 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
                 added.api_base_url.as_deref(),
                 &deepseek_templates(),
             )?),
-            "openai" => {
-                platforms.push(real_platform(
-                    database,
-                    "openai",
-                    display_name,
-                    official_url,
-                    added.api_base_url.as_deref(),
-                    &[],
-                )?)
-            }
-            "claude_code" => {
-                platforms.push(real_platform(
-                    database,
-                    "claude_code",
-                    display_name,
-                    official_url,
-                    added.api_base_url.as_deref(),
-                    &[],
-                )?)
-            }
+            "openai" => platforms.push(real_platform(
+                database,
+                "openai",
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                &[],
+            )?),
+            "claude_code" => platforms.push(real_platform(
+                database,
+                "claude_code",
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                &[],
+            )?),
             "kimi" => platforms.push(real_platform(
                 database,
                 "kimi",
@@ -311,15 +403,21 @@ pub fn catalog_items(database: &Database) -> Result<Vec<catalog::PlatformCatalog
         .iter()
         .map(|entry| {
             let mut item = catalog::PlatformCatalogItem::from(entry);
-            item.added = added.iter().any(|platform| platform.platform_id == entry.id);
+            item.added = added
+                .iter()
+                .any(|platform| platform.platform_id == entry.id);
             item.supports_multiple_accounts = supports_multiple_accounts(entry.id);
             item
         })
         .collect())
 }
 
-pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::PlatformSetupViewModel, String> {
-    let entry = catalog::entry(platform_id).ok_or_else(|| "该平台不在可添加注册表中".to_string())?;
+pub fn setup_view(
+    database: &Database,
+    platform_id: &str,
+) -> Result<catalog::PlatformSetupViewModel, String> {
+    let entry =
+        catalog::entry(platform_id).ok_or_else(|| "该平台不在可添加注册表中".to_string())?;
     let added = database.user_platform(platform_id)?;
     if added.is_some() {
         ensure_declared_sources(database, platform_id)?;
@@ -332,7 +430,11 @@ pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::Pla
                 && source.adapter_id == coding_plan_source_id(platform_id)
                 && source.source_type == "api_key"
         })
-        .or_else(|| sources.iter().find(|source| source.account_kind != "additional" && source.source_type == "api_key"));
+        .or_else(|| {
+            sources.iter().find(|source| {
+                source.account_kind != "additional" && source.source_type == "api_key"
+            })
+        });
     Ok(catalog::PlatformSetupViewModel {
         platform_id: entry.id.into(),
         display_name: added
@@ -340,7 +442,10 @@ pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::Pla
             .map(|item| item.display_name.clone())
             .filter(|name| !name.trim().is_empty())
             .unwrap_or_else(|| entry.display_name.into()),
-        notes: added.as_ref().map(|item| item.notes.clone()).unwrap_or_default(),
+        notes: added
+            .as_ref()
+            .map(|item| item.notes.clone())
+            .unwrap_or_default(),
         official_url: entry.official_url.into(),
         api_key_url: entry.api_key_url.map(str::to_string),
         api_base_url: added
@@ -351,7 +456,8 @@ pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::Pla
         official_api_base_url: entry.api_base_url.map(str::to_string).unwrap_or_default(),
         api_endpoint_hint: entry.api_endpoint_hint.into(),
         api_key_source_id: api_key_source.map(|source| source.id.clone()),
-        api_key_configured: api_key_source.is_some_and(|source| source_configured(database, source)),
+        api_key_configured: api_key_source
+            .is_some_and(|source| source_configured(database, source)),
         local_cli_source_id: sources
             .iter()
             .find(|source| source.source_type == "local_cli")
@@ -362,9 +468,13 @@ pub fn setup_view(database: &Database, platform_id: &str) -> Result<catalog::Pla
     })
 }
 
-pub fn add_platforms(database: &Database, platform_ids: &[String]) -> Result<Vec<PlatformSummaryViewModel>, String> {
+pub fn add_platforms(
+    database: &Database,
+    platform_ids: &[String],
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
     for platform_id in platform_ids {
-        let entry = catalog::entry(platform_id).ok_or_else(|| format!("不支持添加平台：{platform_id}"))?;
+        let entry =
+            catalog::entry(platform_id).ok_or_else(|| format!("不支持添加平台：{platform_id}"))?;
         ensure_declared_sources(database, platform_id)?;
         database.add_user_platform(entry.id, entry.display_name, entry.api_base_url)?;
     }
@@ -380,9 +490,15 @@ fn ensure_declared_sources(database: &Database, platform_id: &str) -> Result<(),
         return Err(format!("不支持添加平台：{platform_id}"));
     }
     let account_id = format!("{platform_id}-default").replace('_', "-");
-    let local = definitions.iter().all(|source| source.source_type == "local_cli");
+    let local = definitions
+        .iter()
+        .all(|source| source.source_type == "local_cli");
     let account_kind = if local { "local" } else { "default" };
-    let account_name = if local { "本地账户" } else { "默认账户" };
+    let account_name = if local {
+        "本地账户"
+    } else {
+        "默认账户"
+    };
     for definition in definitions {
         database.ensure_account_source_with_adapter(
             &account_id,
@@ -468,7 +584,9 @@ fn real_platform(
         let mut state = source_state(&source.state);
         if !credential_configured {
             state = SourceState::AuthRequired;
-        } else if source.adapter_id == codex::SOURCE_ID && matches!(state, SourceState::AuthRequired) {
+        } else if source.adapter_id == codex::SOURCE_ID
+            && matches!(state, SourceState::AuthRequired)
+        {
             state = SourceState::Ready;
         }
         // 本机来源显示名在 ViewModel 层统一覆盖，旧数据库里的旧名称不再露出
@@ -511,15 +629,19 @@ fn real_platform(
 
     let mut capabilities = Vec::with_capacity(templates.len());
     for template in &templates {
-        let source = records.iter().find(|source| source.id == template.source_id);
+        let source = records
+            .iter()
+            .find(|source| source.id == template.source_id);
         let snapshot = database.latest_snapshot(&template.source_id, &template.id)?;
         capabilities.push(match (source, snapshot) {
             (Some(source), Some(snapshot))
                 if template.id != "credits"
-                    || (source.state == "ready" && source.last_validated_at == Some(snapshot.captured_at)) =>
+                    || (source.state == "ready"
+                        && source.last_validated_at == Some(snapshot.captured_at)) =>
             {
                 let current = source.last_validated_at == Some(snapshot.captured_at);
-                let quota_dropped = template.id.starts_with("quota_window_") && source.state == "ready" && !current;
+                let quota_dropped =
+                    template.id.starts_with("quota_window_") && source.state == "ready" && !current;
                 if quota_dropped {
                     CapabilitySnapshotViewModel {
                         capability_id: template.id.clone(),
@@ -544,9 +666,17 @@ fn real_platform(
                         source_id: source.id.clone(),
                         account_id: source.account_id.clone(),
                         display_name: snapshot.display_name,
-                        freshness: if fresh { DataFreshness::Fresh } else { DataFreshness::Stale },
+                        freshness: if fresh {
+                            DataFreshness::Fresh
+                        } else {
+                            DataFreshness::Stale
+                        },
                         captured_at: millis(Some(snapshot.captured_at)),
-                        last_good_at: if fresh { None } else { millis(Some(snapshot.captured_at)) },
+                        last_good_at: if fresh {
+                            None
+                        } else {
+                            millis(Some(snapshot.captured_at))
+                        },
                         value: CapabilityDisplayValue {
                             kind: snapshot.value_kind,
                             primary: snapshot.primary_value,
@@ -556,7 +686,12 @@ fn real_platform(
                         trend: snapshot
                             .trend
                             .into_iter()
-                            .filter_map(|point| point.value.parse::<f64>().ok().map(|value| TrendPoint { label: point.label, value }))
+                            .filter_map(|point| {
+                                point.value.parse::<f64>().ok().map(|value| TrendPoint {
+                                    label: point.label,
+                                    value,
+                                })
+                            })
                             .collect(),
                     }
                 }
@@ -564,7 +699,9 @@ fn real_platform(
             _ => CapabilitySnapshotViewModel {
                 capability_id: template.id.clone(),
                 source_id: template.source_id.clone(),
-                account_id: source.map(|item| item.account_id.clone()).unwrap_or_default(),
+                account_id: source
+                    .map(|item| item.account_id.clone())
+                    .unwrap_or_default(),
                 display_name: template.display_name.clone(),
                 freshness: DataFreshness::Missing,
                 captured_at: None,
@@ -598,7 +735,10 @@ fn real_platform(
                         return None;
                     }
                     let used = (100.0 - remaining).clamp(0.0, 100.0);
-                    Some(TrendPoint { label, value: (used * 10.0).round() / 10.0 })
+                    Some(TrendPoint {
+                        label,
+                        value: (used * 10.0).round() / 10.0,
+                    })
                 })
                 .collect::<Vec<_>>()
         } else if matches!(
@@ -611,7 +751,10 @@ fn real_platform(
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|(label, amount)| {
-                    amount.is_finite().then(|| TrendPoint { label, value: (amount * 100.0).round() / 100.0 })
+                    amount.is_finite().then(|| TrendPoint {
+                        label,
+                        value: (amount * 100.0).round() / 100.0,
+                    })
                 })
                 .collect::<Vec<_>>()
         } else {
@@ -622,7 +765,10 @@ fn real_platform(
     let platform_status = aggregate_status(&sources, &capabilities);
     let mut accounts = Vec::new();
     for record in &records {
-        if accounts.iter().any(|account: &AccountSummaryViewModel| account.account_id == record.account_id) {
+        if accounts
+            .iter()
+            .any(|account: &AccountSummaryViewModel| account.account_id == record.account_id)
+        {
             continue;
         }
         let account_sources = sources
@@ -644,24 +790,46 @@ fn real_platform(
             display_name: record.account_name.clone(),
             kind: record.account_kind.clone(),
             status: aggregate_status(&account_sources, &account_capabilities),
-            source_ids: account_sources.into_iter().map(|source| source.source_id).collect(),
+            source_ids: account_sources
+                .into_iter()
+                .map(|source| source.source_id)
+                .collect(),
             // V7：本机/默认/额外账号都可改显示别名；移除仍仅限额外账号
             can_rename: true,
             can_remove: record.account_kind == "additional",
         });
     }
-    let configured_count = sources.iter().filter(|source| source.credential_configured).count();
+    let configured_count = sources
+        .iter()
+        .filter(|source| source.credential_configured)
+        .count();
     let access_summary = match provider_id {
         "deepseek" if configured_count == 2 => "API Key + 网页会话".to_string(),
-        "deepseek" if sources.iter().any(|source| source.source_id == deepseek::BALANCE_SOURCE_ID && source.credential_configured) => "API Key".to_string(),
+        "deepseek"
+            if sources.iter().any(|source| {
+                source.source_id == deepseek::BALANCE_SOURCE_ID && source.credential_configured
+            }) =>
+        {
+            "API Key".to_string()
+        }
         "deepseek" if configured_count > 0 => "网页会话".to_string(),
         "openai" => {
-            let local = sources.iter().any(|source| source.account_kind == "local" && source.adapter_id == codex::SOURCE_ID && source.credential_configured);
-            let extra = accounts.iter().filter(|account| {
-                account.kind == "additional" && account.source_ids.iter().any(|source_id| {
-                    sources.iter().any(|source| &source.source_id == source_id && source.credential_configured)
+            let local = sources.iter().any(|source| {
+                source.account_kind == "local"
+                    && source.adapter_id == codex::SOURCE_ID
+                    && source.credential_configured
+            });
+            let extra = accounts
+                .iter()
+                .filter(|account| {
+                    account.kind == "additional"
+                        && account.source_ids.iter().any(|source_id| {
+                            sources.iter().any(|source| {
+                                &source.source_id == source_id && source.credential_configured
+                            })
+                        })
                 })
-            }).count();
+                .count();
             match (local, extra) {
                 (true, 0) => "本机 Codex".to_string(),
                 (true, count) => format!("本机 Codex + {count} 个额外账号"),
@@ -675,7 +843,9 @@ fn real_platform(
         "grok" if configured_count > 0 => "本机 Grok".to_string(),
         "claude_code" if configured_count > 0 => "本机 Claude".to_string(),
         "minimax" | "minimax_intl" if configured_count > 0 => "Token Plan".to_string(),
-        id if balance::source_id_for_platform(id).is_some() && configured_count > 0 => "API Key".to_string(),
+        id if balance::source_id_for_platform(id).is_some() && configured_count > 0 => {
+            "API Key".to_string()
+        }
         _ => "尚未接入".to_string(),
     };
     let refresh_history = database
@@ -743,7 +913,10 @@ fn aggregate_status(
     sources: &[SourceSummaryViewModel],
     capabilities: &[CapabilitySnapshotViewModel],
 ) -> PlatformAggregateStatus {
-    let configured = sources.iter().filter(|source| source.credential_configured).collect::<Vec<_>>();
+    let configured = sources
+        .iter()
+        .filter(|source| source.credential_configured)
+        .collect::<Vec<_>>();
     if configured.is_empty() {
         return PlatformAggregateStatus::SetupRequired;
     }
@@ -755,8 +928,12 @@ fn aggregate_status(
         .iter()
         .filter(|value| configured_ids.contains(value.source_id.as_str()))
         .collect::<Vec<_>>();
-    let has_value = relevant.iter().any(|value| value.freshness != DataFreshness::Missing);
-    let all_ready = configured.iter().all(|source| matches!(source.state, SourceState::Ready));
+    let has_value = relevant
+        .iter()
+        .any(|value| value.freshness != DataFreshness::Missing);
+    let all_ready = configured
+        .iter()
+        .all(|source| matches!(source.state, SourceState::Ready));
     let all_fresh = relevant.iter().all(|value| {
         value.freshness == DataFreshness::Fresh || missing_capability_ok(value, capabilities)
     });
@@ -790,7 +967,9 @@ fn access_mode(source_id: &str, source_type: &str) -> String {
     if coding_plan::is_coding_plan_source(source_id) {
         return if matches!(
             source_id,
-            coding_plan::KIMI_SOURCE_ID | coding_plan::GLM_SOURCE_ID | coding_plan::GLM_INTL_SOURCE_ID
+            coding_plan::KIMI_SOURCE_ID
+                | coding_plan::GLM_SOURCE_ID
+                | coding_plan::GLM_INTL_SOURCE_ID
         ) {
             "coding_plan".into()
         } else {
@@ -798,9 +977,10 @@ fn access_mode(source_id: &str, source_type: &str) -> String {
         };
     }
     match source_id {
-        deepseek::BALANCE_SOURCE_ID | kimi::BALANCE_SOURCE_ID | glm::WEB_BALANCE_SOURCE_ID | mimo::SOURCE_ID => {
-            "personal_balance".into()
-        }
+        deepseek::BALANCE_SOURCE_ID
+        | kimi::BALANCE_SOURCE_ID
+        | glm::WEB_BALANCE_SOURCE_ID
+        | mimo::SOURCE_ID => "personal_balance".into(),
         deepseek::WEB_SOURCE_ID => "web_usage".into(),
         _ if source_type == "local_cli" || source_type == "oauth" => "local_cli".into(),
         _ => "personal_balance".into(),
@@ -850,8 +1030,12 @@ fn credential_input(source_id: &str, source_type: &str) -> Option<CredentialInpu
 }
 
 fn kimi_access_summary(sources: &[SourceSummaryViewModel]) -> String {
-    let coding = sources.iter().any(|source| source.adapter_id == coding_plan::KIMI_SOURCE_ID && source.credential_configured);
-    let balance = sources.iter().any(|source| source.adapter_id == kimi::BALANCE_SOURCE_ID && source.credential_configured);
+    let coding = sources.iter().any(|source| {
+        source.adapter_id == coding_plan::KIMI_SOURCE_ID && source.credential_configured
+    });
+    let balance = sources
+        .iter()
+        .any(|source| source.adapter_id == kimi::BALANCE_SOURCE_ID && source.credential_configured);
     match (coding, balance) {
         (true, true) => "Coding Plan + 个人余额".into(),
         (true, false) => "Coding Plan".into(),
@@ -867,7 +1051,9 @@ fn glm_access_summary(sources: &[SourceSummaryViewModel]) -> String {
             coding_plan::GLM_SOURCE_ID | coding_plan::GLM_INTL_SOURCE_ID
         ) && source.credential_configured
     });
-    let balance = sources.iter().any(|source| source.adapter_id == glm::WEB_BALANCE_SOURCE_ID && source.credential_configured);
+    let balance = sources.iter().any(|source| {
+        source.adapter_id == glm::WEB_BALANCE_SOURCE_ID && source.credential_configured
+    });
     match (coding, balance) {
         (true, true) => "Token Plan + 个人余额".into(),
         (true, false) => "Token Plan".into(),
@@ -926,7 +1112,11 @@ mod tests {
         }
     }
 
-    fn capability(id: &str, source_id: &str, freshness: DataFreshness) -> CapabilitySnapshotViewModel {
+    fn capability(
+        id: &str,
+        source_id: &str,
+        freshness: DataFreshness,
+    ) -> CapabilitySnapshotViewModel {
         CapabilitySnapshotViewModel {
             capability_id: id.into(),
             source_id: source_id.into(),
@@ -957,7 +1147,10 @@ mod tests {
             capability("plan_level", "glm-coding-plan", DataFreshness::Fresh),
             capability("balance", "glm-web-balance", DataFreshness::Missing),
         ];
-        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Healthy);
+        assert_eq!(
+            aggregate_status(&sources, &capabilities),
+            PlatformAggregateStatus::Healthy
+        );
     }
 
     #[test]
@@ -970,13 +1163,19 @@ mod tests {
             capability("quota_window_5h", "glm-coding-plan", DataFreshness::Fresh),
             capability("balance", "glm-web-balance", DataFreshness::Stale),
         ];
-        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Partial);
+        assert_eq!(
+            aggregate_status(&sources, &capabilities),
+            PlatformAggregateStatus::Partial
+        );
     }
 
     #[test]
     fn no_configured_source_is_setup_required() {
         let sources = vec![source("glm-coding-plan", false, SourceState::AuthRequired)];
-        assert_eq!(aggregate_status(&sources, &[]), PlatformAggregateStatus::SetupRequired);
+        assert_eq!(
+            aggregate_status(&sources, &[]),
+            PlatformAggregateStatus::SetupRequired
+        );
     }
 
     #[test]
@@ -988,15 +1187,34 @@ mod tests {
         let mut extra_plan = capability("plan_level", "openai-codex-extra-1", DataFreshness::Fresh);
         extra_plan.value.primary = Some("Free".into());
         let capabilities = vec![
-            capability("quota_window_5h", "openai-codex-local", DataFreshness::Fresh),
-            capability("quota_window_7d", "openai-codex-local", DataFreshness::Fresh),
+            capability(
+                "quota_window_5h",
+                "openai-codex-local",
+                DataFreshness::Fresh,
+            ),
+            capability(
+                "quota_window_7d",
+                "openai-codex-local",
+                DataFreshness::Fresh,
+            ),
             capability("plan_level", "openai-codex-local", DataFreshness::Fresh),
-            capability("quota_window_5h", "openai-codex-extra-1", DataFreshness::Missing),
-            capability("quota_window_7d", "openai-codex-extra-1", DataFreshness::Missing),
+            capability(
+                "quota_window_5h",
+                "openai-codex-extra-1",
+                DataFreshness::Missing,
+            ),
+            capability(
+                "quota_window_7d",
+                "openai-codex-extra-1",
+                DataFreshness::Missing,
+            ),
             capability("credits", "openai-codex-extra-1", DataFreshness::Missing),
             extra_plan,
         ];
-        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Healthy);
+        assert_eq!(
+            aggregate_status(&sources, &capabilities),
+            PlatformAggregateStatus::Healthy
+        );
     }
 
     #[test]
@@ -1008,15 +1226,38 @@ mod tests {
         let mut extra_plan = capability("plan_level", "openai-codex-extra-1", DataFreshness::Fresh);
         extra_plan.value.primary = Some("Free".into());
         let capabilities = vec![
-            capability("quota_window_5h", "openai-codex-local", DataFreshness::Fresh),
-            capability("quota_window_7d", "openai-codex-local", DataFreshness::Fresh),
+            capability(
+                "quota_window_5h",
+                "openai-codex-local",
+                DataFreshness::Fresh,
+            ),
+            capability(
+                "quota_window_7d",
+                "openai-codex-local",
+                DataFreshness::Fresh,
+            ),
             capability("plan_level", "openai-codex-local", DataFreshness::Fresh),
-            capability("quota_window_5h", "openai-codex-extra-1", DataFreshness::Missing),
-            capability("quota_window_7d", "openai-codex-extra-1", DataFreshness::Missing),
-            capability("quota_window_30d", "openai-codex-extra-1", DataFreshness::Fresh),
+            capability(
+                "quota_window_5h",
+                "openai-codex-extra-1",
+                DataFreshness::Missing,
+            ),
+            capability(
+                "quota_window_7d",
+                "openai-codex-extra-1",
+                DataFreshness::Missing,
+            ),
+            capability(
+                "quota_window_30d",
+                "openai-codex-extra-1",
+                DataFreshness::Fresh,
+            ),
             extra_plan,
         ];
-        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Healthy);
+        assert_eq!(
+            aggregate_status(&sources, &capabilities),
+            PlatformAggregateStatus::Healthy
+        );
     }
 
     #[test]
@@ -1025,10 +1266,21 @@ mod tests {
         let mut plan = capability("plan_level", "openai-codex-local", DataFreshness::Fresh);
         plan.value.primary = Some("Pro".into());
         let capabilities = vec![
-            capability("quota_window_5h", "openai-codex-local", DataFreshness::Missing),
-            capability("quota_window_7d", "openai-codex-local", DataFreshness::Fresh),
+            capability(
+                "quota_window_5h",
+                "openai-codex-local",
+                DataFreshness::Missing,
+            ),
+            capability(
+                "quota_window_7d",
+                "openai-codex-local",
+                DataFreshness::Fresh,
+            ),
             plan,
         ];
-        assert_eq!(aggregate_status(&sources, &capabilities), PlatformAggregateStatus::Healthy);
+        assert_eq!(
+            aggregate_status(&sources, &capabilities),
+            PlatformAggregateStatus::Healthy
+        );
     }
 }

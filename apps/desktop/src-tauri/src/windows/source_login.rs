@@ -352,7 +352,9 @@ fn watcher_generation() -> &'static Mutex<HashMap<String, u64>> {
 }
 
 fn bump_watcher(source_id: &str) -> u64 {
-    let mut map = watcher_generation().lock().unwrap_or_else(|error| error.into_inner());
+    let mut map = watcher_generation()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let next = map.get(source_id).copied().unwrap_or(0).saturating_add(1);
     map.insert(source_id.to_string(), next);
     next
@@ -424,7 +426,10 @@ pub async fn open(app: &tauri::AppHandle, source_id: &str, adapter_id: &str) -> 
         let _ = window.eval(template.init_script);
         let _ = window.eval(&format!("location.href = '{}';", template.login_url));
         attach_deepseek_native_hooks(app, &window, source_id, adapter_id);
-        let _ = app.emit("source-login-status", format!("正在打开 {}…", template.window_title));
+        let _ = app.emit(
+            "source-login-status",
+            format!("正在打开 {}…", template.window_title),
+        );
         start_watcher(
             app.clone(),
             source_id.to_string(),
@@ -503,7 +508,11 @@ pub async fn open(app: &tauri::AppHandle, source_id: &str, adapter_id: &str) -> 
     Ok(())
 }
 
-pub fn clear_session(app: &tauri::AppHandle, source_id: &str, adapter_id: &str) -> Result<(), String> {
+pub fn clear_session(
+    app: &tauri::AppHandle,
+    source_id: &str,
+    adapter_id: &str,
+) -> Result<(), String> {
     let Some(template) = template_for(adapter_id) else {
         return Ok(());
     };
@@ -709,7 +718,11 @@ fn attach_deepseek_native_hooks(
     }
 }
 
-fn poll_deepseek_page_token(app: &tauri::AppHandle, window: &tauri::WebviewWindow, source_id: &str) {
+fn poll_deepseek_page_token(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    source_id: &str,
+) {
     #[cfg(windows)]
     {
         poll_deepseek_page_token_windows(app, window, source_id.to_string());
@@ -729,7 +742,9 @@ fn attach_deepseek_native_hooks_windows(
 ) {
     let label = window.label().to_string();
     {
-        let mut hooked = native_hooks_attached().lock().unwrap_or_else(|error| error.into_inner());
+        let mut hooked = native_hooks_attached()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         if !hooked.insert(label.clone()) {
             return;
         }
@@ -746,58 +761,63 @@ fn attach_deepseek_native_hooks_windows(
             return;
         };
         let app_for_message = app_for_webview.clone();
-        let message_handler = WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
-            let Some(args) = args else {
-                return Ok(());
-            };
-            let mut raw = windows_core::PWSTR::null();
-            let message = if args.TryGetWebMessageAsString(&mut raw).is_ok() {
-                webview2_com::take_pwstr(raw)
-            } else {
-                let mut json = windows_core::PWSTR::null();
-                if args.WebMessageAsJson(&mut json).is_err() {
+        let message_handler =
+            WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
+                let Some(args) = args else {
                     return Ok(());
+                };
+                let mut raw = windows_core::PWSTR::null();
+                let message = if args.TryGetWebMessageAsString(&mut raw).is_ok() {
+                    webview2_com::take_pwstr(raw)
+                } else {
+                    let mut json = windows_core::PWSTR::null();
+                    if args.WebMessageAsJson(&mut json).is_err() {
+                        return Ok(());
+                    }
+                    webview2_com::take_pwstr(json).trim_matches('"').to_string()
+                };
+                if let Some(token) = token_from_prefix(&message) {
+                    spawn_deepseek_capture(
+                        app_for_message.clone(),
+                        message_source.clone(),
+                        message_label.clone(),
+                        token,
+                    );
                 }
-                webview2_com::take_pwstr(json).trim_matches('"').to_string()
-            };
-            if let Some(token) = token_from_prefix(&message) {
-                spawn_deepseek_capture(
-                    app_for_message.clone(),
-                    message_source.clone(),
-                    message_label.clone(),
-                    token,
-                );
-            }
-            Ok(())
-        }));
+                Ok(())
+            }));
         let mut message_token = 0i64;
         let _ = core.add_WebMessageReceived(&message_handler, &mut message_token);
 
-        let title_handler = DocumentTitleChangedEventHandler::create(Box::new(move |webview, _args| {
-            let Some(core) = webview else {
-                return Ok(());
-            };
-            let mut title = windows_core::PWSTR::null();
-            if core.DocumentTitle(&mut title).is_err() {
-                return Ok(());
-            }
-            let title = webview2_com::take_pwstr(title);
-            if let Some(token) = token_from_prefix(&title) {
-                spawn_deepseek_capture(
-                    app_for_webview.clone(),
-                    source_id.clone(),
-                    title_label.clone(),
-                    token,
-                );
-            }
-            Ok(())
-        }));
+        let title_handler =
+            DocumentTitleChangedEventHandler::create(Box::new(move |webview, _args| {
+                let Some(core) = webview else {
+                    return Ok(());
+                };
+                let mut title = windows_core::PWSTR::null();
+                if core.DocumentTitle(&mut title).is_err() {
+                    return Ok(());
+                }
+                let title = webview2_com::take_pwstr(title);
+                if let Some(token) = token_from_prefix(&title) {
+                    spawn_deepseek_capture(
+                        app_for_webview.clone(),
+                        source_id.clone(),
+                        title_label.clone(),
+                        token,
+                    );
+                }
+                Ok(())
+            }));
         let mut title_token = 0i64;
         let _ = core.add_DocumentTitleChanged(&title_handler, &mut title_token);
     });
     if result.is_err() {
         unhook_native_capture(&label);
-        let _ = app.emit("source-login-status", "登录窗口暂不可直接读取会话，正在改用页面脚本重试…");
+        let _ = app.emit(
+            "source-login-status",
+            "登录窗口暂不可直接读取会话，正在改用页面脚本重试…",
+        );
     }
 }
 
@@ -829,19 +849,20 @@ fn poll_deepseek_page_token_windows(
                 );
             }
         }
-        let handler = ExecuteScriptCompletedHandler::create(Box::new(move |error_code, result: String| {
-            if error_code.is_ok() {
-                if let Some(token) = parse_script_string(&result) {
-                    spawn_deepseek_capture(
-                        app_for_webview.clone(),
-                        source_id.clone(),
-                        window_label.clone(),
-                        token,
-                    );
+        let handler =
+            ExecuteScriptCompletedHandler::create(Box::new(move |error_code, result: String| {
+                if error_code.is_ok() {
+                    if let Some(token) = parse_script_string(&result) {
+                        spawn_deepseek_capture(
+                            app_for_webview.clone(),
+                            source_id.clone(),
+                            window_label.clone(),
+                            token,
+                        );
+                    }
                 }
-            }
-            Ok(())
-        }));
+                Ok(())
+            }));
         let script = HSTRING::from(DEEPSEEK_POLL_SCRIPT);
         let _ = core.ExecuteScript(&script, &handler);
     });
@@ -916,7 +937,8 @@ fn start_watcher(
                     );
                 } else if let Some(secret) = title_secret(&title, template) {
                     let _ = window.set_title(template.window_title);
-                    let allow_blank = template.source_id != deepseek::WEB_SOURCE_ID || is_usage_page(&window);
+                    let allow_blank =
+                        template.source_id != deepseek::WEB_SOURCE_ID || is_usage_page(&window);
                     if matches!(
                         capture_and_finish(&app, &window, &source_id, &secret, allow_blank).await,
                         CaptureOutcome::Success
@@ -964,7 +986,9 @@ fn cookie_ready(header: &str, template: &LoginTemplate) -> bool {
     }
     match template.cookie_required {
         Some("serviceToken") => mimo::cookie_looks_logged_in(header),
-        Some("bigmodel_token_production") => crate::providers::money::extract_token_cookie(header).is_some(),
+        Some("bigmodel_token_production") => {
+            crate::providers::money::extract_token_cookie(header).is_some()
+        }
         Some(name) => crate::providers::money::cookie_named(header, name),
         None => false,
     }
@@ -1037,7 +1061,10 @@ fn cookie_query_url(login_url: &str) -> String {
     let Some(scheme_end) = without_hash.find("://") else {
         return without_hash.to_string();
     };
-    let host = without_hash[scheme_end + 3..].split('/').next().unwrap_or_default();
+    let host = without_hash[scheme_end + 3..]
+        .split('/')
+        .next()
+        .unwrap_or_default();
     format!("{}://{host}/", &without_hash[..scheme_end])
 }
 
@@ -1096,7 +1123,9 @@ fn request_native_cookies_windows(
             let actual_window_label = window_label.clone();
             let handler = webview2_com::GetCookiesCompletedHandler::create(Box::new(
                 move |error_code: windows_core::Result<()>,
-                      list: Option<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CookieList>| {
+                      list: Option<
+                    webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CookieList,
+                >| {
                     let parse = || -> Option<String> {
                         error_code.ok()?;
                         let list = list?;
@@ -1107,7 +1136,8 @@ fn request_native_cookies_windows(
                             let cookie = list.GetValueAtIndex(index).ok()?;
                             let mut name = windows_core::PWSTR::null();
                             let mut value = windows_core::PWSTR::null();
-                            if cookie.Name(&mut name).is_err() || cookie.Value(&mut value).is_err() {
+                            if cookie.Name(&mut name).is_err() || cookie.Value(&mut value).is_err()
+                            {
                                 continue;
                             }
                             let name = webview2_com::take_pwstr(name);
@@ -1127,7 +1157,9 @@ fn request_native_cookies_windows(
                                 let Some(window) = app.get_webview_window(&window_label) else {
                                     return;
                                 };
-                                let _ = capture_and_finish(&app, &window, &source_id, &cookie, true).await;
+                                let _ =
+                                    capture_and_finish(&app, &window, &source_id, &cookie, true)
+                                        .await;
                             });
                         } else if adapter_id == glm::WEB_BALANCE_SOURCE_ID
                             && cookie.split(';').count() >= 3
@@ -1148,7 +1180,10 @@ fn request_native_cookies_windows(
         }
     });
     if result.is_err() {
-        let _ = app.emit("source-login-status", "登录窗口暂不可读取 Cookie，正在重试…");
+        let _ = app.emit(
+            "source-login-status",
+            "登录窗口暂不可读取 Cookie，正在重试…",
+        );
     }
 }
 
@@ -1201,7 +1236,8 @@ fn find_webview_cached_usage_token() -> Option<String> {
         if !path.is_file() {
             continue;
         }
-        if let Some(token) = read_shared_text(&path).and_then(|text| extract_user_api_token(&text)) {
+        if let Some(token) = read_shared_text(&path).and_then(|text| extract_user_api_token(&text))
+        {
             return Some(token);
         }
     }
@@ -1209,19 +1245,27 @@ fn find_webview_cached_usage_token() -> Option<String> {
 }
 
 fn usage_is_blank(output: &SourceRefreshOutput) -> bool {
-    output.capabilities.iter().all(|capability| match capability.capability_id.as_str() {
-        "usage_trend" => true,
-        "cache_hit_rate" => matches!(capability.primary_value.as_deref(), None | Some("0%") | Some("0.0%")),
-        "today_spend" | "month_spend" => matches!(capability.primary_value.as_deref(), None | Some("¥0.00")),
-        "model_usage_v4_flash"
-        | "model_usage_v4_pro"
-        | "request_count"
-        | "prompt_tokens"
-        | "cache_hit_tokens"
-        | "cache_miss_tokens"
-        | "response_tokens" => matches!(capability.primary_value.as_deref(), None | Some("0")),
-        _ => true,
-    })
+    output
+        .capabilities
+        .iter()
+        .all(|capability| match capability.capability_id.as_str() {
+            "usage_trend" => true,
+            "cache_hit_rate" => matches!(
+                capability.primary_value.as_deref(),
+                None | Some("0%") | Some("0.0%")
+            ),
+            "today_spend" | "month_spend" => {
+                matches!(capability.primary_value.as_deref(), None | Some("¥0.00"))
+            }
+            "model_usage_v4_flash"
+            | "model_usage_v4_pro"
+            | "request_count"
+            | "prompt_tokens"
+            | "cache_hit_tokens"
+            | "cache_miss_tokens"
+            | "response_tokens" => matches!(capability.primary_value.as_deref(), None | Some("0")),
+            _ => true,
+        })
 }
 
 async fn capture_and_finish(
@@ -1277,7 +1321,12 @@ async fn capture_and_finish(
     outcome
 }
 
-async fn capture(app: &tauri::AppHandle, source_id: &str, secret: &str, allow_blank: bool) -> Result<(), String> {
+async fn capture(
+    app: &tauri::AppHandle,
+    source_id: &str,
+    secret: &str,
+    allow_blank: bool,
+) -> Result<(), String> {
     let database = app.state::<Database>();
     let coordinator = app.state::<RefreshCoordinator>();
     let source = database.source(source_id)?;
@@ -1353,7 +1402,9 @@ mod tests {
 
     #[test]
     fn usage_token_accepts_deepseek_km_prefix() {
-        assert!(looks_like_usage_token("km/KD4EfN5tDqXoapbetnJGdB3abl8SAENjhgk"));
+        assert!(looks_like_usage_token(
+            "km/KD4EfN5tDqXoapbetnJGdB3abl8SAENjhgk"
+        ));
         assert!(!looks_like_usage_token("short"));
         assert_eq!(
             token_from_prefix("AIQM_USAGE_TOKEN:km/KD4EfN5tDqXoapbetnJGdB3abl8SAENjhgk").as_deref(),

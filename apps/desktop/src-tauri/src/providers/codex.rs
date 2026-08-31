@@ -112,7 +112,9 @@ pub async fn fetch_at(client: &Client, home: Option<&Path>) -> SourceRefreshOutp
         }
         Err(app_error) => match fetch_wham_at(client, home).await {
             Ok(capabilities) => SourceRefreshOutput::success(capabilities),
-            Err(wham_error) => SourceRefreshOutput::failure(combine_codex_errors(home, app_error, wham_error)),
+            Err(wham_error) => {
+                SourceRefreshOutput::failure(combine_codex_errors(home, app_error, wham_error))
+            }
         },
     }
 }
@@ -191,7 +193,11 @@ pub fn logout_cli_at(home: Option<&Path>) -> Result<(), String> {
     Ok(())
 }
 
-fn combine_codex_errors(home: Option<&Path>, app_error: AppServerError, mut wham_error: RefreshError) -> RefreshError {
+fn combine_codex_errors(
+    home: Option<&Path>,
+    app_error: AppServerError,
+    mut wham_error: RefreshError,
+) -> RefreshError {
     let app = app_error.message().to_string();
     let stale = token_stale_hint(home);
     if wham_error.code == "network_error" {
@@ -261,7 +267,10 @@ fn find_codex_in_dir(dir: &Path) -> Option<PathBuf> {
     } else {
         ["codex"].as_slice()
     };
-    names.iter().map(|name| dir.join(name)).find(|path| path.is_file())
+    names
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
 }
 
 fn codex_search_dirs() -> Vec<PathBuf> {
@@ -389,14 +398,12 @@ async fn write_json_line(stdin: &mut ChildStdin, value: &Value) -> Result<(), Ap
     let mut bytes = serde_json::to_vec(value)
         .map_err(|_| AppServerError::Protocol("无法编码 Codex app-server 请求".into()))?;
     bytes.push(b'\n');
-    stdin
-        .write_all(&bytes)
-        .await
-        .map_err(|error| AppServerError::Unavailable(format!("无法写入 Codex app-server：{error}")))?;
-    stdin
-        .flush()
-        .await
-        .map_err(|error| AppServerError::Unavailable(format!("无法启动 Codex app-server 请求：{error}")))
+    stdin.write_all(&bytes).await.map_err(|error| {
+        AppServerError::Unavailable(format!("无法写入 Codex app-server：{error}"))
+    })?;
+    stdin.flush().await.map_err(|error| {
+        AppServerError::Unavailable(format!("无法启动 Codex app-server 请求：{error}"))
+    })
 }
 
 async fn read_response(
@@ -407,12 +414,13 @@ async fn read_response(
     let mut line = String::new();
     for _ in 0..32 {
         line.clear();
-        let count = stdout
-            .read_line(&mut line)
-            .await
-            .map_err(|error| AppServerError::Unavailable(format!("读取 Codex app-server 失败：{error}")))?;
+        let count = stdout.read_line(&mut line).await.map_err(|error| {
+            AppServerError::Unavailable(format!("读取 Codex app-server 失败：{error}"))
+        })?;
         if count == 0 {
-            return Err(AppServerError::Protocol(format!("Codex app-server 在 {method} 响应前退出")));
+            return Err(AppServerError::Protocol(format!(
+                "Codex app-server 在 {method} 响应前退出"
+            )));
         }
         let response: Value = serde_json::from_str(line.trim())
             .map_err(|_| AppServerError::Protocol("Codex app-server 返回了非 JSON 内容".into()))?;
@@ -422,16 +430,20 @@ async fn read_response(
         if let Some(error) = response.get("error") {
             return Err(classify_rpc_error(error, method));
         }
-        return response
-            .get("result")
-            .cloned()
-            .ok_or_else(|| AppServerError::Protocol(format!("Codex app-server {method} 缺少 result")));
+        return response.get("result").cloned().ok_or_else(|| {
+            AppServerError::Protocol(format!("Codex app-server {method} 缺少 result"))
+        });
     }
-    Err(AppServerError::Protocol(format!("Codex app-server 未匹配 {method} 响应")))
+    Err(AppServerError::Protocol(format!(
+        "Codex app-server 未匹配 {method} 响应"
+    )))
 }
 
 fn classify_rpc_error(error: &Value, method: &str) -> AppServerError {
-    let message = error.get("message").and_then(Value::as_str).unwrap_or("未知错误");
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("未知错误");
     let detail = format!("Codex app-server {method} 失败：{message}");
     let code = error.get("code").and_then(Value::as_i64);
     let data = error.get("data");
@@ -443,21 +455,40 @@ fn classify_rpc_error(error: &Value, method: &str) -> AppServerError {
     let status = data
         .and_then(|value| value.get("status").or_else(|| value.get("httpStatus")))
         .and_then(Value::as_i64);
-    if matches!(code, Some(-32601 | -32602)) || matches!(kind.as_str(), "protocol" | "unsupported_method" | "method_not_found") {
+    if matches!(code, Some(-32601 | -32602))
+        || matches!(
+            kind.as_str(),
+            "protocol" | "unsupported_method" | "method_not_found"
+        )
+    {
         AppServerError::Protocol(detail)
-    } else if matches!(code, Some(401 | 403)) || matches!(status, Some(401 | 403)) || matches!(kind.as_str(), "credential" | "authentication" | "authorization") {
+    } else if matches!(code, Some(401 | 403))
+        || matches!(status, Some(401 | 403))
+        || matches!(
+            kind.as_str(),
+            "credential" | "authentication" | "authorization"
+        )
+    {
         AppServerError::Credential(detail)
-    } else if matches!(kind.as_str(), "subscription" | "unsupported" | "no_active_plan") {
+    } else if matches!(
+        kind.as_str(),
+        "subscription" | "unsupported" | "no_active_plan"
+    ) {
         AppServerError::Unsupported(detail)
     } else {
         AppServerError::Network(detail)
     }
 }
 
-fn parse_app_server(account: Value, rate_limits: Value) -> Result<Vec<CapabilityData>, AppServerError> {
+fn parse_app_server(
+    account: Value,
+    rate_limits: Value,
+) -> Result<Vec<CapabilityData>, AppServerError> {
     let account = account.get("account").unwrap_or(&account);
     if account_uses_api_key(account) {
-        return Err(AppServerError::Unsupported("API Key 登录不支持个人订阅额度".into()));
+        return Err(AppServerError::Unsupported(
+            "API Key 登录不支持个人订阅额度".into(),
+        ));
     }
     let body = rate_limits
         .get("rateLimits")
@@ -484,15 +515,25 @@ fn parse_app_server(account: Value, rate_limits: Value) -> Result<Vec<Capability
     }
     deduplicate_capabilities(&mut capabilities);
     if !codex_capabilities_usable(&capabilities) {
-        return Err(AppServerError::Protocol("Codex app-server 未返回可识别的订阅窗口或套餐".into()));
+        return Err(AppServerError::Protocol(
+            "Codex app-server 未返回可识别的订阅窗口或套餐".into(),
+        ));
     }
     Ok(capabilities)
 }
 
-async fn fetch_wham_at(client: &Client, home: Option<&Path>) -> Result<Vec<CapabilityData>, RefreshError> {
+async fn fetch_wham_at(
+    client: &Client,
+    home: Option<&Path>,
+) -> Result<Vec<CapabilityData>, RefreshError> {
     let auth = read_auth_at(home)?;
     let tokens = auth.tokens.as_ref().ok_or_else(|| {
-        RefreshError::new("auth_required", "未登录 GPT：Codex CLI 缺少 OAuth 凭据", true, false)
+        RefreshError::new(
+            "auth_required",
+            "未登录 GPT：Codex CLI 缺少 OAuth 凭据",
+            true,
+            false,
+        )
     })?;
     let account_id = tokens.account_id.as_deref().or(auth.account_id.as_deref());
     for attempt in 0..2 {
@@ -529,7 +570,12 @@ async fn fetch_wham_at(client: &Client, home: Option<&Path>) -> Result<Vec<Capab
                 ));
             }
             StatusCode::TOO_MANY_REQUESTS => {
-                return Err(RefreshError::new("rate_limited", "GPT 额度服务请求过于频繁", false, true));
+                return Err(RefreshError::new(
+                    "rate_limited",
+                    "GPT 额度服务请求过于频繁",
+                    false,
+                    true,
+                ));
             }
             status if status.is_server_error() && attempt == 0 => {
                 tokio::time::sleep(Duration::from_millis(250)).await;
@@ -546,7 +592,12 @@ async fn fetch_wham_at(client: &Client, home: Option<&Path>) -> Result<Vec<Capab
             _ => {}
         }
         let body = response.json::<Value>().await.map_err(|_| {
-            RefreshError::new("response_shape_changed", "GPT 额度返回格式发生变化", false, false)
+            RefreshError::new(
+                "response_shape_changed",
+                "GPT 额度返回格式发生变化",
+                false,
+                false,
+            )
         })?;
         let mut capabilities = body
             .get("rate_limit")
@@ -579,7 +630,10 @@ async fn fetch_wham_at(client: &Client, home: Option<&Path>) -> Result<Vec<Capab
 }
 
 fn parse_rate_limit_container(value: &Value) -> Vec<CapabilityData> {
-    let value = value.get("rate_limit").or_else(|| value.get("rateLimit")).unwrap_or(value);
+    let value = value
+        .get("rate_limit")
+        .or_else(|| value.get("rateLimit"))
+        .unwrap_or(value);
     ["primary_window", "secondary_window", "primary", "secondary"]
         .iter()
         .filter_map(|field| value.get(field))
@@ -603,8 +657,12 @@ fn window_capability(window: &Value) -> Option<CapabilityData> {
     )
     .map(|value| value.round() as u64)
     .or_else(|| {
-        number(window.get("window_duration_mins").or_else(|| window.get("windowDurationMins")))
-            .map(|value| (value * 60.0).round() as u64)
+        number(
+            window
+                .get("window_duration_mins")
+                .or_else(|| window.get("windowDurationMins")),
+        )
+        .map(|value| (value * 60.0).round() as u64)
     })?;
     let (id, label) = match duration {
         18_000 => ("quota_window_5h".to_string(), "5 小时窗口".to_string()),
@@ -616,8 +674,12 @@ fn window_capability(window: &Value) -> Option<CapabilityData> {
     let remaining = (100.0 - used).clamp(0.0, 100.0);
     let reset_ms = structured_reset_at(window);
     let reset = reset_ms.and_then(|ms| {
-        chrono::DateTime::from_timestamp_millis(ms)
-            .map(|time| format!("重置 {}", time.with_timezone(&chrono::Local).format("%m-%d %H:%M")))
+        chrono::DateTime::from_timestamp_millis(ms).map(|time| {
+            format!(
+                "重置 {}",
+                time.with_timezone(&chrono::Local).format("%m-%d %H:%M")
+            )
+        })
     });
     Some(CapabilityData {
         capability_id: id,
@@ -637,11 +699,16 @@ fn window_capability(window: &Value) -> Option<CapabilityData> {
 
 fn codex_capabilities_usable(capabilities: &[CapabilityData]) -> bool {
     capabilities.iter().any(|capability| {
-        capability.capability_id.starts_with("quota_window_") || capability.capability_id == "plan_level"
+        capability.capability_id.starts_with("quota_window_")
+            || capability.capability_id == "plan_level"
     })
 }
 
-fn append_plan_and_credits(capabilities: &mut Vec<CapabilityData>, plan: Option<&str>, body: &Value) {
+fn append_plan_and_credits(
+    capabilities: &mut Vec<CapabilityData>,
+    plan: Option<&str>,
+    body: &Value,
+) {
     if let Some(plan) = plan.filter(|value| !value.trim().is_empty()) {
         capabilities.push(CapabilityData {
             capability_id: "plan_level".into(),
@@ -683,7 +750,12 @@ fn account_uses_api_key(account: &Value) -> bool {
     ["authMode", "auth_mode", "loginType", "login_type", "type"]
         .iter()
         .filter_map(|key| account.get(key).and_then(Value::as_str))
-        .any(|value| matches!(value.to_ascii_lowercase().as_str(), "api_key" | "apikey" | "api key"))
+        .any(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "api_key" | "apikey" | "api key"
+            )
+        })
 }
 
 fn number(value: Option<&Value>) -> Option<f64> {
@@ -700,7 +772,9 @@ fn decimal_text(value: &Value) -> Option<String> {
         Value::Number(number) => number.to_string(),
         _ => return None,
     };
-    Decimal::from_str(&text).ok().map(|value| value.normalize().to_string())
+    Decimal::from_str(&text)
+        .ok()
+        .map(|value| value.normalize().to_string())
 }
 
 /// 结构化重置时间：ISO 字符串或秒/毫秒时间戳统一为 epoch 毫秒。
@@ -719,7 +793,11 @@ fn normalized_reset_ms(raw: i64) -> Option<i64> {
     if raw <= 0 {
         return None;
     }
-    let seconds = if raw > 10_000_000_000 { raw / 1000 } else { raw };
+    let seconds = if raw > 10_000_000_000 {
+        raw / 1000
+    } else {
+        raw
+    };
     chrono::DateTime::from_timestamp(seconds, 0).map(|time| time.timestamp_millis())
 }
 
@@ -749,7 +827,12 @@ fn default_codex_home() -> Result<PathBuf, RefreshError> {
         }
     }
     let profile = std::env::var_os("USERPROFILE").ok_or_else(|| {
-        RefreshError::new("auth_required", "无法定位 Codex CLI 本机登录信息", true, false)
+        RefreshError::new(
+            "auth_required",
+            "无法定位 Codex CLI 本机登录信息",
+            true,
+            false,
+        )
     })?;
     Ok(PathBuf::from(profile).join(".codex"))
 }
@@ -763,13 +846,23 @@ fn auth_path_at(home: Option<&Path>) -> Result<PathBuf, RefreshError> {
 
 fn read_auth_at(home: Option<&Path>) -> Result<CodexAuth, RefreshError> {
     let text = std::fs::read_to_string(auth_path_at(home)?).map_err(|_| {
-        RefreshError::new("auth_required", "未登录 GPT：未找到 Codex CLI 本机登录信息", true, false)
+        RefreshError::new(
+            "auth_required",
+            "未登录 GPT：未找到 Codex CLI 本机登录信息",
+            true,
+            false,
+        )
     })?;
     let auth: CodexAuth = serde_json::from_str(&text).map_err(|_| {
         RefreshError::new("auth_invalid", "Codex CLI 本机登录信息无效", true, false)
     })?;
-    if auth.openai_api_key.as_ref().is_some_and(|value| !value.trim().is_empty())
-        || auth.auth_mode.as_deref().is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "apikey" | "api_key"))
+    if auth
+        .openai_api_key
+        .as_ref()
+        .is_some_and(|value| !value.trim().is_empty())
+        || auth.auth_mode.as_deref().is_some_and(|value| {
+            matches!(value.to_ascii_lowercase().as_str(), "apikey" | "api_key")
+        })
     {
         return Err(RefreshError::new(
             "subscription_unsupported",
@@ -778,7 +871,11 @@ fn read_auth_at(home: Option<&Path>) -> Result<CodexAuth, RefreshError> {
             false,
         ));
     }
-    if auth.tokens.as_ref().is_none_or(|value| value.access_token.trim().is_empty()) {
+    if auth
+        .tokens
+        .as_ref()
+        .is_none_or(|value| value.access_token.trim().is_empty())
+    {
         return Err(RefreshError::new(
             "auth_required",
             "Codex CLI 本机登录信息缺少 OAuth 凭据",
@@ -813,7 +910,9 @@ mod tests {
     fn free_plan_without_windows_is_usable() {
         let mut values = Vec::new();
         append_plan_and_credits(&mut values, Some("free"), &json!({}));
-        assert!(values.iter().any(|value| value.capability_id == "plan_level"));
+        assert!(values
+            .iter()
+            .any(|value| value.capability_id == "plan_level"));
         assert!(codex_capabilities_usable(&values));
         assert!(!codex_capabilities_usable(&[]));
     }
@@ -835,12 +934,19 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn prefers_windows_cmd_shim_over_unix_script() {
-        let dir = std::env::temp_dir().join(format!("codex-shim-{}-{}", std::process::id(), epoch_for_test()));
+        let dir = std::env::temp_dir().join(format!(
+            "codex-shim-{}-{}",
+            std::process::id(),
+            epoch_for_test()
+        ));
         std::fs::create_dir_all(&dir).expect("temp dir");
         std::fs::write(dir.join("codex"), "#!/bin/sh\n").expect("unix shim");
         std::fs::write(dir.join("codex.cmd"), "@echo off\n").expect("cmd shim");
         let found = find_codex_in_dir(&dir).expect("should prefer cmd");
-        assert_eq!(found.file_name().and_then(|name| name.to_str()), Some("codex.cmd"));
+        assert_eq!(
+            found.file_name().and_then(|name| name.to_str()),
+            Some("codex.cmd")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

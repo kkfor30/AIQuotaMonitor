@@ -94,7 +94,9 @@ pub fn remove_user_platform(
     }
     let sources = database.list_sources(&platform_id)?;
     for source in &sources {
-        if source.adapter_id == crate::providers::codex::SOURCE_ID && source.account_kind == "additional" {
+        if source.adapter_id == crate::providers::codex::SOURCE_ID
+            && source.account_kind == "additional"
+        {
             if let Some(home) = extra_codex_home(&database, source) {
                 let _ = crate::providers::codex::logout_cli_at(Some(&home));
                 let _ = std::fs::remove_dir_all(home);
@@ -123,7 +125,8 @@ pub fn reveal_source_secret(
 ) -> Result<String, String> {
     require_label(&window, &["main"])?;
     let source = database.source(&source_id)?;
-    if source.source_type == "local_cli" || source.adapter_id == crate::providers::codex::SOURCE_ID {
+    if source.source_type == "local_cli" || source.adapter_id == crate::providers::codex::SOURCE_ID
+    {
         return Err("此来源没有可查看的密钥".into());
     }
     let reference = source
@@ -224,7 +227,11 @@ pub async fn validate_source_credential(
     if source.source_type != "api_key" && source.source_type != "web_session" {
         return Err("此来源不接受手动凭据".into());
     }
-    let api_base_url = match api_base_url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    let api_base_url = match api_base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         Some(value) => Some(catalog::normalize_api_base_url(value)?),
         None => None,
     };
@@ -249,7 +256,8 @@ pub async fn save_platform_setup(
     if display_name.is_empty() {
         return Err("请填写供应商名称".into());
     }
-    let entry = catalog::entry(&input.platform_id).ok_or_else(|| "该平台不在可添加注册表中".to_string())?;
+    let entry =
+        catalog::entry(&input.platform_id).ok_or_else(|| "该平台不在可添加注册表中".to_string())?;
     let api_base_url = if entry.needs_api_key {
         Some(catalog::normalize_api_base_url(&input.api_base_url)?)
     } else {
@@ -263,7 +271,11 @@ pub async fn save_platform_setup(
         let new_secret = input.secret.trim();
         let secret_changed = !new_secret.is_empty();
         let url_changed = stored_url.as_deref() != api_base_url.as_deref();
-        let already_configured = source.secret_ref.as_deref().and_then(|reference| vault::get(reference).ok().flatten()).is_some();
+        let already_configured = source
+            .secret_ref
+            .as_deref()
+            .and_then(|reference| vault::get(reference).ok().flatten())
+            .is_some();
         if !already_configured && !secret_changed {
             return Err("请填写 API Key".into());
         }
@@ -308,7 +320,11 @@ pub async fn save_source_credential(
     if source.source_type != "api_key" && source.source_type != "web_session" {
         return Err("此来源不接受手动凭据".into());
     }
-    let api_base_url = match api_base_url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    let api_base_url = match api_base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         Some(value) => Some(catalog::normalize_api_base_url(value)?),
         None => None,
     };
@@ -342,7 +358,9 @@ pub async fn clear_source_credential(
         database.clear_secret_ref(&source.id)?;
         return providers::platform_summaries(&database);
     }
-    if source.adapter_id == crate::providers::codex::SOURCE_ID && source.account_kind == "additional" {
+    if source.adapter_id == crate::providers::codex::SOURCE_ID
+        && source.account_kind == "additional"
+    {
         if let Some(home) = extra_codex_home(&database, &source) {
             crate::providers::codex::logout_cli_at(Some(&home))?;
         }
@@ -380,11 +398,14 @@ pub async fn start_source_login(
             crate::windows::source_login::open(&app, &source.id, id).await
         }
         id if id == crate::providers::codex::SOURCE_ID && source.account_kind == "additional" => {
-            let home = extra_codex_home(&database, &source).ok_or_else(|| "无法定位额外账号目录".to_string())?;
+            let home = extra_codex_home(&database, &source)
+                .ok_or_else(|| "无法定位额外账号目录".to_string())?;
             crate::providers::codex::login_cli_at(Some(&home)).await
         }
         // Grok 本机账号：token 失效后允许在应用内重新登录（新终端跑 grok login，完成后校验 auth）
-        id if id == crate::providers::grok::SOURCE_ID => crate::providers::grok::login_via_cli().await,
+        id if id == crate::providers::grok::SOURCE_ID => {
+            crate::providers::grok::login_via_cli().await
+        }
         // Claude 本机账号：订阅 OAuth 未登录/失效时在应用内重新登录（claude auth login
         // 浏览器授权，授权码经 submit_source_login_code 写回 CLI）
         id if id == crate::providers::claude::SOURCE_ID => {
@@ -430,7 +451,9 @@ pub fn rename_codex_account(
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     require_label(&window, &["main"])?;
     let source = database.source(&source_id)?;
-    if source.adapter_id != crate::providers::codex::SOURCE_ID || source.account_kind != "additional" {
+    if source.adapter_id != crate::providers::codex::SOURCE_ID
+        || source.account_kind != "additional"
+    {
         return Err("只能重命名额外 ChatGPT 账号".into());
     }
     let name = normalize_account_name(&display_name)?;
@@ -446,7 +469,9 @@ pub fn remove_codex_account(
     app: AppHandle,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
     let source = database.source(&source_id)?;
-    if source.adapter_id != crate::providers::codex::SOURCE_ID || source.account_kind != "additional" {
+    if source.adapter_id != crate::providers::codex::SOURCE_ID
+        || source.account_kind != "additional"
+    {
         return Err("只能移除额外 ChatGPT 账号".into());
     }
     if let Some(home) = extra_codex_home(&database, &source) {
@@ -617,16 +642,20 @@ fn restore_vault(reference: &str, previous: Option<&str>) {
     }
 }
 
-fn resolve_api_key_source(database: &Database, input: &PlatformSetupInput) -> Result<SourceRecord, String> {
-    let source = if let Some(source_id) = input.source_id.as_deref().filter(|value| !value.is_empty()) {
-        database.source(source_id)?
-    } else {
-        database
-            .list_sources(&input.platform_id)?
-            .into_iter()
-            .find(|source| source.source_type == "api_key")
-            .ok_or_else(|| "该平台没有 API Key 来源".to_string())?
-    };
+fn resolve_api_key_source(
+    database: &Database,
+    input: &PlatformSetupInput,
+) -> Result<SourceRecord, String> {
+    let source =
+        if let Some(source_id) = input.source_id.as_deref().filter(|value| !value.is_empty()) {
+            database.source(source_id)?
+        } else {
+            database
+                .list_sources(&input.platform_id)?
+                .into_iter()
+                .find(|source| source.source_type == "api_key")
+                .ok_or_else(|| "该平台没有 API Key 来源".to_string())?
+        };
     if source.platform_id != input.platform_id {
         return Err("来源与平台不匹配".into());
     }

@@ -69,7 +69,10 @@ impl Default for HoverbarPreferences {
 }
 
 fn preferences_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_config_dir().ok().map(|dir| dir.join("hoverbar.json"))
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("hoverbar.json"))
 }
 
 /// 读取偏好；文件缺失或损坏时返回默认值（不中断启动）。

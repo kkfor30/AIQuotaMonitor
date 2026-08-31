@@ -35,7 +35,11 @@ const KNOWN_WINDOWS: &[(&str, &str, &str)] = &[
     ("five_hour", "quota_window_5h", "5 小时窗口"),
     ("seven_day", "quota_window_7d", "周窗口"),
     ("seven_day_opus", "quota_window_7d_opus", "周窗口 · Opus"),
-    ("seven_day_sonnet", "quota_window_7d_sonnet", "周窗口 · Sonnet"),
+    (
+        "seven_day_sonnet",
+        "quota_window_7d_sonnet",
+        "周窗口 · Sonnet",
+    ),
 ];
 
 pub fn local_auth_available() -> bool {
@@ -66,7 +70,10 @@ fn resolve_claude_program() -> Result<PathBuf, String> {
             }
         }
     }
-    Err("未找到 Claude Code CLI。请确认终端里可以运行 `claude`，或设置 CLAUDE_BIN 指向可执行文件。".into())
+    Err(
+        "未找到 Claude Code CLI。请确认终端里可以运行 `claude`，或设置 CLAUDE_BIN 指向可执行文件。"
+            .into(),
+    )
 }
 
 /// 进行中的 Claude 登录会话：CLI 的授权码要粘贴回 stdin（浏览器回调页只展示 code，
@@ -118,7 +125,9 @@ pub async fn login_via_cli(app: tauri::AppHandle) -> Result<(), String> {
         cmd.arg("/c").arg(&program);
         cmd
     };
-    command.args(["auth", "login", "--claudeai"]).kill_on_drop(false);
+    command
+        .args(["auth", "login", "--claudeai"])
+        .kill_on_drop(false);
     command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -231,10 +240,23 @@ pub async fn login_via_cli(app: tauri::AppHandle) -> Result<(), String> {
 
 /// CLI 输出里出现网络失败特征时，追加可行动的代理提示（Anthropic 域名需代理可达）。
 fn network_failure_hint(recent: &std::collections::VecDeque<String>) -> String {
-    let joined = recent.iter().cloned().collect::<Vec<_>>().join(" ").to_lowercase();
-    let failed = ["timed out", "error sending request", "connection refused", "connection reset", "unreachable", "proxy", "fetch failed"]
+    let joined = recent
         .iter()
-        .any(|mark| joined.contains(mark));
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    let failed = [
+        "timed out",
+        "error sending request",
+        "connection refused",
+        "connection reset",
+        "unreachable",
+        "proxy",
+        "fetch failed",
+    ]
+    .iter()
+    .any(|mark| joined.contains(mark));
     if failed {
         "。无法连接 Anthropic：若网络需要代理访问 api.anthropic.com / claude.ai，请开启系统代理后重试（登录会自动注入系统代理）；若代理已开仍失败，检查代理软件是否放行相关域名".to_string()
     } else {
@@ -332,7 +354,12 @@ async fn fetch_inner(client: &Client, token: &str) -> Result<Vec<CapabilityData>
             _ => {}
         }
         let body: Value = response.json().await.map_err(|_| {
-            RefreshError::new("response_shape_changed", "Claude 用量返回格式发生变化", false, false)
+            RefreshError::new(
+                "response_shape_changed",
+                "Claude 用量返回格式发生变化",
+                false,
+                false,
+            )
         })?;
         return parse(&body);
     }
@@ -351,14 +378,24 @@ async fn fetch_inner(client: &Client, token: &str) -> Result<Vec<CapabilityData>
 fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
     let mut capabilities = Vec::new();
     for (key, capability_id, label) in KNOWN_WINDOWS {
-        let Some(window) = body.get(*key) else { continue };
+        let Some(window) = body.get(*key) else {
+            continue;
+        };
         let Some(used) = window.get("utilization").and_then(Value::as_f64) else {
             continue;
         };
         let used = used.clamp(0.0, 100.0);
-        let reset = window.get("resets_at").and_then(Value::as_str).filter(|r| !r.is_empty());
+        let reset = window
+            .get("resets_at")
+            .and_then(Value::as_str)
+            .filter(|r| !r.is_empty());
         let reset = reset.map(|value| Value::String(value.to_string()));
-        capabilities.push(window_capability(capability_id, label, 100.0 - used, reset.as_ref()));
+        capabilities.push(window_capability(
+            capability_id,
+            label,
+            100.0 - used,
+            reset.as_ref(),
+        ));
     }
     if capabilities.is_empty() {
         return Err(RefreshError::new(
@@ -388,8 +425,16 @@ mod tests {
         assert_eq!(values[0].capability_id, "quota_window_5h");
         assert_eq!(values[0].primary_value.as_deref(), Some("63.8%"));
         assert_eq!(values[0].progress, Some(0.638));
-        assert!(values[0].secondary_value.as_deref().unwrap().contains("已使用 36.2%"));
-        assert!(values[0].secondary_value.as_deref().unwrap().contains("重置 "));
+        assert!(values[0]
+            .secondary_value
+            .as_deref()
+            .unwrap()
+            .contains("已使用 36.2%"));
+        assert!(values[0]
+            .secondary_value
+            .as_deref()
+            .unwrap()
+            .contains("重置 "));
         assert_eq!(values[1].capability_id, "quota_window_7d");
         assert_eq!(values[2].capability_id, "quota_window_7d_opus");
         assert_eq!(values[2].display_name, "周窗口 · Opus");
@@ -430,7 +475,9 @@ mod tests {
     }
 
     fn read_token_from(content: &Value) -> Option<String> {
-        let entry = content.get("claudeAiOauth").or_else(|| content.get("claude.ai_oauth"))?;
+        let entry = content
+            .get("claudeAiOauth")
+            .or_else(|| content.get("claude.ai_oauth"))?;
         entry
             .get("accessToken")
             .and_then(Value::as_str)

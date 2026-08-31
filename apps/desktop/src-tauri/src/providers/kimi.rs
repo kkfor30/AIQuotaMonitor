@@ -94,7 +94,12 @@ async fn fetch_inner(
             _ => {}
         }
         let body: Value = response.json().await.map_err(|_| {
-            RefreshError::new("response_shape_changed", "Kimi 余额返回格式发生变化", false, false)
+            RefreshError::new(
+                "response_shape_changed",
+                "Kimi 余额返回格式发生变化",
+                false,
+                false,
+            )
         })?;
         return parse(&body);
     }
@@ -134,7 +139,14 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
             "balance",
         ],
     )
-    .ok_or_else(|| RefreshError::new("missing_balance", "Kimi 未返回可解析的余额字段", false, false))?;
+    .ok_or_else(|| {
+        RefreshError::new(
+            "missing_balance",
+            "Kimi 未返回可解析的余额字段",
+            false,
+            false,
+        )
+    })?;
     let voucher = pick_decimal(body, &["voucher_balance", "voucherBalance"]);
     let cash = pick_decimal(body, &["cash_balance", "cashBalance"]);
     let data = body.get("data").unwrap_or(body);

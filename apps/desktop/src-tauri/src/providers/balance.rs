@@ -211,7 +211,11 @@ async fn fetch_inner(
     ))
 }
 
-fn parse(source_id: &str, spec: &EndpointSpec, body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
+fn parse(
+    source_id: &str,
+    spec: &EndpointSpec,
+    body: &Value,
+) -> Result<Vec<CapabilityData>, RefreshError> {
     match source_id {
         SILICONFLOW_SOURCE_ID => parse_siliconflow(body, spec, false),
         SILICONFLOW_INTL_SOURCE_ID => parse_siliconflow(body, spec, true),
@@ -247,19 +251,34 @@ fn business_error(label: &str, body: &Value) -> RefreshError {
         .or_else(|| body.get("msg"))
         .and_then(Value::as_str)
         .unwrap_or("平台返回业务错误");
-    RefreshError::new("http_error", format!("{label}余额接口错误：{message}"), false, false)
+    RefreshError::new(
+        "http_error",
+        format!("{label}余额接口错误：{message}"),
+        false,
+        false,
+    )
 }
 
 /// 响应：`{ code, message, data: { balance, chargeBalance, totalBalance } }`。
 /// `balance` 是赠送余额，`chargeBalance` 是充值余额，单位随站点为 CNY / USD。
-fn parse_siliconflow(body: &Value, spec: &EndpointSpec, usd: bool) -> Result<Vec<CapabilityData>, RefreshError> {
+fn parse_siliconflow(
+    body: &Value,
+    spec: &EndpointSpec,
+    usd: bool,
+) -> Result<Vec<CapabilityData>, RefreshError> {
     if let Some(code) = body.get("code").and_then(Value::as_i64) {
         if code != SILICONFLOW_OK_CODE {
             return Err(business_error(spec.label, body));
         }
     }
-    let total = pick_decimal(body, &["totalBalance", "total_balance"])
-        .ok_or_else(|| RefreshError::new("missing_balance", format!("{}未返回可解析的余额字段", spec.label), false, false))?;
+    let total = pick_decimal(body, &["totalBalance", "total_balance"]).ok_or_else(|| {
+        RefreshError::new(
+            "missing_balance",
+            format!("{}未返回可解析的余额字段", spec.label),
+            false,
+            false,
+        )
+    })?;
     let format = if usd { format_usd } else { format_cny };
     let mut secondary_parts = Vec::new();
     if let Some(charge) = pick_decimal(body, &["chargeBalance", "charge_balance"]) {
@@ -278,8 +297,14 @@ fn parse_siliconflow(body: &Value, spec: &EndpointSpec, usd: bool) -> Result<Vec
 
 /// 响应：`{ balance, total_cash_balance, total_voucher_balance }`，单位 CNY。
 fn parse_stepfun(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityData>, RefreshError> {
-    let total = pick_decimal(body, &["balance"])
-        .ok_or_else(|| RefreshError::new("missing_balance", format!("{}未返回可解析的余额字段", spec.label), false, false))?;
+    let total = pick_decimal(body, &["balance"]).ok_or_else(|| {
+        RefreshError::new(
+            "missing_balance",
+            format!("{}未返回可解析的余额字段", spec.label),
+            false,
+            false,
+        )
+    })?;
     let mut secondary_parts = Vec::new();
     if let Some(cash) = pick_decimal(body, &["total_cash_balance"]) {
         secondary_parts.push(format!("现金 {}", format_cny(cash)));
@@ -297,16 +322,33 @@ fn parse_stepfun(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityData
 
 /// 响应：`{ data: { total_credits, total_usage } }`，剩余 = total_credits - total_usage（Decimal 减法）。
 /// total_usage 是官方累计消费字段，额外输出 total_spend 能力供消费趋势使用。
-fn parse_openrouter(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityData>, RefreshError> {
+fn parse_openrouter(
+    body: &Value,
+    spec: &EndpointSpec,
+) -> Result<Vec<CapabilityData>, RefreshError> {
     let data = body.get("data").unwrap_or(body);
     let total_credits = data
         .get("total_credits")
         .and_then(decimal_from_json)
-        .ok_or_else(|| RefreshError::new("missing_balance", format!("{}未返回可解析的 Credits 字段", spec.label), false, false))?;
+        .ok_or_else(|| {
+            RefreshError::new(
+                "missing_balance",
+                format!("{}未返回可解析的 Credits 字段", spec.label),
+                false,
+                false,
+            )
+        })?;
     let total_usage = data
         .get("total_usage")
         .and_then(decimal_from_json)
-        .ok_or_else(|| RefreshError::new("missing_balance", format!("{}未返回可解析的已用额度字段", spec.label), false, false))?;
+        .ok_or_else(|| {
+            RefreshError::new(
+                "missing_balance",
+                format!("{}未返回可解析的已用额度字段", spec.label),
+                false,
+                false,
+            )
+        })?;
     let remaining = total_credits - total_usage;
     Ok(vec![
         CapabilityData {
@@ -314,7 +356,11 @@ fn parse_openrouter(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityD
             display_name: "账户余额".into(),
             value_kind: "money".into(),
             primary_value: Some(format_usd(remaining)),
-            secondary_value: Some(format!("总额度 {} · 已用 {}", format_usd(total_credits), format_usd(total_usage))),
+            secondary_value: Some(format!(
+                "总额度 {} · 已用 {}",
+                format_usd(total_credits),
+                format_usd(total_usage)
+            )),
             progress: None,
             trend: vec![],
             window_seconds: None,
@@ -340,7 +386,14 @@ fn parse_novita(body: &Value, spec: &EndpointSpec) -> Result<Vec<CapabilityData>
     let available = body
         .get("availableBalance")
         .and_then(decimal_from_json)
-        .ok_or_else(|| RefreshError::new("missing_balance", format!("{}未返回可解析的余额字段", spec.label), false, false))?
+        .ok_or_else(|| {
+            RefreshError::new(
+                "missing_balance",
+                format!("{}未返回可解析的余额字段", spec.label),
+                false,
+                false,
+            )
+        })?
         / unit;
     let mut secondary_parts = Vec::new();
     if let Some(cash) = body.get("cashBalance").and_then(decimal_from_json) {
@@ -370,15 +423,24 @@ mod tests {
             "https://api.siliconflow.cn/v1/user/info"
         );
         assert_eq!(
-            endpoint_url(Some("https://api.siliconflow.cn/v1/"), &spec(SILICONFLOW_SOURCE_ID)),
+            endpoint_url(
+                Some("https://api.siliconflow.cn/v1/"),
+                &spec(SILICONFLOW_SOURCE_ID)
+            ),
             "https://api.siliconflow.cn/v1/user/info"
         );
         assert_eq!(
-            endpoint_url(Some("https://mirror.example.com"), &spec(OPENROUTER_SOURCE_ID)),
+            endpoint_url(
+                Some("https://mirror.example.com"),
+                &spec(OPENROUTER_SOURCE_ID)
+            ),
             "https://mirror.example.com/api/v1/credits"
         );
         assert_eq!(
-            endpoint_url(Some("https://mirror.example.com/api/v1"), &spec(OPENROUTER_SOURCE_ID)),
+            endpoint_url(
+                Some("https://mirror.example.com/api/v1"),
+                &spec(OPENROUTER_SOURCE_ID)
+            ),
             "https://mirror.example.com/api/v1/credits"
         );
         assert_eq!(
@@ -400,7 +462,10 @@ mod tests {
         )
         .expect("siliconflow balance");
         assert_eq!(values[0].primary_value.as_deref(), Some("¥10.50"));
-        assert_eq!(values[0].secondary_value.as_deref(), Some("充值 ¥8.50 · 赠送 ¥2.00"));
+        assert_eq!(
+            values[0].secondary_value.as_deref(),
+            Some("充值 ¥8.50 · 赠送 ¥2.00")
+        );
 
         let usd = parse_siliconflow(
             &json!({ "code": 20000, "data": { "totalBalance": "12.34" } }),
@@ -442,7 +507,10 @@ mod tests {
         )
         .expect("stepfun");
         assert_eq!(values[0].primary_value.as_deref(), Some("¥66.60"));
-        assert_eq!(values[0].secondary_value.as_deref(), Some("现金 ¥60.00 · 代金券 ¥6.60"));
+        assert_eq!(
+            values[0].secondary_value.as_deref(),
+            Some("现金 ¥60.00 · 代金券 ¥6.60")
+        );
     }
 
     #[test]
@@ -482,7 +550,13 @@ mod tests {
 
     #[test]
     fn platform_and_source_ids_map_both_ways() {
-        for platform in ["siliconflow", "siliconflow_intl", "stepfun", "openrouter", "novita"] {
+        for platform in [
+            "siliconflow",
+            "siliconflow_intl",
+            "stepfun",
+            "openrouter",
+            "novita",
+        ] {
             let source = source_id_for_platform(platform).expect("source id");
             assert!(is_balance_source(source));
         }

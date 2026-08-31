@@ -10,9 +10,7 @@
 
 use crate::commands::require_label;
 use crate::storage::{self, HoverbarAnchor};
-use crate::windows::hoverbar::{
-    self, HoverbarRuntime,
-};
+use crate::windows::hoverbar::{self, HoverbarRuntime};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
@@ -120,9 +118,7 @@ pub async fn snap_hoverbar_to_edge(window: WebviewWindow) -> Result<HoverbarAnch
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "windows")]
         {
-            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-                GetAsyncKeyState, VK_LBUTTON,
-            };
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
             while unsafe { GetAsyncKeyState(VK_LBUTTON as i32) } < 0 {
                 thread::sleep(Duration::from_millis(16));
             }

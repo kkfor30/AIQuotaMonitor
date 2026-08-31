@@ -51,7 +51,9 @@ mod platform {
         let ok = unsafe { CredWriteW(&credential, 0) };
         blob.fill(0);
         if ok == 0 {
-            return Err(format!("保存 Windows 凭据失败: {}", unsafe { GetLastError() }));
+            return Err(format!("保存 Windows 凭据失败: {}", unsafe {
+                GetLastError()
+            }));
         }
         Ok(())
     }
@@ -76,7 +78,8 @@ mod platform {
                 credential.CredentialBlobSize as usize,
             )
         };
-        let result = String::from_utf8(bytes.to_vec()).map_err(|_| "Windows 凭据不是有效 UTF-8".to_string());
+        let result =
+            String::from_utf8(bytes.to_vec()).map_err(|_| "Windows 凭据不是有效 UTF-8".to_string());
         unsafe { CredFree(raw.cast()) };
         result.map(Some)
     }

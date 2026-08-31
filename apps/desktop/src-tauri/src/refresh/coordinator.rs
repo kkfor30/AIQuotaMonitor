@@ -1,7 +1,7 @@
 //! Source 级刷新协调器：平台去重、并行 Source、generation 防覆盖与部分成功。
 
 use crate::domain::refresh::{RefreshError, SourceRefreshOutput};
-use crate::providers::{balance, claude, coding_plan, codex, deepseek, glm, grok, kimi, mimo};
+use crate::providers::{balance, claude, codex, coding_plan, deepseek, glm, grok, kimi, mimo};
 use crate::storage::database::Database;
 use crate::storage::repository::SourceRecord;
 use crate::storage::vault;
@@ -34,7 +34,11 @@ impl RefreshCoordinator {
         })
     }
 
-    pub async fn refresh_platform(&self, database: &Database, provider_id: &str) -> Result<(), String> {
+    pub async fn refresh_platform(
+        &self,
+        database: &Database,
+        provider_id: &str,
+    ) -> Result<(), String> {
         let lock = {
             let mut locks = self.platform_locks.lock().await;
             locks
@@ -49,12 +53,18 @@ impl RefreshCoordinator {
         let configured = database
             .list_sources(provider_id)?
             .into_iter()
-            .filter_map(|source| self.source_secret(database, &source).map(|secret| (source, secret)))
+            .filter_map(|source| {
+                self.source_secret(database, &source)
+                    .map(|secret| (source, secret))
+            })
             .collect::<Vec<_>>();
         if configured.is_empty() {
             return Ok(());
         }
-        let ids = configured.iter().map(|(source, _)| source.id.clone()).collect::<Vec<_>>();
+        let ids = configured
+            .iter()
+            .map(|(source, _)| source.id.clone())
+            .collect::<Vec<_>>();
         let run_id = database.begin_refresh_run(provider_id, &ids)?;
         let mut tasks = JoinSet::new();
         for (source, secret) in configured {
@@ -124,7 +134,8 @@ impl RefreshCoordinator {
         source: &SourceRecord,
         output: &SourceRefreshOutput,
     ) -> Result<(), String> {
-        let run_id = database.begin_refresh_run(&source.platform_id, std::slice::from_ref(&source.id))?;
+        let run_id =
+            database.begin_refresh_run(&source.platform_id, std::slice::from_ref(&source.id))?;
         let generation = database.begin_source_refresh(&source.id)?;
         let current = database.source(&source.id)?;
         let _ = database.complete_source_refresh(&run_id, &current, generation, output)?;
@@ -176,8 +187,12 @@ async fn fetch_source(
             Some(secret) => deepseek::web_usage::fetch_current_month(client, secret).await,
             None => missing_secret("DeepSeek 网页会话未配置"),
         },
-        id if id == codex::SOURCE_ID && source.account_kind == "local" => codex::fetch(client).await,
-        id if id == codex::SOURCE_ID && source.account_kind == "additional" => codex::fetch_at(client, extra_home).await,
+        id if id == codex::SOURCE_ID && source.account_kind == "local" => {
+            codex::fetch(client).await
+        }
+        id if id == codex::SOURCE_ID && source.account_kind == "additional" => {
+            codex::fetch_at(client, extra_home).await
+        }
         grok::SOURCE_ID => grok::fetch(client).await,
         claude::SOURCE_ID => claude::fetch(client).await,
         id if coding_plan::is_coding_plan_source(id) => match secret {

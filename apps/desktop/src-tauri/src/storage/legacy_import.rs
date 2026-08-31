@@ -82,8 +82,11 @@ fn config_path() -> Option<PathBuf> {
 
 fn read_from(path: PathBuf) -> Result<LegacySecrets, String> {
     let text = std::fs::read_to_string(&path).map_err(|err| format!("读取旧配置失败: {err}"))?;
-    let value: Value = serde_json::from_str(&text).map_err(|_| "旧配置 JSON 格式无效".to_string())?;
-    let provider = value.get("providers").and_then(|value| value.get("deepseek"));
+    let value: Value =
+        serde_json::from_str(&text).map_err(|_| "旧配置 JSON 格式无效".to_string())?;
+    let provider = value
+        .get("providers")
+        .and_then(|value| value.get("deepseek"));
     let api_key = provider
         .and_then(|value| value.get("api_key"))
         .and_then(Value::as_str)

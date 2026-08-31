@@ -36,7 +36,10 @@ impl HoverbarRuntime {
     }
 
     pub fn current_detail_size(&self) -> (f64, f64) {
-        self.detail_size.lock().map(|s| *s).unwrap_or((420.0, 360.0))
+        self.detail_size
+            .lock()
+            .map(|s| *s)
+            .unwrap_or((420.0, 360.0))
     }
 }
 
@@ -167,10 +170,7 @@ pub fn monitor_for(window: &WebviewWindow) -> Result<Monitor, String> {
 
 /// 按锚点重新布局小球窗口：40x40，嵌入屏幕边缘 4 物理像素（半隐藏效果），
 /// 正交轴 clamp 到工作区内防止越界。
-pub fn apply_anchor_layout(
-    window: &WebviewWindow,
-    anchor: &HoverbarAnchor,
-) -> Result<(), String> {
+pub fn apply_anchor_layout(window: &WebviewWindow, anchor: &HoverbarAnchor) -> Result<(), String> {
     let monitor = monitor_for(window)?;
     let work_area = monitor.work_area();
     let scale = monitor.scale_factor();
@@ -192,8 +192,14 @@ pub fn apply_anchor_layout(
     };
     let (x, y) = match anchor.edge.as_str() {
         "left" => (wa_x - tucked, clamp_axis(center_y - h / 2, wa_y, wa_h, h)),
-        "right" => (right - w + tucked, clamp_axis(center_y - h / 2, wa_y, wa_h, h)),
-        "bottom" => (clamp_axis(center_x - w / 2, wa_x, wa_w, w), bottom - h + tucked),
+        "right" => (
+            right - w + tucked,
+            clamp_axis(center_y - h / 2, wa_y, wa_h, h),
+        ),
+        "bottom" => (
+            clamp_axis(center_x - w / 2, wa_x, wa_w, w),
+            bottom - h + tucked,
+        ),
         _ => (clamp_axis(center_x - w / 2, wa_x, wa_w, w), wa_y - tucked),
     };
     set_window_bounds(window, x, y, w, h, logical_w, logical_h)
@@ -232,8 +238,14 @@ pub fn apply_detail_layout(
     };
     let (x, y) = match anchor.edge.as_str() {
         "left" => (wa_x + inset, clamp_axis(center_y - h / 2, wa_y, wa_h, h)),
-        "right" => (right - w - inset, clamp_axis(center_y - h / 2, wa_y, wa_h, h)),
-        "bottom" => (clamp_axis(center_x - w / 2, wa_x, wa_w, w), bottom - h - inset),
+        "right" => (
+            right - w - inset,
+            clamp_axis(center_y - h / 2, wa_y, wa_h, h),
+        ),
+        "bottom" => (
+            clamp_axis(center_x - w / 2, wa_x, wa_w, w),
+            bottom - h - inset,
+        ),
         _ => (clamp_axis(center_x - w / 2, wa_x, wa_w, w), wa_y + inset),
     };
     set_window_bounds(detail, x, y, w, h, logical_w, logical_h)?;
@@ -434,10 +446,7 @@ fn is_foreground_fullscreen() -> bool {
         let area_h = (work.bottom - work.top) as i64;
         let win_w = (rect.right - rect.left) as i64;
         let win_h = (rect.bottom - rect.top) as i64;
-        area_w > 0
-            && area_h > 0
-            && win_w >= area_w * 95 / 100
-            && win_h >= area_h * 95 / 100
+        area_w > 0 && area_h > 0 && win_w >= area_w * 95 / 100 && win_h >= area_h * 95 / 100
     }
 }
 
@@ -503,7 +512,12 @@ mod tests {
             (420.0, 420.0)
         );
         assert_eq!(
-            logical_size("right", HoverbarWindowState::Detail, Some(900.0), Some(900.0)),
+            logical_size(
+                "right",
+                HoverbarWindowState::Detail,
+                Some(900.0),
+                Some(900.0)
+            ),
             (300.0, 480.0)
         );
     }

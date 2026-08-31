@@ -17,11 +17,11 @@
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
 use tokio::io::AsyncBufReadExt;
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use crate::providers::money::WEB_UA;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -53,7 +53,9 @@ fn select_access_token(root: &serde_json::Map<String, Value>) -> Option<String> 
     let mut oidc = None;
     let mut legacy = None;
     for (scope, value) in root {
-        let Some(entry) = value.as_object() else { continue };
+        let Some(entry) = value.as_object() else {
+            continue;
+        };
         let Some(key) = entry
             .get("key")
             .and_then(Value::as_str)
@@ -73,7 +75,8 @@ fn select_access_token(root: &serde_json::Map<String, Value>) -> Option<String> 
 /// 读取 Windows 系统代理（Clash/V2Ray 等写入注册表的 ProxyServer）。
 /// GUI 启动的应用环境里通常没有 HTTP_PROXY/HTTPS_PROXY，第三方 CLI 子进程
 /// 也不会读注册表——需要显式注入，否则 grok login 的 auth.x.ai 请求会超时。
-pub(crate) fn windows_system_proxy() -> Option<String> {    const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+pub(crate) fn windows_system_proxy() -> Option<String> {
+    const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
     const NO_WINDOW: u32 = 0x0800_0000;
     let query = |name: &str| -> Option<String> {
         let output = std::process::Command::new("reg")
@@ -152,7 +155,9 @@ pub async fn login_via_cli() -> Result<(), String> {
         cmd
     };
     command.arg("login").kill_on_drop(false);
-    command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     #[cfg(windows)]
     {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -164,9 +169,9 @@ pub async fn login_via_cli() -> Result<(), String> {
         command.env("HTTPS_PROXY", &proxy);
         command.env("HTTP_PROXY", &proxy);
     }
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("无法启动 Grok 登录：{error}。请确认终端里可以运行 `grok`，或设置 GROK_BIN"))?;
+    let mut child = command.spawn().map_err(|error| {
+        format!("无法启动 Grok 登录：{error}。请确认终端里可以运行 `grok`，或设置 GROK_BIN")
+    })?;
     let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     if let Some(stdout) = child.stdout.take() {
         let tx = line_tx.clone();
@@ -253,10 +258,22 @@ pub async fn login_via_cli() -> Result<(), String> {
 
 /// CLI 输出里出现网络失败特征时，追加可行动的代理提示（auth.x.ai 需要代理可达）。
 fn network_failure_hint(recent: &std::collections::VecDeque<String>) -> String {
-    let joined = recent.iter().cloned().collect::<Vec<_>>().join(" ").to_lowercase();
-    let failed = ["timed out", "error sending request", "connection refused", "connection reset", "unreachable", "proxy"]
+    let joined = recent
         .iter()
-        .any(|mark| joined.contains(mark));
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    let failed = [
+        "timed out",
+        "error sending request",
+        "connection refused",
+        "connection reset",
+        "unreachable",
+        "proxy",
+    ]
+    .iter()
+    .any(|mark| joined.contains(mark));
     if failed {
         "。无法连接 auth.x.ai：若网络需要代理访问 xAI，请开启系统代理后重试（登录会自动注入系统代理）；若代理已开仍失败，检查代理软件是否放行 auth.x.ai".to_string()
     } else {
@@ -344,7 +361,12 @@ async fn fetch_inner(client: &Client, token: &str) -> Result<Vec<CapabilityData>
             _ => {}
         }
         let body: Value = response.json().await.map_err(|_| {
-            RefreshError::new("response_shape_changed", "Grok 额度返回格式发生变化", false, false)
+            RefreshError::new(
+                "response_shape_changed",
+                "Grok 额度返回格式发生变化",
+                false,
+                false,
+            )
         })?;
         return parse(&body);
     }
@@ -359,9 +381,14 @@ async fn fetch_inner(client: &Client, token: &str) -> Result<Vec<CapabilityData>
 }
 
 fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
-    let config = body
-        .get("config")
-        .ok_or_else(|| RefreshError::new("response_shape_changed", "Grok 额度返回格式发生变化", false, false))?;
+    let config = body.get("config").ok_or_else(|| {
+        RefreshError::new(
+            "response_shape_changed",
+            "Grok 额度返回格式发生变化",
+            false,
+            false,
+        )
+    })?;
     let period_end = config
         .pointer("/currentPeriod/end")
         .and_then(Value::as_str)
@@ -415,8 +442,16 @@ mod tests {
         assert_eq!(values[0].capability_id, "quota_window_7d");
         assert_eq!(values[0].value_kind, "percent");
         assert_eq!(values[0].primary_value.as_deref(), Some("27%"));
-        assert!(values[0].secondary_value.as_deref().unwrap().contains("已使用 73%"));
-        assert!(values[0].secondary_value.as_deref().unwrap().contains("重置 "));
+        assert!(values[0]
+            .secondary_value
+            .as_deref()
+            .unwrap()
+            .contains("已使用 73%"));
+        assert!(values[0]
+            .secondary_value
+            .as_deref()
+            .unwrap()
+            .contains("重置 "));
         assert_eq!(values[0].progress, Some(0.27));
     }
 
@@ -431,7 +466,8 @@ mod tests {
 
     #[test]
     fn missing_percent_and_period_is_shape_change() {
-        let error = parse(&json!({ "config": { "prepaidBalance": { "val": 0 } } })).expect_err("shape");
+        let error =
+            parse(&json!({ "config": { "prepaidBalance": { "val": 0 } } })).expect_err("shape");
         assert_eq!(error.code, "response_shape_changed");
         let error = parse(&json!({ "unexpected": true })).expect_err("no config");
         assert_eq!(error.code, "response_shape_changed");
@@ -444,7 +480,10 @@ mod tests {
             "https://accounts.x.ai/sign-in": { "key": "legacy-token" },
             &oidc: { "key": "oidc-token", "expires_at": "2099-01-01T00:00:00Z" }
         });
-        assert_eq!(select_access_token(content.as_object().unwrap()).as_deref(), Some("oidc-token"));
+        assert_eq!(
+            select_access_token(content.as_object().unwrap()).as_deref(),
+            Some("oidc-token")
+        );
 
         let broken = json!({ &oidc: { "key": "" }, "https://accounts.x.ai/sign-in": { "key": "legacy-token" } });
         assert_eq!(

@@ -44,7 +44,11 @@ fn balance_url(base_url: Option<&str>) -> String {
     }
 }
 
-async fn fetch_inner(client: &Client, api_key: &str, base_url: Option<&str>) -> Result<Vec<CapabilityData>, RefreshError> {
+async fn fetch_inner(
+    client: &Client,
+    api_key: &str,
+    base_url: Option<&str>,
+) -> Result<Vec<CapabilityData>, RefreshError> {
     let endpoint = balance_url(base_url);
     let mut last_transport = None;
     for attempt in 0..2 {
@@ -122,7 +126,9 @@ fn parse(body: BalanceResponse) -> Result<Vec<CapabilityData>, RefreshError> {
         .iter()
         .find(|item| item.currency.eq_ignore_ascii_case("CNY"))
         .or_else(|| body.balance_infos.first())
-        .ok_or_else(|| RefreshError::new("missing_balance", "DeepSeek 未返回余额明细", false, false))?;
+        .ok_or_else(|| {
+            RefreshError::new("missing_balance", "DeepSeek 未返回余额明细", false, false)
+        })?;
     // 官网口径：账号余额即充值余额；累计消费由网页用量 Source 的 total_spend 提供。
     let topped_up = parse_decimal(&info.topped_up_balance, "充值余额")?;
     let symbol = currency_symbol(&info.currency);

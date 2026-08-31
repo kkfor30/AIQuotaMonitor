@@ -60,19 +60,22 @@ pub fn extract_token_cookie(header: &str) -> Option<String> {
     if let Some(value) = extract_cookie_value(header, "bigmodel_token_production") {
         return Some(value);
     }
-    header.split(';').filter_map(|part| part.trim().split_once('=')).find_map(|(key, value)| {
-        let key = key.to_ascii_lowercase();
-        let value = value.trim();
-        if value.len() >= 20
-            && (key.contains("token") || key.contains("auth"))
-            && !key.contains("csrf")
-            && !key.contains("expire")
-        {
-            Some(value.to_string())
-        } else {
-            None
-        }
-    })
+    header
+        .split(';')
+        .filter_map(|part| part.trim().split_once('='))
+        .find_map(|(key, value)| {
+            let key = key.to_ascii_lowercase();
+            let value = value.trim();
+            if value.len() >= 20
+                && (key.contains("token") || key.contains("auth"))
+                && !key.contains("csrf")
+                && !key.contains("expire")
+            {
+                Some(value.to_string())
+            } else {
+                None
+            }
+        })
 }
 
 pub fn cookie_named(header: &str, name: &str) -> bool {
@@ -117,7 +120,8 @@ mod tests {
             "serviceToken"
         ));
         assert_eq!(
-            extract_token_cookie("foo=1; access_token=eyJhbGciOiJIUzI1NiJ9.payload.sig; x=2").as_deref(),
+            extract_token_cookie("foo=1; access_token=eyJhbGciOiJIUzI1NiJ9.payload.sig; x=2")
+                .as_deref(),
             Some("eyJhbGciOiJIUzI1NiJ9.payload.sig")
         );
     }

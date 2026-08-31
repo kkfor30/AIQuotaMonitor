@@ -148,7 +148,12 @@ async fn request_balance(
             _ => {}
         }
         return response.json().await.map_err(|_| {
-            RefreshError::new("response_shape_changed", "GLM 余额返回格式发生变化", false, false)
+            RefreshError::new(
+                "response_shape_changed",
+                "GLM 余额返回格式发生变化",
+                false,
+                false,
+            )
         });
     }
     Err(RefreshError::new(
@@ -182,7 +187,8 @@ fn glm_response_ok(body: &Value) -> bool {
         return false;
     }
     let message = business_message(body);
-    if message.contains("Authorization") || message.contains("未登录") || message.contains("过期") {
+    if message.contains("Authorization") || message.contains("未登录") || message.contains("过期")
+    {
         return false;
     }
     if body.get("success").and_then(Value::as_bool) == Some(true) {
@@ -206,7 +212,11 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
     }
     if !glm_response_ok(body) {
         let message = business_message(body);
-        let message = if message.is_empty() { "平台返回业务错误" } else { message };
+        let message = if message.is_empty() {
+            "平台返回业务错误"
+        } else {
+            message
+        };
         if message.contains("Authorization") {
             return Err(RefreshError::new(
                 "session_expired",
@@ -222,8 +232,14 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
             false,
         ));
     }
-    let available = pick_balance(body)
-        .ok_or_else(|| RefreshError::new("missing_balance", "GLM 未返回可解析的余额字段", false, false))?;
+    let available = pick_balance(body).ok_or_else(|| {
+        RefreshError::new(
+            "missing_balance",
+            "GLM 未返回可解析的余额字段",
+            false,
+            false,
+        )
+    })?;
     let gift = pick_decimal(body, &["giveAmount", "giftAmount", "presentAmount"]);
     let recharge = pick_decimal(body, &["rechargeAmount", "cashAmount", "toppedUpBalance"]);
     let mut secondary_parts = Vec::new();
@@ -347,7 +363,8 @@ mod tests {
 
     #[test]
     fn treats_code_1001_as_expired_session() {
-        let error = parse(&json!({"success": false, "code": 1001, "msg": "未收到Authorization"})).unwrap_err();
+        let error = parse(&json!({"success": false, "code": 1001, "msg": "未收到Authorization"}))
+            .unwrap_err();
         assert_eq!(error.code, "session_expired");
         assert!(error.auth_required);
     }
