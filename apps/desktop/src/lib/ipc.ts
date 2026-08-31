@@ -380,6 +380,7 @@ export type AppSettingsView = {
   autostart: boolean;
   refreshIntervalMinutes: number;
   hoverbarSortMode: "manual" | "smart" | string;
+  hoverbarAutoRadarCheck: boolean;
 };
 
 export async function fetchAppSettings(): Promise<AppSettingsView> {
@@ -404,6 +405,10 @@ export async function reorderPlatforms(platformIds: string[]): Promise<void> {
 
 export async function setHoverbarSortMode(mode: "manual" | "smart"): Promise<AppSettingsView> {
   return invoke<AppSettingsView>("set_hoverbar_sort_mode", { mode });
+}
+
+export async function setHoverbarAutoRadarCheck(enabled: boolean): Promise<AppSettingsView> {
+  return invoke<AppSettingsView>("set_hoverbar_auto_radar_check", { enabled });
 }
 
 export async function clearLocalCache(): Promise<void> {

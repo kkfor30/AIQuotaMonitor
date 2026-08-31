@@ -114,6 +114,21 @@ export function HoverbarDetailApp() {
   const cancelRadar = useCallback(() => {
     void cancelRadarCheck();
   }, []);
+  // 展开详情时自动检查重置雷达（设置开关 + 距上次检查 ≥10 分钟节流）。
+  // 与手动刷新同一路径：含 AI 偏好；进行中摘要条按钮显示 loading 并可终止。
+  const AUTO_RADAR_CHECK_MIN_INTERVAL_MS = 10 * 60 * 1000;
+  const autoCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!settings?.hoverbarAutoRadarCheck || autoCheckedRef.current) return;
+    if (radarCheck.isPending) return;
+    const lastCheckAt = radar?.checks[0]?.startedAt ?? 0;
+    if (Date.now() - lastCheckAt < AUTO_RADAR_CHECK_MIN_INTERVAL_MS) return;
+    autoCheckedRef.current = true;
+    radarCheck.mutate();
+    // settings/radar 为触发依赖；radarCheck.mutate 引用稳定（useMutation）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings?.hoverbarAutoRadarCheck, radar?.checks]);
+
   // 本机额度重试：只刷新 GPT 平台额度，不重跑雷达 AI。
   const quotaRetry = useMutation({
     mutationFn: () => refreshPlatform("openai"),

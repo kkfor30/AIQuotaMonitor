@@ -149,6 +149,7 @@ pub fn run() {
             commands::settings_commands::set_autostart,
             commands::settings_commands::reorder_platforms,
             commands::settings_commands::set_hoverbar_sort_mode,
+            commands::settings_commands::set_hoverbar_auto_radar_check,
             commands::settings_commands::clear_local_cache,
             commands::settings_commands::refresh_all_platforms,
         ])

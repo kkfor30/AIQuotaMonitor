@@ -13,6 +13,7 @@ import {
   reorderPlatforms,
   setAppTheme,
   setAutostart,
+  setHoverbarAutoRadarCheck,
   setHoverbarEnabled,
   setHoverbarSortMode,
   setRefreshInterval,
@@ -160,6 +161,10 @@ function GeneralSection() {
       void queryClient.invalidateQueries({ queryKey: HOVERBAR_PREFERENCES_QUERY_KEY });
     },
   });
+  const autoRadarMutation = useMutation({
+    mutationFn: setHoverbarAutoRadarCheck,
+    onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
+  });
 
   const theme = settings?.theme ?? "system";
   const error =
@@ -184,6 +189,17 @@ function GeneralSection() {
             disabled={hoverbarMutation.isPending}
             onCheckedChange={(next) => hoverbarMutation.mutate(next)}
             label="启用悬浮球"
+          />
+        </SettingRow>
+        <SettingRow
+          title="展开悬浮详情时自动检查重置雷达"
+          description="悬浮球展开详情时自动同步 Tibo 动态并按偏好运行 AI 分析；距上次检查不足 10 分钟时跳过"
+        >
+          <Switch
+            checked={settings?.hoverbarAutoRadarCheck ?? false}
+            disabled={autoRadarMutation.isPending}
+            onCheckedChange={(next) => autoRadarMutation.mutate(next)}
+            label="展开悬浮详情时自动检查重置雷达"
           />
         </SettingRow>
         <SettingRow title="主题" description="主窗口与悬浮详情一起切换；跟随系统时尊重 Windows 深浅色">

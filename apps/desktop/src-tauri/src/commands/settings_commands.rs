@@ -13,6 +13,7 @@ pub struct AppSettingsView {
     pub autostart: bool,
     pub refresh_interval_minutes: i64,
     pub hoverbar_sort_mode: String,
+    pub hoverbar_auto_radar_check: bool,
 }
 
 #[tauri::command]
@@ -27,7 +28,21 @@ pub fn get_app_settings(database: State<'_, Database>) -> Result<AppSettingsView
         hoverbar_sort_mode: database
             .setting_string("hoverbar_sort_mode")?
             .unwrap_or_else(|| "manual".into()),
+        hoverbar_auto_radar_check: database.setting_bool("hoverbar_auto_radar_check")?,
     })
+}
+
+#[tauri::command]
+pub fn set_hoverbar_auto_radar_check(
+    enabled: bool,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<AppSettingsView, String> {
+    require_label(&window, &["main"])?;
+    database.set_setting_bool("hoverbar_auto_radar_check", enabled)?;
+    let _ = app.emit("app-settings-changed", ());
+    get_app_settings(database)
 }
 
 #[tauri::command]

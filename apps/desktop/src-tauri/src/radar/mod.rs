@@ -47,7 +47,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v9";
+pub const PROMPT_VERSION: &str = "radar-v10";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -792,8 +792,8 @@ fn chat_target(source_id: &str) -> Option<(&'static str, &'static str)> {
         "deepseek-balance-api" => Some(("DeepSeek", "deepseek-chat")),
         "glm-coding-plan" => Some(("GLM 国内", "glm-4.5-flash")),
         "glm-intl-coding-plan" => Some(("GLM 国际", "glm-4.5-flash")),
-        "kimi-balance-api" => Some(("Kimi 开放平台", "kimi-k2-turbo-preview")),
-        "kimi-coding-plan" => Some(("Kimi Coding", "kimi-k2-turbo-preview")),
+        "kimi-balance-api" => Some(("Kimi 开放平台", "moonshot-v1-8k")),
+        "kimi-coding-plan" => Some(("Kimi Coding", "moonshot-v1-8k")),
         "minimax-coding-plan" => Some(("MiniMax", "MiniMax-M2.5")),
         "minimax-intl-coding-plan" => Some(("MiniMax 国际", "MiniMax-M2.5")),
         _ => None,
@@ -1217,9 +1217,9 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "Write conclusion and analysis_basis in Simplified Chinese. ",
     "Every POST TIME line is the post's publish time in Beijing time (UTC+8); ",
     "every POST also carries PST_PUBLISHED - the same posting moment in PST (UTC-8), pre-computed by code. Use PST_PUBLISHED as the anchor; do not recompute it from TIME. ",
-    "When a post announces a PST clock time (6pm = 18:00, 6am = 06:00; re-check the meridiem): ",
+    "When a post announces a PST clock time, first write out the recognized 24-hour clock in analysis_basis as \"announced PST time: HH:MM\" (6pm = 18:00, 6am = 06:00; re-check the meridiem character by character). ",
     "1) the announced PST day is the same day as PST_PUBLISHED if the announced hour-of-day is not earlier than PST_PUBLISHED's hour-of-day, otherwise the next PST day; ",
-    "2) Beijing time = announced PST time + 16 hours. Lookup table: 00:00 PST = 16:00 next-day Beijing; 06:00 PST = 22:00 next-day Beijing; 12:00 PST = 04:00 next-day Beijing; 18:00 PST = 10:00 next-day Beijing. ",
+    "2) Beijing time = lookup the announced PST hour in this full table (all next-day Beijing): 00:00->16:00, 01:00->17:00, 02:00->18:00, 03:00->19:00, 04:00->20:00, 05:00->21:00, 06:00->22:00, 07:00->23:00, 08:00->00:00, 09:00->01:00, 10:00->02:00, 11:00->03:00, 12:00->04:00, 13:00->05:00, 14:00->06:00, 15:00->07:00, 16:00->08:00, 17:00->09:00, 18:00->10:00, 19:00->11:00, 20:00->12:00, 21:00->13:00, 22:00->14:00, 23:00->15:00. Never add 16 yourself; only look up. ",
     "Worked example: PST_PUBLISHED 2026-08-30T11:24-08:00, post says 6pm PST: 18:00 is later than 11:24, same PST day 08-30; +16h = 北京时间2026年8月31日10:00. ",
     "Never write the PST clock hour directly as a Beijing time, and never do subtraction on TIME yourself. ",
     "am/pm: 6pm is 18:00 and 6am is 06:00; re-check each meridiem before converting. ",
