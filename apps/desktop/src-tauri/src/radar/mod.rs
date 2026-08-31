@@ -283,9 +283,9 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
     })
 }
 
-/// 本机额度证据自动推进事件：非计划刷新且归因 radar_correlated（事件时间落在
-/// 前后快照区间内）时，事件进入 landed_observed 并记录本机观察时间。
-/// 全确定性逻辑，不依赖 AI；阶段只向前，landed_observed 后条件不再成立，不会重复写库。
+/// 本机额度证据自动推进事件：账号存在非计划/疑似恢复的观察证据（last_reset_observed_at，
+/// 证据扫描已排除事件开始前的快照对）时，事件进入 landed_observed 并记录本机观察时间。
+/// 全确定性逻辑，不依赖 AI；阶段只向前；证据常驻，错过即时窗口后下次快照仍会推进。
 fn advance_event_on_quota_evidence(
     database: &Database,
     event: Option<RadarEventRecord>,
@@ -297,17 +297,15 @@ fn advance_event_on_quota_evidence(
     if !matches!(record.phase.as_str(), "watching" | "upcoming" | "landed_claimed") {
         return Ok(Some(record));
     }
-    let hit = verifications.iter().find(|item| {
-        item.status == "unscheduled_reset"
-            && item.attribution == "radar_correlated"
-            && item.current.is_some()
-    });
+    let hit = verifications
+        .iter()
+        .find(|item| item.last_reset_observed_at.is_some());
     let Some(verification) = hit else {
         return Ok(Some(record));
     };
     let mut advanced = record;
     advanced.phase = "landed_observed".into();
-    advanced.observed_reset_at = verification.current.as_ref().map(|point| point.captured_at);
+    advanced.observed_reset_at = verification.last_reset_observed_at;
     advanced.latest_evidence_at = epoch_ms();
     database.update_radar_event(&advanced)?;
     Ok(Some(advanced))
@@ -960,7 +958,15 @@ async fn run_analysis(
             .join("\n\n")
     };
     let input_hash = format!("{:x}", simple_hash(&joined(&inputs.delta)));
-    let context_hash = format!("{:x}", simple_hash(&joined(&inputs.context)));
+    // 事件状态参与复用键：阶段/本机观察变化后，旧的结论不应被复用。
+    let context_hash = format!(
+        "{:x}",
+        simple_hash(&format!(
+            "{}|{}",
+            joined(&inputs.context),
+            inputs.event_status.as_deref().unwrap_or("")
+        ))
+    );
     let prompt_hash = format!("{:x}", simple_hash(&user_prompt));
     let target = resolve_chat_target(database, source_id, model)?;
     if database
@@ -1803,20 +1809,21 @@ mod tests {
             account_id: "a".into(),
             account_name: "本机".into(),
             source_id: "s".into(),
-            status: "unscheduled_reset".into(),
-            attribution: "radar_correlated".into(),
+            // 证据常驻：即使最新一对已回到 no_change，历史观察仍触发推进
+            status: "no_change".into(),
+            attribution: "unknown".into(),
             window_id: None,
             window_label: None,
             window_seconds: None,
             previous: None,
             current: Some(quota_watch::QuotaWindowPointView {
-                captured_at: 5000,
-                remaining: Some(0.9),
+                captured_at: 6000,
+                remaining: Some(0.89),
                 reset_at: None,
             }),
             last_success_at: None,
             note: None,
-            last_reset_observed_at: None,
+            last_reset_observed_at: Some(5000),
         };
         let advanced = advance_event_on_quota_evidence(&database, Some(event), &[verification])
             .expect("advance")
