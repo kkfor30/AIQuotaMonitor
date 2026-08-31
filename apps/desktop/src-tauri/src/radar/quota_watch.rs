@@ -27,6 +27,8 @@ pub struct QuotaVerificationView {
     pub current: Option<QuotaWindowPointView>,
     pub last_success_at: Option<i64>,
     pub note: Option<String>,
+    /// 最近一次观察到非计划/疑似窗口恢复的时间（历史证据常驻，不随后续刷新被覆盖）。
+    pub last_reset_observed_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +79,7 @@ fn assess_source(
         current: None,
         last_success_at: source.last_success_at,
         note: None,
+        last_reset_observed_at: None,
     };
     // 凭据或网络失败：只代表无法验证，不代表没有重置。
     if source.state == "error" || source.state == "auth_required" {
@@ -104,6 +107,24 @@ fn assess_source(
     verification.window_id = Some(primary_pair.0.capability_id.clone());
     verification.window_label = Some(primary_pair.0.display_name.clone());
     verification.window_seconds = primary_pair.0.window_seconds;
+    // 历史证据：扫描全部窗口对，记录最近一次非计划/疑似恢复的观察时间，
+    // 让「已重置」的证据在后续常规刷新（未见变化）中仍然常驻可见。
+    for pair in &pairs {
+        let probe = assess_pair(&base, pair, event_first_signal_at);
+        if matches!(probe.status.as_str(), "unscheduled_reset" | "possible_reset") {
+            if let Some(current) = &probe.current {
+                if verification
+                    .last_reset_observed_at
+                    .map_or(true, |seen| current.captured_at > seen)
+                {
+                    verification.last_reset_observed_at = Some(current.captured_at);
+                }
+            }
+        }
+    }
+    if verification.status == "no_change" && verification.last_reset_observed_at.is_some() {
+        verification.note = Some("本次刷新未见进一步变化；窗口重置已在之前的刷新中观察到".into());
+    }
     Ok(verification)
 }
 

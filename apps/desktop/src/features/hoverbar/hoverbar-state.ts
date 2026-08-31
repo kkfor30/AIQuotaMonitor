@@ -215,6 +215,14 @@ export function quotaStatusText(status: string): string {
   }
 }
 
+/** 带历史观察证据的徽章文案：重置证据常驻，不随后续「未见变化」刷新消失。 */
+export function quotaBadgeLabel(status: string, attribution: string, lastResetObservedAt: number | null): string {
+  if (lastResetObservedAt != null && (status === "unscheduled_reset" || status === "no_change")) {
+    return `已重置 · ${formatHoverbarClock(lastResetObservedAt)} 观察`;
+  }
+  return quotaStatusLabel(status, attribution);
+}
+
 /** 本机额度状态 + 归因的最终文案：时间与事件吻合或用户确认时，明确说「已重置」。 */
 export function quotaStatusLabel(status: string, attribution: string): string {
   if (status === "unscheduled_reset") {

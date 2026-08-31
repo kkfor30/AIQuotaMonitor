@@ -1801,6 +1801,7 @@ mod tests {
             }),
             last_success_at: None,
             note: None,
+            last_reset_observed_at: None,
         };
         let advanced = advance_event_on_quota_evidence(&database, Some(event), &[verification])
             .expect("advance")

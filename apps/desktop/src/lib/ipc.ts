@@ -305,6 +305,7 @@ export type QuotaVerification = {
   current: QuotaWindowPoint | null;
   lastSuccessAt: number | null;
   note: string | null;
+  lastResetObservedAt: number | null;
 };
 
 export type RadarModelOption = {

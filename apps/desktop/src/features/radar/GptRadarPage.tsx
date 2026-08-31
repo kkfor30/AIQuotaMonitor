@@ -33,7 +33,7 @@ import {
 } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import type { RadarModelOption, RadarPost } from "@/lib/ipc";
-import { quotaStatusLabel, radarPhaseLabel } from "@/features/hoverbar/hoverbar-state";
+import { quotaBadgeLabel, radarPhaseLabel } from "@/features/hoverbar/hoverbar-state";
 import { useContainerWidth, TIBO_SPLIT_MIN_PX } from "@/lib/use-container-width";
 import { ArrowLeft } from "lucide-react";
 
@@ -456,7 +456,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                 >
                   <div className="flex items-center gap-2">
                     <b className="text-[13px] text-q-text-primary">{item.accountName}</b>
-                    <StatusBadge tone={quotaTone(item.status)}>{quotaStatusLabel(item.status, item.attribution)}</StatusBadge>
+                    <StatusBadge tone={quotaTone(item.status)}>{quotaBadgeLabel(item.status, item.attribution, item.lastResetObservedAt)}</StatusBadge>
                     {item.attribution === "user_confirmed" ? (
                       <span className="text-[11px] text-q-text-muted">用户已确认</span>
                     ) : null}

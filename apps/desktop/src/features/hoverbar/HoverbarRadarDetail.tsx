@@ -18,7 +18,7 @@ import {
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import {
   formatHoverbarClock,
-  quotaStatusLabel,
+  quotaBadgeLabel,
   radarPhaseLabel,
 } from "./hoverbar-state";
 
@@ -276,7 +276,7 @@ function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
       <div className="hb-quota-row-head">
         <b>{item.accountName}</b>
         <span className="hb-quota-window">{item.windowLabel ?? "套餐窗口"}</span>
-        <span className="hb-quota-status">{quotaStatusLabel(item.status, item.attribution)}</span>
+        <span className="hb-quota-status">{quotaBadgeLabel(item.status, item.attribution, item.lastResetObservedAt)}</span>
       </div>
       {item.status === "unavailable" ? (
         <p className="hb-radar-meta">网络无法获取额度，不影响来源与 AI 判断。</p>
