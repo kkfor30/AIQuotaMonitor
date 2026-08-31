@@ -98,7 +98,6 @@ export function HoverbarRadarDetail({
           <ArrowLeft size={14} aria-hidden />
           返回额度
         </button>
-        <b className="hb-radar-title">GPT 重置雷达</b>
         <span className="hb-radar-range" title={rangeTitle}>
           <span className="hb-radar-range-full">分析范围：{formatRadarRangeLabel(rangeKey)}</span>
           <span className="hb-radar-range-compact">{formatRadarRangeLabel(rangeKey, true)}</span>

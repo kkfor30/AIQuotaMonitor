@@ -1164,18 +1164,6 @@ html.hoverbar-window #root {
   }
 }
 
-.hb-radar-title {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  color: var(--q-hoverbar-ink);
-  font-size: 14px;
-  font-weight: 760;
-  line-height: 19px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .hb-radar-refresh {
   display: inline-flex;
   flex: none;
@@ -1207,17 +1195,27 @@ html.hoverbar-window #root {
   animation: hb-spin 0.85s linear infinite;
 }
 
-/* 分析范围只读标签：宽停靠展示完整文案，左右 300px 窄停靠切换为紧凑文案（如「3 天」）。 */
+/* 分析范围只读标签：右对齐与刷新/仅为推测成组；宽停靠完整文案，左右 300px 窄停靠
+   切换为紧凑文案（当天/3 天/8.31-9.1）。空间不足时收缩省略，完整信息在 title 提示里。 */
 .hb-radar-range {
   display: inline-flex;
-  flex: none;
-  align-items: center;
+  flex: 0 1 auto;
   min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  align-items: center;
   color: var(--q-hoverbar-muted);
   font-size: 11px;
   font-weight: 650;
   line-height: 15px;
   white-space: nowrap;
+}
+
+.hb-radar-range-full,
+.hb-radar-range-compact {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hb-radar-range-compact {
@@ -1816,17 +1814,6 @@ html.hoverbar-window #root {
 .hb-detail-root[data-edge="left"] .hb-plan-chip,
 .hb-detail-root[data-edge="right"] .hb-plan-chip {
   padding: 2px 7px;
-}
-
-/* 左右侧停靠：雷达二级页标题放不下（300px 面板），隐藏后由「返回额度/仅为推测」承载语境。 */
-.hb-detail-root[data-edge="left"] .hb-radar-title,
-.hb-detail-root[data-edge="right"] .hb-radar-title {
-  display: none;
-}
-
-.hb-detail-root[data-edge="left"] .hb-radar-refresh,
-.hb-detail-root[data-edge="right"] .hb-radar-refresh {
-  margin-left: auto;
 }
 
 .hb-detail-root[data-edge="left"] .hb-actions,

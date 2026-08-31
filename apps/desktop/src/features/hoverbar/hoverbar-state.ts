@@ -199,7 +199,7 @@ export function shouldShowRadarTemporalBadge(
 
 /**
  * 分析范围（radar.analysisPrefs.rangeKey）的可读文案；主窗口与悬浮雷达页共用。
- * compact：左右 300px 窄停靠的短文案。自定义区间输出 `MM-DD 至 MM-DD`。
+ * compact：左右 300px 窄停靠的短文案（自定义区间缩写为 `8.31-9.1`，避免挤压头部）。
  * 未知取值按后端默认 `3d` 回显。
  */
 export function formatRadarRangeLabel(rangeKey: string | null | undefined, compact = false): string {
@@ -211,7 +211,15 @@ export function formatRadarRangeLabel(rangeKey: string | null | undefined, compa
     if (days >= 1 && days <= 365) return compact ? `${days} 天` : `过去 ${days} 天`;
   }
   const custom = /^range:\d{4}-(\d{2})-(\d{2}):\d{4}-(\d{2})-(\d{2})$/.exec(key);
-  if (custom) return `${custom[1]}-${custom[2]} 至 ${custom[3]}-${custom[4]}`;
+  if (custom) {
+    const [, startMonth, startDay, endMonth, endDay] = custom;
+    if (compact) {
+      // 窄停靠短格式：去前导零 + 点分日期（8.31-9.1），完整「MM-DD 至 MM-DD」放不下
+      const trim = (value: string) => String(Number(value));
+      return `${trim(startMonth)}.${trim(startDay)}-${trim(endMonth)}.${trim(endDay)}`;
+    }
+    return `${startMonth}-${startDay} 至 ${endMonth}-${endDay}`;
+  }
   return compact ? "3 天" : "过去 3 天";
 }
 
