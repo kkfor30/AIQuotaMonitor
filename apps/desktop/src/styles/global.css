@@ -897,49 +897,45 @@ html.hoverbar-window #root {
   font-weight: 600;
 }
 
-/* DeepSeek 模型行（用量重设计 V1）：指标图标芯片 + 名称/语义 + 右对齐真实 Token 文本 */
+/* DeepSeek 模型行（用量重设计 V2）：身份图标方块 + 名称/语义副标题 + 右对齐真实 Token 文本 */
 .hb-model-list {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
 
 .hb-model-line {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 10px;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 11px;
   background: var(--q-hoverbar-empty-bg);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
 }
 
-/* 指标图标芯片：Flash 蓝青晶体 / Pro 紫六边核 / 靶心数据环共用，纯装饰 */
-.hb-metric-chip {
+/* 模型身份图标方块：Flash 蓝青晶体翼 / Vision 青色光圈 / Pro 紫色神经旋涡，禁止互相复用 */
+.hb-model-chip {
   display: grid;
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 44px;
+  height: 44px;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 11px;
 }
 
-.hb-metric-chip[data-variant="flash"] {
-  background: rgba(10, 102, 255, 0.12);
-}
-
-.hb-metric-chip[data-variant="vision"] {
-  background: rgba(13, 148, 136, 0.14);
-}
-
-.hb-metric-chip[data-variant="pro"] {
-  background: rgba(124, 58, 237, 0.14);
-}
-
-.hb-metric-chip[data-variant="target"] {
+.hb-model-chip[data-variant="flash"] {
   background: rgba(10, 102, 255, 0.1);
+}
+
+.hb-model-chip[data-variant="vision"] {
+  background: rgba(8, 145, 178, 0.12);
+}
+
+.hb-model-chip[data-variant="pro"] {
+  background: rgba(124, 58, 237, 0.12);
 }
 
 .hb-model-meta {
@@ -947,27 +943,34 @@ html.hoverbar-window #root {
   flex: 1 1 auto;
   min-width: 0;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .hb-model-name {
   overflow: hidden;
   color: var(--q-hoverbar-ink);
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 720;
-  line-height: 16px;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 语义副标题：宽停靠展示「语义 · 本月 Token」，侧边 300px 只保留语义部分 */
 .hb-model-sub {
-  overflow: hidden;
+  min-width: 0;
   color: var(--q-hoverbar-muted);
   font-size: 10.5px;
   font-weight: 620;
   line-height: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.hb-model-sub-full {
+  display: inline;
+}
+
+.hb-model-sub-short {
+  display: none;
 }
 
 .hb-model-value {
@@ -976,9 +979,9 @@ html.hoverbar-window #root {
   overflow: hidden;
   text-align: right;
   color: var(--q-hoverbar-ink);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 760;
-  line-height: 18px;
+  line-height: 19px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -990,16 +993,64 @@ html.hoverbar-window #root {
   font-weight: 650;
 }
 
-/* 靶心缓存行：与模型行同款卡片底，左右边缘对齐；说明行在卡片内左对齐 */
+/* 总缓存命中率块（V2）：模型列表后的独立全宽卡片，靶心 + 标签 + 百分比 / 全宽进度条 / 说明 */
 .hb-cache-block {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 3px;
-  padding: 7px 10px;
-  border-radius: 10px;
+  gap: 7px;
+  padding: 10px 12px;
+  border-radius: 11px;
   background: var(--q-hoverbar-empty-bg);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+}
+
+.hb-cache-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.hb-cache-head > svg {
+  flex: none;
+}
+
+.hb-cache-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--q-hoverbar-ink);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-cache-scope {
+  color: var(--q-hoverbar-muted);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.hb-cache-value {
+  flex: none;
+  overflow: hidden;
+  text-align: right;
+  color: var(--q-hoverbar-ink);
+  font-size: 16px;
+  font-weight: 780;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-cache-value[data-missing] {
+  color: var(--q-hoverbar-muted);
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .hb-cache-desc {
@@ -1012,6 +1063,74 @@ html.hoverbar-window #root {
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 资金组合组：默认（无停靠语境）子元素保持独立卡片；顶部/底部 420px 合并为一块三列 */
+.hb-finance-group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hb-detail-root[data-edge="top"] .hb-finance-group,
+.hb-detail-root[data-edge="bottom"] .hb-finance-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 0;
+  padding: 9px 12px;
+  border-radius: 11px;
+  background: var(--q-hoverbar-empty-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
+}
+
+.hb-detail-root[data-edge="top"] .hb-finance-group .hb-balance-bar,
+.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-balance-bar {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.hb-detail-root[data-edge="top"] .hb-finance-group .hb-balance-bar > svg,
+.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-balance-bar > svg {
+  display: none;
+}
+
+.hb-detail-root[data-edge="top"] .hb-finance-group .hb-balance-amount,
+.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-balance-amount {
+  flex: none;
+  text-align: left;
+  font-size: 17px;
+  line-height: 21px;
+}
+
+.hb-detail-root[data-edge="top"] .hb-finance-group .hb-spend-grid,
+.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-spend-grid {
+  gap: 0;
+}
+
+.hb-detail-root[data-edge="top"] .hb-finance-group .hb-spend-cell,
+.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-spend-cell {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0 0 0 12px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  border-left: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
+}
+
+.hb-detail-root[data-edge="top"] .hb-finance-group .hb-spend-value,
+.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-spend-value {
+  text-align: left;
+  font-size: 14px;
+  line-height: 18px;
 }
 
 /* 缓存命中率进度行：非剩余额度语义，固定主色填充，不套三段色阶 */
@@ -2027,30 +2146,71 @@ html.hoverbar-window #root {
   font-size: 14px;
 }
 
-/* 左右侧 300px：模型行与缓存说明同步压缩，只缩图标/字号/间距，不隐藏关键值 */
+/* 左右侧 300px：模型行与总缓存块同步压缩，只缩图标/字号/间距，副标题保留语义，不隐藏关键值 */
 .hb-detail-root[data-edge="left"] .hb-model-line,
-.hb-detail-root[data-edge="right"] .hb-model-line,
-.hb-detail-root[data-edge="left"] .hb-cache-block,
-.hb-detail-root[data-edge="right"] .hb-cache-block {
-  gap: 6px;
-  padding: 6px 8px;
+.hb-detail-root[data-edge="right"] .hb-model-line {
+  gap: 8px;
+  padding: 7px 10px;
 }
 
-.hb-detail-root[data-edge="left"] .hb-metric-chip,
-.hb-detail-root[data-edge="right"] .hb-metric-chip {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+.hb-detail-root[data-edge="left"] .hb-model-chip,
+.hb-detail-root[data-edge="right"] .hb-model-chip {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
 }
 
 .hb-detail-root[data-edge="left"] .hb-model-name,
 .hb-detail-root[data-edge="right"] .hb-model-name {
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 17px;
 }
 
 .hb-detail-root[data-edge="left"] .hb-model-value,
 .hb-detail-root[data-edge="right"] .hb-model-value {
-  font-size: 13px;
+  font-size: 14px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-model-sub-full,
+.hb-detail-root[data-edge="right"] .hb-model-sub-full {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-model-sub-short,
+.hb-detail-root[data-edge="right"] .hb-model-sub-short {
+  display: inline;
+}
+
+.hb-detail-root[data-edge="left"] .hb-cache-block,
+.hb-detail-root[data-edge="right"] .hb-cache-block {
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-cache-head > svg,
+.hb-detail-root[data-edge="right"] .hb-cache-head > svg {
+  width: 20px;
+  height: 20px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-cache-label,
+.hb-detail-root[data-edge="right"] .hb-cache-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  white-space: normal;
+  font-size: 12px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-cache-scope,
+.hb-detail-root[data-edge="right"] .hb-cache-scope {
+  display: block;
+  font-size: 10px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-cache-value,
+.hb-detail-root[data-edge="right"] .hb-cache-value {
+  font-size: 14px;
 }
 
 .hb-detail-root[data-edge="left"] .hb-cache-desc,

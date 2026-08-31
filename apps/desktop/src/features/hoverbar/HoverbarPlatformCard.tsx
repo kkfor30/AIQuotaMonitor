@@ -1,17 +1,25 @@
 /**
- * 悬浮详情平台卡片（Aurora Acrylic V2 认可稿 09/10 + DeepSeek 用量重设计 V1）。
+ * 悬浮详情平台卡片（Aurora Acrylic V2 认可稿 09/10 + DeepSeek 用量重设计 V2）。
  * 一个平台一张卡：卡头为图标 + 名称 + 平台聚合状态；套餐徽章与账户别名下沉为
  * 各账户分区的分组头行（首分区同构、无分隔线），别名过长只在本行内截断；
  * 每个账号只聚合自己的 Source 与 Capability；
  * 窗口行统一为「窗口名称 → 细进度条 → 剩余百分比 → 重置时间」（数值型 remainingPercent）；
- * 余额统一为账户分区底部的财务条（钱包线性图标 + 个人余额 + 右对齐金额）；
- * DeepSeek 余额下方为今日/本月消费等宽次级单元、V4 Flash/Pro 两条紧凑模型行，
- * 以及带靶心数据环图标的缓存命中率行（固定主蓝细进度条 + 后端 secondary 说明）；
+ * 资金组合组：宽停靠（顶部/底部 420px）合并为「个人余额 | 今日消费 | 本月消费」一块三列，
+ * 左右侧 300px 拆回余额独占行 + 今日/本月双列（CSS 按 data-edge 切换）；
+ * DeepSeek 模型行为 V4 Flash / V4 Flash Vision / V4 Pro 三条独立身份行
+ * （晶体翼 / 光圈 / 神经旋涡图标方块 + 语义副标题，宽停靠「语义 · 本月 Token」、侧边只留语义）；
+ * 模型列表后为总缓存命中率独立全宽块（靶心图标 + 细主蓝进度条 + 后端 secondary 说明），
+ * 只消费总 cache_hit_rate，不展示分模型缓存/请求/Token，不套三段色阶；
  * stale 保留真实值与进度色，仅以低饱和蓝灰缓存提示；
  * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Radar, RefreshCw, Wallet } from "lucide-react";
-import { FlashCrystalIcon, ProCoreIcon, TargetRingIcon } from "@/components/ui/MetricIcons";
+import {
+  FlashCrystalIcon,
+  ProCoreIcon,
+  TargetRingIcon,
+  VisionApertureIcon,
+} from "@/components/ui/MetricIcons";
 import type {
   CapabilitySnapshotViewModel,
   DataFreshness,
@@ -37,11 +45,14 @@ const DEEPSEEK_MODEL_IDS = new Set<string>(DEEPSEEK_MODEL_ORDER);
 const ALLOWED_IDS = new Set<string>(["balance", "plan_level", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
 const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
 
-/** 悬浮模型行槽位：名称 + 芯片变体（Vision 为 Flash 衍生，青绿底区分）。 */
-const MODEL_LINE_META: Record<string, { name: string; variant: string }> = {
-  model_usage_v4_flash: { name: "V4 Flash", variant: "flash" },
-  model_usage_v4_flash_vision: { name: "V4 Flash Vision", variant: "vision" },
-  model_usage_v4_pro: { name: "V4 Pro", variant: "pro" },
+/**
+ * 悬浮模型行身份元数据（重设计 V2）：独立身份图标 + 语义副标题。
+ * 宽停靠（顶部/底部 420px）展示「语义 · 本月 Token」，侧边 300px 只保留语义部分（CSS 切换）。
+ */
+const MODEL_LINE_META: Record<string, { name: string; sub: string; variant: string }> = {
+  model_usage_v4_flash: { name: "V4 Flash", sub: "旗舰轻量模型", variant: "flash" },
+  model_usage_v4_flash_vision: { name: "V4 Flash Vision", sub: "视觉模型", variant: "vision" },
+  model_usage_v4_pro: { name: "V4 Pro", sub: "深度思考模型", variant: "pro" },
 };
 
 /** 窗口额度行数据：percent 为数值型剩余百分比，色阶由 QuotaProgress 三段规则给出。 */
@@ -228,7 +239,7 @@ function GroupHead({
   );
 }
 
-/** 一个账户分区的数据体：窗口额度行 → 余额财务条 → 消费双列 → 模型行 → 靶心缓存行 → 缓存提示。 */
+/** 一个账户分区的数据体：窗口额度行 → 资金组合（余额+消费） → 模型行 → 总缓存块 → 缓存提示。 */
 function SectionBody({ section }: { section: HoverbarSection }) {
   const hasSpend = section.spend.today !== null || section.spend.month !== null;
   if (
@@ -245,13 +256,18 @@ function SectionBody({ section }: { section: HoverbarSection }) {
       {section.windows.map((item) => (
         <QuotaLine key={item.id} item={item} />
       ))}
-      {section.balance ? <BalanceBar balance={section.balance} /> : null}
-      {hasSpend ? (
-        <div className="hb-spend-grid">
-          {section.spend.today ? <SpendCell label="今日消费" item={section.spend.today} /> : null}
-          {section.spend.month ? <SpendCell label="本月消费" item={section.spend.month} /> : null}
+      {(section.balance || hasSpend) && (
+        /* 资金组合组：宽停靠（顶部/底部 420px）合并为一块三列，侧边 300px 拆回独立卡片（CSS 切换） */
+        <div className="hb-finance-group">
+          {section.balance ? <BalanceBar balance={section.balance} /> : null}
+          {hasSpend ? (
+            <div className="hb-spend-grid">
+              {section.spend.today ? <SpendCell label="今日消费" item={section.spend.today} /> : null}
+              {section.spend.month ? <SpendCell label="本月消费" item={section.spend.month} /> : null}
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      )}
       {section.models.length > 0 ? (
         <div className="hb-model-list">
           {section.models.map((model) => (
@@ -342,58 +358,65 @@ function SpendCell({ label, item }: { label: string; item: HoverbarFinance }) {
 }
 
 /**
- * 缓存命中率行（DeepSeek 用量重设计 V1）：靶心数据环图标 + 固定主色细进度条 + 百分比，
- * 下挂后端 secondary 说明；不套剩余额度三段色阶（非额度语义）。
+ * 总缓存命中率块（DeepSeek 用量重设计 V2）：模型列表后的独立全宽块，
+ * 靶心数据环图标 + 固定主色细进度条 + 百分比 + 后端 secondary 说明；
+ * 不套剩余额度三段色阶（非额度语义），不并入任何模型行。
  */
 function CacheLine({ cache }: { cache: HoverbarCache }) {
   const missing = cache.freshness === "missing" || cache.percentText === null;
   return (
     <div className="hb-cache-block">
-      <div className="hb-quota-line">
-        <span className="hb-metric-chip" data-variant="target" aria-hidden="true">
-          <TargetRingIcon size={13} />
+      <div className="hb-cache-head">
+        <TargetRingIcon size={24} />
+        <span className="hb-cache-label">
+          总缓存命中率<span className="hb-cache-scope">（全部模型）</span>
         </span>
-        <span className="hb-quota-label">缓存命中率</span>
-        <span
-          className="hb-quota-track"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={missing ? undefined : Math.round(cache.percent ?? 0)}
-        >
-          <span
-            className="hb-quota-fill"
-            style={{
-              width: `${missing ? 0 : Math.min(100, Math.max(0, cache.percent ?? 0))}%`,
-              background: "var(--q-hoverbar-primary)",
-            }}
-          />
-        </span>
-        <span
-          className="hb-cache-value"
-          data-missing={missing || undefined}
-          data-selectable="true"
-        >
+        <span className="hb-cache-value" data-missing={missing || undefined} data-selectable="true">
           {missing ? "暂不可用" : cache.percentText}
         </span>
       </div>
+      <span
+        className="hb-quota-track"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={missing ? undefined : Math.round(cache.percent ?? 0)}
+      >
+        <span
+          className="hb-quota-fill"
+          style={{
+            width: `${missing ? 0 : Math.min(100, Math.max(0, cache.percent ?? 0))}%`,
+            background: "var(--q-hoverbar-primary)",
+          }}
+        />
+      </span>
       {!missing && cache.desc ? <p className="hb-cache-desc">{cache.desc}</p> : null}
     </div>
   );
 }
 
-/** V4 Flash / Vision / Pro 紧凑模型行：晶体/六边核图标 + 名称 + 右对齐真实 Token 文本。 */
+/** V4 Flash / Vision / Pro 模型行：独立身份图标方块 + 语义副标题 + 右对齐真实 Token 文本。 */
 function ModelLine({ model }: { model: HoverbarModel }) {
   const missing = model.freshness === "missing" || model.value === null;
   const meta = MODEL_LINE_META[model.id] ?? MODEL_LINE_META.model_usage_v4_flash;
   return (
     <div className="hb-model-line">
-      <span className="hb-metric-chip" data-variant={meta.variant} aria-hidden="true">
-        {meta.variant === "pro" ? <ProCoreIcon size={13} /> : <FlashCrystalIcon size={13} />}
+      <span className="hb-model-chip" data-variant={meta.variant} aria-hidden="true">
+        {meta.variant === "vision" ? (
+          <VisionApertureIcon size={26} />
+        ) : meta.variant === "pro" ? (
+          <ProCoreIcon size={26} />
+        ) : (
+          <FlashCrystalIcon size={26} />
+        )}
       </span>
       <span className="hb-model-meta">
         <span className="hb-model-name">{meta.name}</span>
-        <span className="hb-model-sub">本月累计 Token</span>
+        {/* 宽停靠展示「语义 · 本月 Token」，侧边 300px 只保留语义（CSS 切换，不隐藏关键值） */}
+        <span className="hb-model-sub">
+          <span className="hb-model-sub-full">{meta.sub} · 本月 Token</span>
+          <span className="hb-model-sub-short">{meta.sub}</span>
+        </span>
       </span>
       <span
         className="hb-model-value"

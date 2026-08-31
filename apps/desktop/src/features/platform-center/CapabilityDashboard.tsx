@@ -6,15 +6,16 @@
  * - FinanceSection 资金账户（balance / today_spend / month_spend / total_spend）：连续资金面板，
  *   余额主值 + 消费次级行，金额右对齐 tabular（money / money-secondary，不套额度三段色）；
  * - SubscriptionSection 订阅信息（credits）：与余额分开，仅展示接口实际返回值；
- * - ModelUsageSection 模型用量（model_usage_*）：紧凑模型行列表；
- * - EfficiencySection 调用效率（cache_hit_rate / *_cache_hit_rate / request_count / prompt_tokens /
- *   response_tokens / cache_hit_tokens / cache_miss_tokens）：命中率主值固定主蓝进度条（非额度语义），
- *   分模型命中率行 + 请求数/输入输出/缓存 Token 紧凑统计矩阵；
+ * - ModelUsageSection 模型用量（model_usage_*）：紧凑模型行列表，V4 系列模型使用独立身份图标与语义副标题；
+ * - EfficiencySection 调用与缓存效率（cache_hit_rate / *_cache_hit_rate / request_count / prompt_tokens /
+ *   response_tokens / cache_hit_tokens / cache_miss_tokens）：仪表标题 + 命中率主值固定主蓝进度条（非额度语义），
+ *   分模型命中率行统一靶心图标；
  * - TrendSection 趋势（usage_trend 或 value.kind === "trend"）：真实序列，无点显示空状态；
  * - 未知能力回退：Boxes 图标的紧凑行，不丢弃真实数据。
  * plan_level 不进入仪表盘：由账号头渲染为套餐徽章。missing 一律「未获取」不补零，
  * stale 保留真实值并标注最后成功时间。布局全部 auto-fit，随容器宽度响应，无平台专属断点。
  */
+import type { ReactNode } from "react";
 import {
   Activity,
   BadgeDollarSign,
@@ -26,7 +27,6 @@ import {
   Clock3,
   Coins,
   Cpu,
-  DatabaseZap,
   Hourglass,
   Landmark,
   ReceiptText,
@@ -34,6 +34,15 @@ import {
   WalletCards,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import {
+  EfficiencyGaugeIcon,
+  FlashCrystalIcon,
+  ProCoreIcon,
+  TargetRingIcon,
+  VisionApertureIcon,
+  modelIconKind,
+  type ModelIconKind,
+} from "@/components/ui/MetricIcons";
 import { QuotaProgress, capabilityRemainingPercent, quotaTone, quotaToneColor } from "@/components/ui/QuotaProgress";
 import { FreshnessTag } from "@/components/ui/StatusBadge";
 import { compactPercentText, formatTime } from "@/lib/format";
@@ -50,7 +59,7 @@ const FINANCE_SECONDARY_META: Array<{ id: string; icon: LucideIcon }> = [
   { id: "month_spend", icon: CalendarClock },
   { id: "total_spend", icon: Landmark },
 ];
-/** 紧凑统计矩阵（渲染在调用效率模块内）。 */
+/** 紧凑统计矩阵（能力归类用；渲染上由分模型明细行承载，不再单独出矩阵）。 */
 const EFFICIENCY_STAT_META: Array<{ id: string; icon: LucideIcon }> = [
   { id: "request_count", icon: Activity },
   { id: "prompt_tokens", icon: Activity },
@@ -58,6 +67,32 @@ const EFFICIENCY_STAT_META: Array<{ id: string; icon: LucideIcon }> = [
   { id: "cache_hit_tokens", icon: Activity },
   { id: "cache_miss_tokens", icon: Activity },
 ];
+
+/**
+ * V4 系列模型身份（重设计 V2）：独立身份图标 + 语义副标题 + 芯片底色。
+ * Flash 蓝青晶体翼 / Vision 青色光圈 / Pro 紫色神经旋涡，禁止互相复用；
+ * 其它 model_usage_* 能力回退线性 Cpu 行，不影响未来平台。
+ */
+type ModelIdentity = { name: string; sub: string; chip: string; kind: ModelIconKind };
+
+const MODEL_IDENTITY: Record<string, ModelIdentity> = {
+  model_usage_v4_flash: { name: "V4 Flash", sub: "旗舰轻量模型", chip: "rgba(10, 102, 255, 0.1)", kind: "flash" },
+  model_usage_v4_flash_vision: {
+    name: "V4 Flash Vision",
+    sub: "视觉模型",
+    chip: "rgba(8, 145, 178, 0.12)",
+    kind: "vision",
+  },
+  model_usage_v4_pro: { name: "V4 Pro", sub: "深度思考模型", chip: "rgba(124, 58, 237, 0.12)", kind: "pro" },
+};
+
+function ModelIdentityGlyph({ id }: { id: string }) {
+  const kind = modelIconKind(id);
+  if (kind === "vision") return <VisionApertureIcon size={24} />;
+  if (kind === "pro") return <ProCoreIcon size={24} />;
+  if (kind === "flash") return <FlashCrystalIcon size={24} />;
+  return <Cpu size={15} />;
+}
 
 function classifyCapability(capability: CapabilitySnapshotViewModel): CapabilityGroup {
   const id = capability.capabilityId;
@@ -116,7 +151,8 @@ function freshnessLine(capability: CapabilitySnapshotViewModel | null): { text: 
   return capability.capturedAt !== null ? { text: formatTime(capability.capturedAt), stale: false } : null;
 }
 
-/** 模块容器：图标软底座 + 标题 + 右侧徽章插槽，两主题由 Token 驱动。 */
+/** 模块容器：图标软底座 + 标题 + 右侧徽章插槽，两主题由 Token 驱动。
+ *  图标接受 Lucide 或本模块 SVG 组件（签名宽于 LucideIcon 的 size 联合类型）。 */
 function ModulePanel({
   icon: Icon,
   title,
@@ -124,10 +160,10 @@ function ModulePanel({
   children,
   className,
 }: {
-  icon: LucideIcon;
+  icon: (props: { size?: number; className?: string }) => ReactNode;
   title: string;
-  aside?: React.ReactNode;
-  children: React.ReactNode;
+  aside?: ReactNode;
+  children: ReactNode;
   className?: string;
 }) {
   return (
@@ -337,31 +373,71 @@ function ModelUsageSection({ capabilities }: { capabilities: CapabilitySnapshotV
         {capabilities.map((capability) => {
           const missing = isMissing(capability);
           const line = freshnessLine(capability);
+          const identity = MODEL_IDENTITY[capability.capabilityId] ?? null;
+          // V4 系列模型：身份图标方块 + 语义副标题；其它模型回退线性行，不丢弃数据
+          if (!identity) {
+            return (
+              <div
+                key={`${capability.sourceId}-${capability.capabilityId}`}
+                className="flex min-h-[64px] min-w-0 flex-col justify-center gap-0.5 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
+              >
+                <div className="flex min-w-0 items-baseline justify-between gap-3">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Cpu size={13} aria-hidden className="shrink-0 text-q-text-muted" />
+                    <span className="truncate text-[13px] font-medium text-q-text-primary">{capability.displayName}</span>
+                    {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
+                  </span>
+                  <span
+                    className="min-w-0 shrink-0 truncate text-right text-[16px] leading-6 text-q-text-primary"
+                    style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
+                    data-selectable="true"
+                    data-missing={missing || undefined}
+                  >
+                    {missing ? "未获取" : primaryText(capability)}
+                  </span>
+                </div>
+                {capability.value.secondary && (
+                  <p className="truncate text-[11px] text-q-text-muted" title={capability.value.secondary}>
+                    {capability.value.secondary}
+                  </p>
+                )}
+                {line && (
+                  <p className="text-[10.5px]" style={{ color: line.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}>
+                    {line.text}
+                  </p>
+                )}
+              </div>
+            );
+          }
           return (
             <div
               key={`${capability.sourceId}-${capability.capabilityId}`}
-              className="flex min-w-0 flex-col gap-0.5 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
+              className="flex min-h-[64px] min-w-0 flex-col justify-center gap-1 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
             >
-              <div className="flex min-w-0 items-baseline justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Cpu size={13} aria-hidden className="shrink-0 text-q-text-muted" />
-                  <span className="truncate text-[13px] font-medium text-q-text-primary">{capability.displayName}</span>
-                  {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
+              <div className="flex min-w-0 items-center gap-3">
+                <span
+                  aria-hidden
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]"
+                  style={{ background: identity.chip }}
+                >
+                  <ModelIdentityGlyph id={capability.capabilityId} />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-[14px] font-semibold text-q-text-primary">{identity.name}</span>
+                    {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
+                  </span>
+                  <span className="truncate text-[11px] text-q-text-muted">{identity.sub} · 本月 Token</span>
                 </span>
                 <span
-                  className="min-w-0 shrink-0 truncate text-right text-[16px] leading-6 text-q-text-primary"
-                  style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
+                  className="min-w-0 shrink-0 truncate text-right text-[19px] leading-6 text-q-text-primary"
+                  style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
                   data-selectable="true"
                   data-missing={missing || undefined}
                 >
                   {missing ? "未获取" : primaryText(capability)}
                 </span>
               </div>
-              {capability.value.secondary && (
-                <p className="truncate text-[11px] text-q-text-muted" title={capability.value.secondary}>
-                  {capability.value.secondary}
-                </p>
-              )}
               {line && (
                 <p className="text-[10.5px]" style={{ color: line.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}>
                   {line.text}
@@ -403,21 +479,20 @@ function EfficiencySection({ capabilities }: { capabilities: CapabilitySnapshotV
   const modelRates = capabilities.filter(
     (capability) => capability.capabilityId !== "cache_hit_rate" && capability.capabilityId.endsWith("_cache_hit_rate"),
   );
-  const stats = EFFICIENCY_STAT_META.map(({ id, icon }) => {
-    const capability = findCapability(capabilities, id);
-    return capability ? { capability, icon } : null;
-  }).filter((item): item is { capability: CapabilitySnapshotViewModel; icon: LucideIcon } => item !== null);
   const staleAt = capabilities.reduce<number | null>((latest, capability) => {
     if (capability.freshness !== "stale") return latest;
     const at = capability.lastGoodAt ?? capability.capturedAt;
     return at !== null && at !== undefined && (latest === null || at > latest) ? at : latest;
   }, null);
   return (
-    <ModulePanel icon={DatabaseZap} title="调用效率">
-      {/* 全局命中率主值 */}
+    <ModulePanel icon={EfficiencyGaugeIcon} title="调用与缓存效率">
+      {/* 全局命中率主值：较大靶心 + 全部模型口径 */}
       <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
-        <div className="flex min-w-0 items-baseline justify-between gap-3">
-          <span className="truncate text-xs text-q-text-muted">{rate?.displayName ?? "缓存命中率"}（全部模型）</span>
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2">
+            <TargetRingIcon size={20} />
+            <span className="truncate text-xs text-q-text-muted">{rate?.displayName ?? "缓存命中率"}（全部模型）</span>
+          </span>
           <span
             className="min-w-0 shrink-0 text-[22px] leading-7 tracking-tight text-q-text-primary"
             style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
@@ -439,23 +514,22 @@ function EfficiencySection({ capabilities }: { capabilities: CapabilitySnapshotV
         {rateLine?.stale && <p className="text-[11px] text-q-warning">{rateLine.text}</p>}
       </div>
 
-      {/* 分模型命中率行 */}
+      {/* 分模型命中率行：图标统一小靶心，模型名靠文字区分；未调用不画空条 */}
       {modelRates.length > 0 && (
         <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
           {modelRates.map((capability) => {
             const missing = capability.freshness === "missing";
             const primary = capability.value.primary;
             const secondary = capability.value.secondary;
-            // 未调用：后端 primary/secondary 均为空；不补零、不显示空进度条
+            // 未调用：后端 primary/secondary 均为空；不补零、不突出 0%
             const uncalled = !missing && primary === null && secondary === null;
-            const percent = primary !== null && primary !== "" ? capabilityRemainingPercent(capability) : null;
             return (
               <div
                 key={`${capability.sourceId}-${capability.capabilityId}`}
-                className="flex min-w-0 flex-col gap-1.5 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
+                className="flex min-h-[64px] min-w-0 flex-col justify-center gap-1 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
               >
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <Activity size={13} aria-hidden className="shrink-0 text-q-text-muted" />
+                  <TargetRingIcon size={15} className="shrink-0" />
                   <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-q-text-primary">
                     {capability.displayName}
                   </span>
@@ -468,40 +542,11 @@ function EfficiencySection({ capabilities }: { capabilities: CapabilitySnapshotV
                     {missing ? "未获取" : uncalled ? "未调用" : primaryText(capability)}
                   </span>
                 </div>
-                {percent !== null && <RateBar percent={percent} label={`${capability.displayName}`} />}
                 {secondary && (
-                  <p className="truncate text-[10.5px] text-q-text-muted" title={secondary} data-selectable="true">
+                  <p className="truncate pl-[25px] text-[10.5px] text-q-text-muted" title={secondary} data-selectable="true">
                     {secondary}
                   </p>
                 )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* 紧凑统计矩阵：请求数 / 输入输出 / 缓存命中未命中 Token，只展示真实存在的字段 */}
-      {stats.length > 0 && (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,140px),1fr))] gap-2 border-t border-q-border pt-3">
-          {stats.map(({ capability, icon: Icon }) => {
-            const missing = isMissing(capability);
-            return (
-              <div
-                key={`${capability.sourceId}-${capability.capabilityId}`}
-                className="flex min-w-0 flex-col gap-0.5 rounded-[10px] bg-q-surface-muted px-2.5 py-2"
-              >
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <Icon size={12} aria-hidden className="shrink-0 text-q-text-muted" />
-                  <span className="truncate text-[11px] text-q-text-muted">{capability.displayName}</span>
-                </span>
-                <span
-                  className="truncate text-right text-[14px] leading-5 tabular-nums text-q-text-primary"
-                  style={{ fontWeight: 650 }}
-                  data-selectable="true"
-                  data-missing={missing || undefined}
-                >
-                  {missing ? "未获取" : primaryText(capability)}
-                </span>
               </div>
             );
           })}
@@ -561,7 +606,7 @@ export function CapabilityDashboard({ capabilities }: { capabilities: Capability
       {groups.window.length > 0 && <WindowQuotaSection capabilities={groups.window} />}
 
       {(groups.finance.length > 0 || groups.model_usage.length > 0 || groups.efficiency.length > 0) && (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] items-start gap-4">
           {groups.finance.length > 0 && <FinanceSection capabilities={groups.finance} />}
           {groups.model_usage.length > 0 && <ModelUsageSection capabilities={groups.model_usage} />}
           {groups.efficiency.length > 0 && <EfficiencySection capabilities={groups.efficiency} />}

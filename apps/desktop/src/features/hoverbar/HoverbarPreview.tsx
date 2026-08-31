@@ -2,7 +2,7 @@
  * 悬浮球组件开发预览：只在 Vite 开发环境手工验收，不参与 Tauri 产品入口。
  * 示例值均明确标注为预览数据，避免与真实平台快照混淆。
  */
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
@@ -192,7 +192,8 @@ const deepseekHealthy: PlatformSummaryViewModel = {
     cap("today_spend", deepseekWebSource, "今日消费", "¥7.42", null),
     cap("month_spend", deepseekWebSource, "本月消费", "¥24.63", null),
     cap("model_usage_v4_flash", deepseekWebSource, "V4 Flash 用量", "181.25M", null),
-    cap("model_usage_v4_flash_vision", deepseekWebSource, "V4 Flash Vision 用量", "520.00K", null),
+    // 真实零值场景（对齐 V2 设计稿）：Vision 未产生用量时显示后端真实 0，不是 missing
+    cap("model_usage_v4_flash_vision", deepseekWebSource, "V4 Flash Vision 用量", "0", null),
     cap("model_usage_v4_pro", deepseekWebSource, "V4 Pro 用量", "1.94M", null),
     cap("cache_hit_rate", deepseekWebSource, "缓存命中率", "97.3%", "命中 181.25M / 输入 234.52M", "fresh", 0.973),
   ],
@@ -641,9 +642,28 @@ function PreviewPanel({
 }) {
   const { theme, toggleTheme } = useHoverbarTheme();
   const [view, setView] = useState<"quota" | "radar">(initialView);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // 自动断言：四边停靠均要求零横向溢出（scrollWidth == clientWidth），违例打 console.error
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const assertNoHorizontalOverflow = () => {
+      const targets = root.querySelectorAll<HTMLElement>(".hb-detail-root, .hb-panel, .hb-service-scroll");
+      targets.forEach((node) => {
+        if (node.scrollWidth !== node.clientWidth) {
+          console.error(
+            `[hoverbar-preview] 横向溢出 edge=${edge} <${node.className}> scrollWidth=${node.scrollWidth} clientWidth=${node.clientWidth}`,
+          );
+        }
+      });
+    };
+    assertNoHorizontalOverflow();
+    const timer = window.setTimeout(assertNoHorizontalOverflow, 300);
+    return () => window.clearTimeout(timer);
+  }, [edge, view, platforms]);
   return (
     <div className="hb-preview-detail-frame" data-edge={edge}>
-      <div className="hb-detail-root" data-edge={edge} data-motion="visible">
+      <div ref={rootRef} className="hb-detail-root" data-edge={edge} data-motion="visible">
         <section className="hb-panel">
           <header className="hb-head">
             <p className="hb-refresh-status">{status}</p>
