@@ -75,26 +75,25 @@ pub async fn fetch_current_month(client: &Client, token: &str) -> SourceRefreshO
         Err(error) => return SourceRefreshOutput::failure(error),
     };
 
-    // 近 7 日消费趋势需要跨自然月的滚动窗口；本月消费/今日消费在 cost_capabilities
-    // 内按日期过滤（查询起点只影响接口窗口，不影响 today/month 语义）。
-    let cost_range = cost_query_range(&range);
-    match fetch_usage_json(client, token, false, &cost_range).await {
-        Ok(cost) => match cost_capabilities(&cost, &range) {
-            Ok(values) => capabilities.extend(values),
-            Err(error) => {
-                return SourceRefreshOutput {
-                    capabilities,
-                    error: Some(error),
-                };
-            }
-        },
+    // 近 7 日消费趋势：月初时当月窗口不足 7 天，按自然月补查上月窗口并合并
+    // （接口按自然月查询最稳，跨月单窗口在官网返回过空 biz_data）；本月消费/今日消费
+    // 在解析层按日期过滤，查询窗口不影响 today/month 语义。
+    let mut daily_costs = match fetch_usage_json(client, token, false, &range).await {
+        Ok(cost) => collect_daily_costs(&cost, range.tz),
         Err(error) => {
             return SourceRefreshOutput {
                 capabilities,
                 error: Some(error),
             };
         }
+    };
+    if let Some(prev_range) = previous_month_range(&range) {
+        // 上月补查只增强跨月趋势；失败时趋势退化为当月天数，不阻塞其余能力。
+        if let Ok(prev) = fetch_usage_json(client, token, false, &prev_range).await {
+            daily_costs.extend(collect_daily_costs(&prev, prev_range.tz));
+        }
     }
+    capabilities.extend(cost_capabilities_from_daily(daily_costs, &range));
 
     if let Some(total) = fetch_total_spend(client, token).await {
         capabilities.push(money_capability("total_spend", "累计消费", total));
@@ -125,20 +124,40 @@ fn current_month_range() -> Option<MonthRange> {
     })
 }
 
-/// 消费趋势查询窗口：起点取「本月 1 日」与「今天 -6 天」的较早者，
-/// 保证月初时「近 7 日消费趋势」仍有完整 7 天（可跨自然月）。
-fn cost_query_range(range: &MonthRange) -> MonthRange {
+/// 月初「今天 -6 天」早于本月 1 日时返回上月查询窗口（上月 1 日 → 本月 1 日），
+/// 用于合并出滚动 7 日消费趋势；近 7 天都在本月内时返回 None，不补查。
+fn previous_month_range(range: &MonthRange) -> Option<MonthRange> {
     let now = Utc::now().with_timezone(&range.tz);
     let week_start = now - chrono::Duration::days(6);
     let week_start_sec = range
         .tz
         .with_ymd_and_hms(week_start.year(), week_start.month(), week_start.day(), 0, 0, 0)
         .single()
-        .map(|instant| instant.timestamp())
-        .unwrap_or(range.start_sec);
-    let mut cost_range = range.clone();
-    cost_range.start_sec = range.start_sec.min(week_start_sec);
-    cost_range
+        .map(|instant| instant.timestamp())?;
+    previous_month_window(range, week_start_sec)
+}
+
+fn previous_month_window(range: &MonthRange, week_start_sec: i64) -> Option<MonthRange> {
+    if week_start_sec >= range.start_sec {
+        return None;
+    }
+    let (prev_year, prev_month) = if range.month == 1 {
+        (range.year - 1, 12)
+    } else {
+        (range.year, range.month - 1)
+    };
+    let start = range
+        .tz
+        .with_ymd_and_hms(prev_year, prev_month, 1, 0, 0, 0)
+        .single()?;
+    Some(MonthRange {
+        year: prev_year,
+        month: prev_month,
+        start_sec: start.timestamp(),
+        end_sec: range.start_sec,
+        today: range.today.clone(),
+        tz: range.tz,
+    })
 }
 
 async fn fetch_usage_json(
@@ -380,12 +399,23 @@ fn cost_capabilities(
     cost: &Value,
     range: &MonthRange,
 ) -> Result<Vec<CapabilityData>, RefreshError> {
+    Ok(cost_capabilities_from_daily(
+        collect_daily_costs(cost, range.tz),
+        range,
+    ))
+}
+
+/// 从「当月 + 可选上月补查」合并出的每日消费构建能力：
+/// 本月消费只累加当月日期（旧接口无日期合计保持计入本月），
+/// 趋势按日期序保留最近 7 天，可跨自然月，不插值、不补零。
+fn cost_capabilities_from_daily(
+    daily: Vec<(String, Decimal)>,
+    range: &MonthRange,
+) -> Vec<CapabilityData> {
     let mut by_day: BTreeMap<String, Decimal> = BTreeMap::new();
     let mut month_cost = Decimal::ZERO;
-    // 查询窗口可早于本月起点（滚动 7 日跨月）；本月消费只累加当月日期，
-    // 旧接口回退无法给出日期的合计保持原样计入本月。
     let month_start_date = format!("{:04}-{:02}-01", range.year, range.month);
-    for (date, amount) in collect_daily_costs(cost, range.tz) {
+    for (date, amount) in daily {
         if date.is_empty() || date >= month_start_date {
             month_cost += amount;
         }
@@ -404,7 +434,7 @@ fn cost_capabilities(
     if trend.len() > 7 {
         trend = trend.split_off(trend.len() - 7);
     }
-    Ok(vec![
+    vec![
         money_capability("today_spend", "今日消费", today_cost),
         money_capability("month_spend", "本月消费", month_cost),
         CapabilityData {
@@ -418,7 +448,7 @@ fn cost_capabilities(
             window_seconds: None,
             reset_at: None,
         },
-    ])
+    ]
 }
 
 fn collect_model_usages(root: &Value) -> Vec<(String, Value)> {
@@ -1040,6 +1070,32 @@ mod tests {
         assert_eq!(labels, vec!["08-28", "08-31", "09-01"]);
         let values: Vec<&str> = trend.iter().map(|point| point.value.as_str()).collect();
         assert_eq!(values, vec!["2.00", "5.00", "0.50"]);
+    }
+
+    #[test]
+    fn previous_month_window_only_crosses_at_month_start() {
+        // start_sec 取 2026-09-01 00:00 UTC（本地时区偏移不影响相对比较）
+        let sep_start = 1_788_220_800i64;
+        let make_range = |year: i32, month: u32| MonthRange {
+            year,
+            month,
+            start_sec: sep_start,
+            end_sec: sep_start + 30 * 86_400,
+            today: String::new(),
+            tz: gmt8(),
+        };
+        // 9 月 1 日附近：近 7 天跨到 8 月 → 补查 8 月窗口，end 为本月起点
+        let crossed = previous_month_window(&make_range(2026, 9), sep_start - 5 * 86_400)
+            .expect("cross month");
+        assert_eq!((crossed.year, crossed.month), (2026, 8));
+        assert!(crossed.start_sec < crossed.end_sec);
+        assert_eq!(crossed.end_sec, sep_start);
+        // 月中：近 7 天都在本月内 → 不补查
+        assert!(previous_month_window(&make_range(2026, 9), sep_start + 10 * 86_400).is_none());
+        // 1 月边界：上月是上一年 12 月
+        let january = previous_month_window(&make_range(2027, 1), sep_start - 5 * 86_400)
+            .expect("cross year");
+        assert_eq!((january.year, january.month), (2026, 12));
     }
 
     #[test]

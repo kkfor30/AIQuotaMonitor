@@ -965,16 +965,20 @@ html.hoverbar-window #root {
   font-weight: 650;
 }
 
-/* 靶心缓存行容器：进度行 + 后端 secondary 说明（与图标芯片左对齐） */
+/* 靶心缓存行：与模型行同款卡片底，左右边缘对齐；说明行在卡片内左对齐 */
 .hb-cache-block {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 3px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--q-hoverbar-empty-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
 }
 
 .hb-cache-desc {
-  margin: 0 0 0 30px;
+  margin: 0;
   overflow: hidden;
   color: var(--q-hoverbar-muted);
   font-size: 10.5px;
@@ -2000,7 +2004,9 @@ html.hoverbar-window #root {
 
 /* 左右侧 300px：模型行与缓存说明同步压缩，只缩图标/字号/间距，不隐藏关键值 */
 .hb-detail-root[data-edge="left"] .hb-model-line,
-.hb-detail-root[data-edge="right"] .hb-model-line {
+.hb-detail-root[data-edge="right"] .hb-model-line,
+.hb-detail-root[data-edge="left"] .hb-cache-block,
+.hb-detail-root[data-edge="right"] .hb-cache-block {
   gap: 6px;
   padding: 6px 8px;
 }
@@ -2024,7 +2030,6 @@ html.hoverbar-window #root {
 
 .hb-detail-root[data-edge="left"] .hb-cache-desc,
 .hb-detail-root[data-edge="right"] .hb-cache-desc {
-  margin-left: 28px;
   font-size: 10px;
 }
 
