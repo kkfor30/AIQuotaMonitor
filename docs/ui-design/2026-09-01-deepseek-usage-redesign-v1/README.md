@@ -1,5 +1,7 @@
 # DeepSeek 用量展示重设计 V1
 
+> 本版已被 `../2026-09-01-deepseek-usage-redesign-v2/` 取代。V2 补充 V4 Flash Vision、分模型缓存和修正后的图标语义。
+
 本目录归档 2026-09-01 的 DeepSeek 悬浮页与平台中心「额度与用量」重设计。当前只完成设计与实施说明，尚未修改 React、Rust、SQLite 或 ViewModel。
 
 ## 资产
