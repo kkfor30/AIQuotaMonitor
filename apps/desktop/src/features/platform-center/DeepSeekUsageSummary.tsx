@@ -17,9 +17,16 @@ import { UsageTrend } from "./UsageTrend";
 
 /** 参与资金概览组合的能力；total_spend 为可选第四项。 */
 const FINANCE_SECONDARY_IDS = ["today_spend", "month_spend", "total_spend"] as const;
-const MODEL_IDS = ["model_usage_v4_flash", "model_usage_v4_pro"] as const;
+const MODEL_IDS = ["model_usage_v4_flash", "model_usage_v4_flash_vision", "model_usage_v4_pro"] as const;
 const STAT_IDS = ["request_count", "prompt_tokens", "response_tokens"] as const;
 const CACHE_TOKEN_IDS = ["cache_hit_tokens", "cache_miss_tokens"] as const;
+
+/** 模型行槽位元数据：名称 + 图标芯片底色（Vision 为 Flash 衍生，青绿底区分）。 */
+const MODEL_META: Record<string, { name: string; chip: string }> = {
+  model_usage_v4_flash: { name: "V4 Flash", chip: "rgba(10, 102, 255, 0.1)" },
+  model_usage_v4_flash_vision: { name: "V4 Flash Vision", chip: "rgba(13, 148, 136, 0.12)" },
+  model_usage_v4_pro: { name: "V4 Pro", chip: "rgba(124, 58, 237, 0.12)" },
+};
 
 function findCapability(
   capabilities: CapabilitySnapshotViewModel[],
@@ -86,19 +93,18 @@ function MoneyItem({
 /** 模型行：指标图标芯片 + 名称/语义 + 右对齐真实 Token 文本；名称按能力槽位固定。 */
 function ModelRow({ capability, id }: { capability: CapabilitySnapshotViewModel | null; id: string }) {
   const missing = isMissing(capability);
-  const isFlash = id === "model_usage_v4_flash";
-  const name = isFlash ? "V4 Flash" : "V4 Pro";
+  const meta = MODEL_META[id] ?? MODEL_META.model_usage_v4_flash;
   return (
     <div className="flex min-w-0 items-center gap-3 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]">
       <span
         aria-hidden="true"
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px]"
-        style={{ background: isFlash ? "rgba(10,102,255,0.1)" : "rgba(124,58,237,0.12)" }}
+        style={{ background: meta.chip }}
       >
-        {isFlash ? <FlashCrystalIcon size={17} /> : <ProCoreIcon size={17} />}
+        {id === "model_usage_v4_pro" ? <ProCoreIcon size={17} /> : <FlashCrystalIcon size={17} />}
       </span>
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-[13px] font-semibold text-q-text-primary">{name}</span>
+        <span className="truncate text-[13px] font-semibold text-q-text-primary">{meta.name}</span>
         <span className="truncate text-[11px] text-q-text-muted">本月累计 Token</span>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-0.5">

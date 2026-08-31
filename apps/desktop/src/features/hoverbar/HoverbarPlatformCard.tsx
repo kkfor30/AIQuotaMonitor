@@ -32,9 +32,17 @@ import {
 import { hoverbarProviderVisual } from "./provider-visuals";
 
 const DEEPSEEK_EXTRA_IDS = new Set<string>(["today_spend", "month_spend", "cache_hit_rate"]);
-const DEEPSEEK_MODEL_IDS = new Set<string>(["model_usage_v4_flash", "model_usage_v4_pro"]);
+const DEEPSEEK_MODEL_ORDER = ["model_usage_v4_flash", "model_usage_v4_flash_vision", "model_usage_v4_pro"] as const;
+const DEEPSEEK_MODEL_IDS = new Set<string>(DEEPSEEK_MODEL_ORDER);
 const ALLOWED_IDS = new Set<string>(["balance", "plan_level", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
 const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
+
+/** 悬浮模型行槽位：名称 + 芯片变体（Vision 为 Flash 衍生，青绿底区分）。 */
+const MODEL_LINE_META: Record<string, { name: string; variant: string }> = {
+  model_usage_v4_flash: { name: "V4 Flash", variant: "flash" },
+  model_usage_v4_flash_vision: { name: "V4 Flash Vision", variant: "vision" },
+  model_usage_v4_pro: { name: "V4 Pro", variant: "pro" },
+};
 
 /** 窗口额度行数据：percent 为数值型剩余百分比，色阶由 QuotaProgress 三段规则给出。 */
 type HoverbarWindow = {
@@ -61,7 +69,6 @@ type HoverbarCache = {
 
 type HoverbarModel = {
   id: string;
-  name: string;
   value: string | null;
   freshness: DataFreshness;
 };
@@ -375,17 +382,17 @@ function CacheLine({ cache }: { cache: HoverbarCache }) {
   );
 }
 
-/** V4 Flash / Pro 紧凑模型行：晶体/六边核图标 + 名称 + 右对齐真实 Token 文本。 */
+/** V4 Flash / Vision / Pro 紧凑模型行：晶体/六边核图标 + 名称 + 右对齐真实 Token 文本。 */
 function ModelLine({ model }: { model: HoverbarModel }) {
   const missing = model.freshness === "missing" || model.value === null;
-  const isFlash = model.id === "model_usage_v4_flash";
+  const meta = MODEL_LINE_META[model.id] ?? MODEL_LINE_META.model_usage_v4_flash;
   return (
     <div className="hb-model-line">
-      <span className="hb-metric-chip" data-variant={isFlash ? "flash" : "pro"} aria-hidden="true">
-        {isFlash ? <FlashCrystalIcon size={13} /> : <ProCoreIcon size={13} />}
+      <span className="hb-metric-chip" data-variant={meta.variant} aria-hidden="true">
+        {meta.variant === "pro" ? <ProCoreIcon size={13} /> : <FlashCrystalIcon size={13} />}
       </span>
       <span className="hb-model-meta">
-        <span className="hb-model-name">{isFlash ? "V4 Flash" : "V4 Pro"}</span>
+        <span className="hb-model-name">{meta.name}</span>
         <span className="hb-model-sub">本月累计 Token</span>
       </span>
       <span
@@ -544,10 +551,13 @@ function sectionFromAccount(
     || own.some((item) => DEEPSEEK_MODEL_IDS.has(item.capabilityId));
   const models = own
     .filter((item) => DEEPSEEK_MODEL_IDS.has(item.capabilityId))
-    .sort((left, right) => left.capabilityId.localeCompare(right.capabilityId))
+    .sort(
+      (left, right) =>
+        DEEPSEEK_MODEL_ORDER.indexOf(left.capabilityId as (typeof DEEPSEEK_MODEL_ORDER)[number])
+        - DEEPSEEK_MODEL_ORDER.indexOf(right.capabilityId as (typeof DEEPSEEK_MODEL_ORDER)[number]),
+    )
     .map((item) => ({
       id: item.capabilityId,
-      name: item.capabilityId === "model_usage_v4_flash" ? "V4 Flash" : "V4 Pro",
       value: item.freshness === "missing" || !item.value.primary ? null : compactPercentText(item.value.primary),
       freshness: item.freshness,
     }));

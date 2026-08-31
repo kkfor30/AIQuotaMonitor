@@ -3,6 +3,11 @@ import { FreshnessTag } from "@/components/ui/StatusBadge";
 import { formatTime } from "@/lib/format";
 import type { CapabilitySnapshotViewModel } from "@/lib/types";
 
+/** 小金额刻度：低于 0.01 元保留三位小数，避免 ¥0 或省略前导零造成误读。 */
+function formatTrendMoney(value: number): string {
+  return value !== 0 && Math.abs(value) < 0.01 ? `¥${value.toFixed(3)}` : `¥${value}`;
+}
+
 /**
  * 近 7 日消费趋势：只绘制真实 usage_trend 消费序列，不插值、不补零。
  * 蓝色渐变面积图与设计稿一致；无点时显示空状态；stale 状态显式标注。
@@ -56,7 +61,7 @@ export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewM
                 axisLine={false}
                 tick={{ fill: "var(--q-text-muted)", fontSize: 11 }}
                 width={46}
-                tickFormatter={(value: number) => `¥${value}`}
+                tickFormatter={formatTrendMoney}
               />
               <Tooltip
                 cursor={{ stroke: "rgba(7,86,238,0.3)", strokeDasharray: "4 4" }}
@@ -67,7 +72,7 @@ export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewM
                   fontSize: 12,
                   padding: "6px 10px",
                 }}
-                formatter={(value) => [`¥${value}`, "消费"]}
+                formatter={(value) => [formatTrendMoney(value as number), "消费"]}
               />
               <Area
                 type="monotone"

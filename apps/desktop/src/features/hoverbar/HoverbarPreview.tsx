@@ -180,13 +180,19 @@ const deepseekHealthy: PlatformSummaryViewModel = {
   accounts: [{ accountId: "deepseek-default", displayName: "默认账号", kind: "default", status: "healthy", sourceIds: [deepseekBalanceSource, deepseekWebSource], canRename: false, canRemove: false }],
   sources: [
     source(deepseekBalanceSource, "API 余额", ["balance"], "personal_balance"),
-    source(deepseekWebSource, "网页用量与缓存", ["today_spend", "month_spend", "model_usage_v4_flash", "model_usage_v4_pro", "cache_hit_rate"], "web_usage"),
+    source(
+      deepseekWebSource,
+      "网页用量与缓存",
+      ["today_spend", "month_spend", "model_usage_v4_flash", "model_usage_v4_flash_vision", "model_usage_v4_pro", "cache_hit_rate"],
+      "web_usage",
+    ),
   ],
   capabilities: [
     cap("balance", deepseekBalanceSource, "充值余额", "¥25.00", null),
     cap("today_spend", deepseekWebSource, "今日消费", "¥7.42", null),
     cap("month_spend", deepseekWebSource, "本月消费", "¥24.63", null),
     cap("model_usage_v4_flash", deepseekWebSource, "V4 Flash 用量", "181.25M", null),
+    cap("model_usage_v4_flash_vision", deepseekWebSource, "V4 Flash Vision 用量", "520.00K", null),
     cap("model_usage_v4_pro", deepseekWebSource, "V4 Pro 用量", "1.94M", null),
     cap("cache_hit_rate", deepseekWebSource, "缓存命中率", "97.3%", "命中 181.25M / 输入 234.52M", "fresh", 0.973),
   ],

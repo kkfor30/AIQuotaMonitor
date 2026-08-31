@@ -46,6 +46,7 @@ impl TokenBreakdown {
     }
 }
 
+#[derive(Clone)]
 struct MonthRange {
     year: i32,
     month: u32,
@@ -74,7 +75,10 @@ pub async fn fetch_current_month(client: &Client, token: &str) -> SourceRefreshO
         Err(error) => return SourceRefreshOutput::failure(error),
     };
 
-    match fetch_usage_json(client, token, false, &range).await {
+    // 近 7 日消费趋势需要跨自然月的滚动窗口；本月消费/今日消费在 cost_capabilities
+    // 内按日期过滤（查询起点只影响接口窗口，不影响 today/month 语义）。
+    let cost_range = cost_query_range(&range);
+    match fetch_usage_json(client, token, false, &cost_range).await {
         Ok(cost) => match cost_capabilities(&cost, &range) {
             Ok(values) => capabilities.extend(values),
             Err(error) => {
@@ -119,6 +123,22 @@ fn current_month_range() -> Option<MonthRange> {
         today: now.format("%Y-%m-%d").to_string(),
         tz,
     })
+}
+
+/// 消费趋势查询窗口：起点取「本月 1 日」与「今天 -6 天」的较早者，
+/// 保证月初时「近 7 日消费趋势」仍有完整 7 天（可跨自然月）。
+fn cost_query_range(range: &MonthRange) -> MonthRange {
+    let now = Utc::now().with_timezone(&range.tz);
+    let week_start = now - chrono::Duration::days(6);
+    let week_start_sec = range
+        .tz
+        .with_ymd_and_hms(week_start.year(), week_start.month(), week_start.day(), 0, 0, 0)
+        .single()
+        .map(|instant| instant.timestamp())
+        .unwrap_or(range.start_sec);
+    let mut cost_range = range.clone();
+    cost_range.start_sec = range.start_sec.min(week_start_sec);
+    cost_range
 }
 
 async fn fetch_usage_json(
@@ -307,6 +327,13 @@ fn amount_capabilities(
         .get("deepseek-v4-pro")
         .copied()
         .unwrap_or_default();
+    // V4 Flash Vision（实验版 deepseek-v4-flash-vision-exp 等）：按模型名前缀聚合，
+    // 官方后续转正去掉 -exp 后缀也继续命中；没有官方单价，不推导消费。
+    let flash_vision = per_model
+        .iter()
+        .filter(|(name, _)| name.starts_with("deepseek-v4-flash-vision"))
+        .map(|(_, breakdown)| *breakdown)
+        .fold(TokenBreakdown::default(), TokenBreakdown::saturating_add);
     let cache_total = all.hit.saturating_add(all.miss);
     let prompt = if all.prompt > 0 {
         all.prompt
@@ -321,6 +348,11 @@ fn amount_capabilities(
     Ok(vec![
         tokens_capability("model_usage_v4_flash", "V4 Flash 用量", flash.total),
         tokens_capability("model_usage_v4_pro", "V4 Pro 用量", pro.total),
+        tokens_capability(
+            "model_usage_v4_flash_vision",
+            "V4 Flash Vision 用量",
+            flash_vision.total,
+        ),
         tokens_capability("request_count", "请求数", all.requests),
         tokens_capability("prompt_tokens", "输入 Token", prompt),
         tokens_capability("cache_hit_tokens", "输入（命中缓存）", all.hit),
@@ -350,8 +382,13 @@ fn cost_capabilities(
 ) -> Result<Vec<CapabilityData>, RefreshError> {
     let mut by_day: BTreeMap<String, Decimal> = BTreeMap::new();
     let mut month_cost = Decimal::ZERO;
+    // 查询窗口可早于本月起点（滚动 7 日跨月）；本月消费只累加当月日期，
+    // 旧接口回退无法给出日期的合计保持原样计入本月。
+    let month_start_date = format!("{:04}-{:02}-01", range.year, range.month);
     for (date, amount) in collect_daily_costs(cost, range.tz) {
-        month_cost += amount;
+        if date.is_empty() || date >= month_start_date {
+            month_cost += amount;
+        }
         if !date.is_empty() {
             *by_day.entry(date).or_insert(Decimal::ZERO) += amount;
         }
@@ -840,6 +877,17 @@ mod tests {
                             "COMPLETION_TOKEN": 40
                         }
                     }]
+                },
+                {
+                    "model": "deepseek-v4-flash-vision-exp",
+                    "buckets": [{
+                        "time": 1756425600i64,
+                        "usage": {
+                            "REQUEST": 1,
+                            "PROMPT_CACHE_MISS_TOKEN": 210,
+                            "COMPLETION_TOKEN": 30
+                        }
+                    }]
                 }]
             }}
         });
@@ -860,13 +908,22 @@ mod tests {
                 .as_deref(),
             Some("140")
         );
+        // vision 按模型名前缀聚合：210 miss + 30 completion = 240
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "model_usage_v4_flash_vision")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("240")
+        );
         assert_eq!(
             caps.iter()
                 .find(|c| c.capability_id == "request_count")
                 .unwrap()
                 .primary_value
                 .as_deref(),
-            Some("3")
+            Some("4")
         );
     }
 
@@ -929,6 +986,60 @@ mod tests {
                 .as_deref(),
             Some("¥4.00")
         );
+    }
+
+    #[test]
+    fn cost_covers_cross_month_week_but_month_spend_filters_prior_days() {
+        let tz = gmt8();
+        // 月初的滚动 7 日窗口会带回上月末的消费；只有当月日期计入本月消费。
+        let json = serde_json::json!({
+            "data": { "biz_data": { "data": [{
+                "currency": "CNY",
+                "series": [{
+                    "model": "deepseek-v4-flash",
+                    "buckets": [
+                        { "time": "2026-08-28", "cost": "2.00" },
+                        { "time": "2026-08-31", "cost": "5.00" },
+                        { "time": "2026-09-01", "cost": "0.50" }
+                    ]
+                }]
+            }]}}
+        });
+        let range = MonthRange {
+            year: 2026,
+            month: 9,
+            start_sec: 0,
+            end_sec: 1,
+            today: "2026-09-01".into(),
+            tz,
+        };
+        let caps = cost_capabilities(&json, &range).expect("cross month cost");
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "today_spend")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("¥0.50")
+        );
+        assert_eq!(
+            caps.iter()
+                .find(|c| c.capability_id == "month_spend")
+                .unwrap()
+                .primary_value
+                .as_deref(),
+            Some("¥0.50")
+        );
+        let trend = caps
+            .iter()
+            .find(|c| c.capability_id == "usage_trend")
+            .unwrap()
+            .trend
+            .clone();
+        let labels: Vec<&str> = trend.iter().map(|point| point.label.as_str()).collect();
+        assert_eq!(labels, vec!["08-28", "08-31", "09-01"]);
+        let values: Vec<&str> = trend.iter().map(|point| point.value.as_str()).collect();
+        assert_eq!(values, vec!["2.00", "5.00", "0.50"]);
     }
 
     #[test]

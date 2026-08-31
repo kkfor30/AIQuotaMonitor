@@ -905,6 +905,10 @@ html.hoverbar-window #root {
   background: rgba(10, 102, 255, 0.12);
 }
 
+.hb-metric-chip[data-variant="vision"] {
+  background: rgba(13, 148, 136, 0.14);
+}
+
 .hb-metric-chip[data-variant="pro"] {
   background: rgba(124, 58, 237, 0.14);
 }
