@@ -20,9 +20,12 @@ use std::error::Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const FEED_URL: &str = "https://codexradar.com/";
-pub const PROMPT_VERSION: &str = "radar-v5";
+pub const PROMPT_VERSION: &str = "radar-v6";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
-pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” 等措辞，视为即将重置的强信号，把握度应偏高，即使没有给出确切时间。\n已落地的历史重置只作背景，不能当成否定新一轮重置的证据。\n没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
+pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表板（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
+已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
+帖子提及的未标注时区的具体时间多为太平洋时间（OpenAI/旧金山），结论或依据中请换算成北京时间表述，例如「北京时间8月31日06:00」。
+没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1104,6 +1107,10 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "EVENT CONTEXT POSTS (when present) are previously associated originals of an ongoing reset event, background only. ",
     "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed|landed_observed|closed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
     "Write conclusion and analysis_basis in Simplified Chinese. ",
+    "Every POST TIME line is already Beijing time (UTC+8). ",
+    "Posts may mention explicit clock times without a timezone; Tibo posts from OpenAI staff are usually US Pacific Time (America/Los_Angeles). ",
+    "When such a time matters, convert it to Beijing time and write it as 北京时间M月D日HH:MM in conclusion or analysis_basis; ",
+    "mark it explicitly as an assumption when the timezone is ambiguous, and never invent a time that no post states. ",
     "conclusion must be a direct decision of at most 40 Chinese characters, without markdown, evidence, or repeated reasoning. ",
     "analysis_basis must contain the reasoning separately in 1 to 3 concise sentences and must not repeat the conclusion verbatim. ",
     "event_relation: new_event when the new posts start a distinct reset cycle; same_event when they update the ongoing event; none when unrelated. ",
@@ -1555,9 +1562,12 @@ fn range_bounds(range_key: &str) -> (i64, i64) {
     ((now - ChronoDuration::days(days as i64)).timestamp_millis(), i64::MAX)
 }
 
+/// 模型输入统一使用北京时间（UTC+8）：帖子时间戳在此确定性换算，
+/// 原帖文本内提及的未标注时区时间（多为太平洋时间）才交给模型按系统提示词换算。
 fn format_iso(ms: i64) -> String {
+    let beijing = chrono::FixedOffset::east_opt(8 * 3600).expect("UTC+8 is a valid offset");
     chrono::DateTime::from_timestamp_millis(ms)
-        .map(|time| time.to_rfc3339())
+        .map(|time| time.with_timezone(&beijing).to_rfc3339())
         .unwrap_or_else(|| ms.to_string())
 }
 
