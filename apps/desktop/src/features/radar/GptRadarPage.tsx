@@ -944,7 +944,8 @@ function AiAnalysisView({
                   value={`${item.sourceId}|${item.model}`}
                   disabled={!item.ready}
                 >
-                  {item.displayName} · {item.model}
+                  {item.displayName} ·{" "}
+                  {item.model || "仅自定义模型（在下方添加）"}
                   {item.ready ? "" : "（不可用）"}
                 </option>
               ))}
