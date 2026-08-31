@@ -168,7 +168,8 @@ pub fn run() {
                 .map_err(std::io::Error::other)?;
             radar::reconcile_event_state_now(&database).map_err(std::io::Error::other)?;
             app.manage(database);
-            let refresh = refresh::RefreshCoordinator::new().map_err(std::io::Error::other)?;
+            let refresh = refresh::RefreshCoordinator::new(app.handle().clone())
+                .map_err(std::io::Error::other)?;
             app.manage(refresh);
             app.manage(radar::RadarControl::default());
 

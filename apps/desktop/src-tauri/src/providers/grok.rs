@@ -1,8 +1,10 @@
 //! Grok CLI（SuperGrok）本机订阅额度 Source。
 //!
 //! 只读本机 Grok CLI 的 OAuth 凭据（`~/.grok/auth.json`，scope → 条目 map，
-//! `key` 即 Bearer token）；token 刷新由 Grok CLI 自己负责，本模块不代刷新、
-//! 不把凭据写入本项目存储或前端。过期时提示用户在终端重新 `grok login`。
+//! `key` 即 Bearer token）。本模块不调用 xAI OAuth token 端点，也不改写
+//! `auth.json`；临近过期或 billing 401/403 时后台跑 `grok models`，交给官方
+//! CLI 认证管理器静默续期（OIDC refresh_token，不打开浏览器）。交互登录仍走
+//! `login_via_cli`（`grok login`）。凭据不写入本项目存储、日志或前端。
 //!
 //! 查询端点来自本机 Grok CLI 实测（`~/.grok/logs/unified.jsonl` 抓取）：
 //! `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`
@@ -18,11 +20,13 @@ use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
 use tokio::io::AsyncBufReadExt;
 
 use crate::providers::money::WEB_UA;
+use chrono::{DateTime, TimeDelta, Utc};
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 pub const SOURCE_ID: &str = "grok-cli-local";
@@ -31,6 +35,16 @@ const BILLING_ENDPOINT: &str = "https://cli-chat-proxy.grok.com/v1/billing?forma
 /// SuperGrok（OIDC）条目的 scope 前缀。
 const OIDC_SCOPE_PREFIX: &str = "https://auth.x.ai::";
 const RELOGIN_HINT: &str = "可在来源行点「重新登录」，或在终端运行 grok login";
+/// 与 Grok CLI `GROK_AUTH_EARLY_INVALIDATION_SECS` 默认值一致。
+const REFRESH_SKEW: TimeDelta = TimeDelta::minutes(5);
+const SILENT_REFRESH_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// 本机 `auth.json` 解析结果。不含 refresh_token 原文，禁止写入日志 / SQLite / ViewModel。
+struct GrokAuth {
+    access_token: String,
+    expires_at: Option<DateTime<Utc>>,
+    has_refresh_token: bool,
+}
 
 pub fn local_auth_available() -> bool {
     read_access_token().is_some()
@@ -40,36 +54,77 @@ fn grok_home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join(".grok"))
 }
 
+fn grok_refresh_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 /// auth.json 顶层是 scope → 条目 map：优先 SuperGrok OIDC 条目，
 /// 回退旧版 `accounts.x.ai/sign-in` 会话条目；`key` 为空的残缺条目不遮蔽可用条目
 /// （口径对齐 cc-switch `select_preferred_entry`）。
 fn read_access_token() -> Option<String> {
-    let content = std::fs::read_to_string(grok_home()?.join("auth.json")).ok()?;
-    let parsed: Value = serde_json::from_str(&content).ok()?;
-    select_access_token(parsed.as_object()?)
+    read_auth().map(|auth| auth.access_token)
 }
 
-fn select_access_token(root: &serde_json::Map<String, Value>) -> Option<String> {
+fn read_auth() -> Option<GrokAuth> {
+    let content = std::fs::read_to_string(grok_home()?.join("auth.json")).ok()?;
+    let parsed: Value = serde_json::from_str(&content).ok()?;
+    select_auth(parsed.as_object()?)
+}
+
+fn select_auth(root: &serde_json::Map<String, Value>) -> Option<GrokAuth> {
     let mut oidc = None;
     let mut legacy = None;
     for (scope, value) in root {
-        let Some(entry) = value.as_object() else {
-            continue;
-        };
-        let Some(key) = entry
-            .get("key")
-            .and_then(Value::as_str)
-            .filter(|key| !key.is_empty())
-        else {
+        let Some(entry) = select_auth_entry(value) else {
             continue;
         };
         if scope.starts_with(OIDC_SCOPE_PREFIX) {
-            oidc = Some(key.to_string());
+            oidc = Some(entry);
         } else if scope.contains("/sign-in") {
-            legacy = Some(key.to_string());
+            legacy = Some(entry);
         }
     }
     oidc.or(legacy)
+}
+
+fn select_auth_entry(value: &Value) -> Option<GrokAuth> {
+    let entry = value.as_object()?;
+    let access_token = entry
+        .get("key")
+        .and_then(Value::as_str)
+        .filter(|key| !key.is_empty())?
+        .to_string();
+    let has_refresh_token = entry
+        .get("refresh_token")
+        .and_then(Value::as_str)
+        .is_some_and(|token| !token.is_empty());
+    let expires_at = entry
+        .get("expires_at")
+        .and_then(Value::as_str)
+        .and_then(parse_expires_at);
+    Some(GrokAuth {
+        access_token,
+        expires_at,
+        has_refresh_token,
+    })
+}
+
+fn parse_expires_at(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|value| value.with_timezone(&Utc))
+}
+
+fn token_needs_refresh(expires_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
+    match expires_at {
+        Some(expires_at) => expires_at <= now + REFRESH_SKEW,
+        None => false,
+    }
+}
+
+fn token_still_valid(auth: &GrokAuth, now: DateTime<Utc>) -> bool {
+    !auth.access_token.is_empty() && !token_needs_refresh(auth.expires_at, now)
 }
 
 /// 读取 Windows 系统代理（Clash/V2Ray 等写入注册表的 ProxyServer）。
@@ -139,6 +194,202 @@ fn resolve_grok_program() -> Result<std::path::PathBuf, String> {
     Err("未找到 Grok CLI。请确认终端里可以运行 `grok`，或设置 GROK_BIN 指向可执行文件。".into())
 }
 
+fn grok_cli_command(program: &std::path::Path) -> tokio::process::Command {
+    let is_exe = program.extension().and_then(|ext| ext.to_str()) == Some("exe");
+    if is_exe {
+        tokio::process::Command::new(program)
+    } else {
+        let mut cmd = tokio::process::Command::new("cmd");
+        cmd.arg("/c").arg(program);
+        cmd
+    }
+}
+
+fn apply_grok_cli_env(command: &mut tokio::process::Command) {
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    if let Some(proxy) = windows_system_proxy() {
+        command.env("HTTPS_PROXY", &proxy);
+        command.env("HTTP_PROXY", &proxy);
+    }
+}
+
+fn auth_error(code: &str, message: impl Into<String>, auth_required: bool) -> RefreshError {
+    RefreshError::new(code, message, auth_required, false)
+}
+
+fn classify_silent_refresh_failure(
+    output: &str,
+    timed_out: bool,
+    has_refresh_token: bool,
+) -> RefreshError {
+    if !has_refresh_token {
+        return auth_error(
+            "credential_expired",
+            format!("Grok refresh token 不可用，请重新登录。{RELOGIN_HINT}"),
+            true,
+        );
+    }
+    let joined = output.to_lowercase();
+    let network_failed = [
+        "timed out",
+        "timeout",
+        "error sending request",
+        "connection refused",
+        "connection reset",
+        "unreachable",
+        "network unreachable",
+        "dns",
+        "proxyerror",
+        "proxy error",
+        "tunnel",
+    ]
+    .iter()
+    .any(|mark| joined.contains(mark));
+    if timed_out || network_failed {
+        return auth_error(
+            "network_error",
+            "Grok 静默续期失败：无法连接认证服务，请检查系统代理后重试",
+            false,
+        );
+    }
+    let revoked = [
+        "invalid_grant",
+        "revoked",
+        "refresh token",
+        "unauthorized",
+        "login required",
+        "re-authenticate",
+        "not authenticated",
+        "no valid credentials",
+    ]
+    .iter()
+    .any(|mark| joined.contains(mark));
+    if revoked {
+        return auth_error(
+            "credential_expired",
+            format!("Grok refresh token 已失效或被撤销，请重新登录。{RELOGIN_HINT}"),
+            true,
+        );
+    }
+    auth_error(
+        "credential_expired",
+        format!("Grok 登录已失效，静默续期未成功。{RELOGIN_HINT}"),
+        true,
+    )
+}
+
+/// 后台跑 `grok models`：本机 CLI 1.0.13 会走 AuthManager / `try_ensure_fresh_auth`，
+/// OIDC 有 refresh_token 时静默续期且不打开浏览器；该命令只列模型，不产生推理费用。
+/// 禁止走 `grok login`。
+async fn run_grok_models_refresh() -> Result<String, (bool, String)> {
+    let program = resolve_grok_program().map_err(|message| (false, message))?;
+    let mut command = grok_cli_command(&program);
+    command
+        .arg("models")
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    apply_grok_cli_env(&mut command);
+    command.current_dir(std::env::temp_dir());
+    let mut child = command
+        .spawn()
+        .map_err(|error| (false, format!("无法启动 Grok CLI：{error}")))?;
+    let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    if let Some(stdout) = child.stdout.take() {
+        let tx = line_tx.clone();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = tx.send(line);
+            }
+        });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let tx = line_tx.clone();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = tx.send(line);
+            }
+        });
+    }
+    drop(line_tx);
+    let timed_out = match tokio::time::timeout(SILENT_REFRESH_TIMEOUT, child.wait()).await {
+        Ok(Ok(_)) => false,
+        Ok(Err(error)) => return Err((false, format!("Grok CLI 退出异常：{error}"))),
+        Err(_) => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            true
+        }
+    };
+    let mut recent = Vec::new();
+    while let Ok(line) = line_rx.try_recv() {
+        if recent.len() < 8 {
+            recent.push(line);
+        }
+    }
+    let text = recent.join(" / ");
+    if timed_out {
+        Err((true, text))
+    } else {
+        Ok(text)
+    }
+}
+
+async fn silent_refresh(force: bool, previous_token: &str) -> Result<GrokAuth, RefreshError> {
+    let _guard = grok_refresh_lock().lock().await;
+    let current = read_auth().ok_or_else(|| {
+        auth_error(
+            "auth_required",
+            format!("未检测到本机 Grok CLI 登录。{RELOGIN_HINT}"),
+            true,
+        )
+    })?;
+    let now = Utc::now();
+    let token_changed = current.access_token != previous_token;
+    if token_changed && token_still_valid(&current, now) {
+        return Ok(current);
+    }
+    if !force && !token_needs_refresh(current.expires_at, now) {
+        return Ok(current);
+    }
+    if !current.has_refresh_token {
+        return Err(classify_silent_refresh_failure("", false, false));
+    }
+    let cli_output = match run_grok_models_refresh().await {
+        Ok(text) => text,
+        Err((timed_out, message)) => {
+            if !timed_out
+                && (message.contains("未找到 Grok CLI") || message.contains("无法启动 Grok CLI"))
+            {
+                return Err(auth_error(
+                    "network_error",
+                    format!("{message}。若网络需要代理，请检查系统代理"),
+                    false,
+                ));
+            }
+            return Err(classify_silent_refresh_failure(&message, timed_out, true));
+        }
+    };
+    let updated = read_auth().ok_or_else(|| {
+        classify_silent_refresh_failure(&cli_output, false, true)
+    })?;
+    let now = Utc::now();
+    if updated.access_token.is_empty() {
+        return Err(classify_silent_refresh_failure(&cli_output, false, true));
+    }
+    if updated.access_token != current.access_token || token_still_valid(&updated, now) {
+        return Ok(updated);
+    }
+    Err(classify_silent_refresh_failure(&cli_output, false, true))
+}
+
 /// 平台内重新登录：后台静默运行 `grok login`，自动抓取 CLI 打印的授权链接并
 /// 打开浏览器完成 OAuth；轮询本机 auth.json 中 token 变化判定登录完成。
 /// 超时或取消时把 CLI 的最后输出带回给用户（不再开一个无提示的黑窗）。
@@ -146,29 +397,14 @@ pub async fn login_via_cli() -> Result<(), String> {
     let program = resolve_grok_program().map_err(|message| message)?;
     let baseline_token = read_access_token();
     // .cmd/.bat shim 不能直接 CreateProcess（WinError 2），经 cmd /c 包装运行
-    let is_exe = program.extension().and_then(|ext| ext.to_str()) == Some("exe");
-    let mut command = if is_exe {
-        tokio::process::Command::new(&program)
-    } else {
-        let mut cmd = tokio::process::Command::new("cmd");
-        cmd.arg("/c").arg(&program);
-        cmd
-    };
+    let mut command = grok_cli_command(&program);
     command.arg("login").kill_on_drop(false);
     command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    #[cfg(windows)]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
     // 关键：注入系统代理。grok login 首步请求 auth.x.ai 的 OIDC 配置，
     // 子进程不会读注册表代理，缺这个会直接超时（应用内重登卡死的根因）。
-    if let Some(proxy) = windows_system_proxy() {
-        command.env("HTTPS_PROXY", &proxy);
-        command.env("HTTP_PROXY", &proxy);
-    }
+    apply_grok_cli_env(&mut command);
     let mut child = command.spawn().map_err(|error| {
         format!("无法启动 Grok 登录：{error}。请确认终端里可以运行 `grok`，或设置 GROK_BIN")
     })?;
@@ -293,7 +529,7 @@ pub(crate) fn extract_http_url(line: &str) -> Option<&str> {
 }
 
 pub async fn fetch(client: &Client) -> SourceRefreshOutput {
-    let Some(token) = read_access_token() else {
+    let Some(mut auth) = read_auth() else {
         return SourceRefreshOutput::failure(RefreshError::new(
             "auth_required",
             format!("未检测到本机 Grok CLI 登录。{RELOGIN_HINT}"),
@@ -301,10 +537,33 @@ pub async fn fetch(client: &Client) -> SourceRefreshOutput {
             false,
         ));
     };
-    match fetch_inner(client, &token).await {
+    let mut refreshed = false;
+    if token_needs_refresh(auth.expires_at, Utc::now()) {
+        match silent_refresh(false, &auth.access_token).await {
+            Ok(updated) => {
+                auth = updated;
+                refreshed = true;
+            }
+            Err(error) => return SourceRefreshOutput::failure(error),
+        }
+    }
+    match fetch_inner(client, &auth.access_token).await {
         Ok(capabilities) => SourceRefreshOutput::success(capabilities),
+        Err(error) if is_grok_auth_status(&error) && !refreshed => {
+            match silent_refresh(true, &auth.access_token).await {
+                Ok(updated) => match fetch_inner(client, &updated.access_token).await {
+                    Ok(capabilities) => SourceRefreshOutput::success(capabilities),
+                    Err(retry_error) => SourceRefreshOutput::failure(retry_error),
+                },
+                Err(refresh_error) => SourceRefreshOutput::failure(refresh_error),
+            }
+        }
         Err(error) => SourceRefreshOutput::failure(error),
     }
+}
+
+fn is_grok_auth_status(error: &RefreshError) -> bool {
+    error.code == "credential_expired" || error.auth_required
 }
 
 async fn fetch_inner(client: &Client, token: &str) -> Result<Vec<CapabilityData>, RefreshError> {
@@ -478,20 +737,60 @@ mod tests {
         let oidc = format!("{OIDC_SCOPE_PREFIX}client-id");
         let content = json!({
             "https://accounts.x.ai/sign-in": { "key": "legacy-token" },
-            &oidc: { "key": "oidc-token", "expires_at": "2099-01-01T00:00:00Z" }
+            &oidc: {
+                "key": "oidc-token",
+                "refresh_token": "refresh-token",
+                "expires_at": "2099-01-01T00:00:00Z"
+            }
         });
+        let auth = select_auth(content.as_object().unwrap()).expect("oidc");
+        assert_eq!(auth.access_token, "oidc-token");
+        assert!(auth.has_refresh_token);
         assert_eq!(
-            select_access_token(content.as_object().unwrap()).as_deref(),
-            Some("oidc-token")
+            auth.expires_at.map(|value| value.to_rfc3339()),
+            Some("2099-01-01T00:00:00+00:00".into())
         );
 
         let broken = json!({ &oidc: { "key": "" }, "https://accounts.x.ai/sign-in": { "key": "legacy-token" } });
-        assert_eq!(
-            select_access_token(broken.as_object().unwrap()).as_deref(),
-            Some("legacy-token")
-        );
+        let legacy = select_auth(broken.as_object().unwrap()).expect("legacy");
+        assert_eq!(legacy.access_token, "legacy-token");
+        assert!(!legacy.has_refresh_token);
 
         let other = json!({ "other": { "key": "x" } });
-        assert_eq!(select_access_token(other.as_object().unwrap()), None);
+        assert!(select_auth(other.as_object().unwrap()).is_none());
+    }
+
+    #[test]
+    fn token_needs_refresh_uses_five_minute_skew() {
+        let now = DateTime::parse_from_rfc3339("2026-09-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let within_skew = DateTime::parse_from_rfc3339("2026-09-01T12:04:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let just_outside = DateTime::parse_from_rfc3339("2026-09-01T12:05:01Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert!(token_needs_refresh(Some(now), now));
+        assert!(token_needs_refresh(Some(within_skew), now));
+        assert!(!token_needs_refresh(Some(just_outside), now));
+        assert!(!token_needs_refresh(None, now));
+    }
+
+    #[test]
+    fn silent_refresh_errors_distinguish_revoked_and_proxy() {
+        let revoked = classify_silent_refresh_failure("invalid_grant refresh token revoked", false, true);
+        assert_eq!(revoked.code, "credential_expired");
+        assert!(revoked.auth_required);
+        assert!(revoked.message.contains("重新登录"));
+
+        let network = classify_silent_refresh_failure("error sending request timed out", false, true);
+        assert_eq!(network.code, "network_error");
+        assert!(!network.auth_required);
+        assert!(network.message.contains("系统代理"));
+
+        let missing = classify_silent_refresh_failure("", false, false);
+        assert_eq!(missing.code, "credential_expired");
+        assert!(missing.message.contains("refresh token 不可用"));
     }
 }

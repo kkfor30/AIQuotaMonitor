@@ -5,16 +5,19 @@ use crate::providers::{balance, claude, codex, coding_plan, deepseek, glm, grok,
 use crate::storage::database::Database;
 use crate::storage::repository::SourceRecord;
 use crate::storage::vault;
+use crate::windows::source_login::{self, SilentRestoreError};
 use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tauri::AppHandle;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 
 pub struct RefreshCoordinator {
     client: Client,
     platform_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    app: AppHandle,
 }
 
 impl RefreshCoordinator {
@@ -22,7 +25,7 @@ impl RefreshCoordinator {
         &self.client
     }
 
-    pub fn new() -> Result<Self, String> {
+    pub fn new(app: AppHandle) -> Result<Self, String> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(20))
@@ -31,6 +34,7 @@ impl RefreshCoordinator {
         Ok(Self {
             client,
             platform_locks: Mutex::new(HashMap::new()),
+            app,
         })
     }
 
@@ -70,6 +74,7 @@ impl RefreshCoordinator {
         for (source, secret) in configured {
             let generation = database.begin_source_refresh(&source.id)?;
             let client = self.client.clone();
+            let app = self.app.clone();
             let api_base_url = database
                 .user_platform(&source.platform_id)?
                 .and_then(|platform| platform.api_base_url);
@@ -81,6 +86,8 @@ impl RefreshCoordinator {
                     secret.as_deref(),
                     api_base_url.as_deref(),
                     extra_home.as_deref(),
+                    &app,
+                    true,
                 )
                 .await;
                 (source, generation, output)
@@ -119,7 +126,16 @@ impl RefreshCoordinator {
         if secret.trim().is_empty() {
             return Err("凭据不能为空".into());
         }
-        let output = fetch_source(&self.client, source, Some(secret), api_base_url, None).await;
+        let output = fetch_source(
+            &self.client,
+            source,
+            Some(secret),
+            api_base_url,
+            None,
+            &self.app,
+            false,
+        )
+        .await;
         if let Some(error) = &output.error {
             if error.auth_required || output.capabilities.is_empty() {
                 return Err(error.message.clone());
@@ -171,12 +187,70 @@ fn extra_codex_home(database: &Database, source: &SourceRecord) -> Option<std::p
         .then(|| codex::extra_source_home(data_dir, &source.id))
 }
 
+fn persist_source_secret(source: &SourceRecord, secret: &str) {
+    let reference = source
+        .secret_ref
+        .clone()
+        .unwrap_or_else(|| vault::secret_ref(&source.account_id, &source.id));
+    let _ = vault::set(&reference, secret);
+}
+
+async fn fetch_mimo(
+    client: &Client,
+    source: &SourceRecord,
+    secret: &str,
+    app: &AppHandle,
+    allow_silent_restore: bool,
+) -> SourceRefreshOutput {
+    let first = mimo::fetch_session(client, secret).await;
+    if first.output.error.is_none() {
+        if allow_silent_restore {
+            if let Some(cookie) = first.updated_cookie {
+                persist_source_secret(source, &cookie);
+            }
+        }
+        return first.output;
+    }
+    if !(allow_silent_restore && mimo::needs_silent_restore(&first.output)) {
+        return first.output;
+    }
+    match source_login::try_silent_restore_mimo(app, &source.id).await {
+        Ok(cookie) => {
+            let retry = mimo::fetch_session(client, &cookie).await;
+            if retry.output.error.is_none() {
+                persist_source_secret(source, retry.updated_cookie.as_deref().unwrap_or(&cookie));
+            }
+            retry.output
+        }
+        Err(SilentRestoreError::Cooldown) => first.output,
+        Err(SilentRestoreError::InteractiveLoginRequired) => SourceRefreshOutput::failure(
+            RefreshError::new(
+                "session_expired",
+                "MiMo 需要验证码或重新登录，请从来源行重新登录",
+                true,
+                false,
+            ),
+        ),
+        Err(SilentRestoreError::Failed(message)) => {
+            let mut error = first.output.error.clone().unwrap_or_else(|| {
+                RefreshError::new("session_expired", "MiMo 登录已过期，请重新登录", true, false)
+            });
+            if !message.is_empty() {
+                error.message = format!("MiMo 登录已过期，静默恢复失败：{message}");
+            }
+            SourceRefreshOutput::failure(error)
+        }
+    }
+}
+
 async fn fetch_source(
     client: &Client,
     source: &SourceRecord,
     secret: Option<&str>,
     api_base_url: Option<&str>,
     extra_home: Option<&std::path::Path>,
+    app: &AppHandle,
+    allow_silent_restore: bool,
 ) -> SourceRefreshOutput {
     match source.adapter_id.as_str() {
         deepseek::BALANCE_SOURCE_ID => match secret {
@@ -212,7 +286,9 @@ async fn fetch_source(
             None => missing_secret("GLM 网页会话未配置"),
         },
         mimo::SOURCE_ID => match secret {
-            Some(secret) => mimo::fetch(client, secret).await,
+            Some(secret) => {
+                fetch_mimo(client, source, secret, app, allow_silent_restore).await
+            }
             None => missing_secret("MiMo 网页会话未配置"),
         },
         _ => SourceRefreshOutput::failure(RefreshError::new(
