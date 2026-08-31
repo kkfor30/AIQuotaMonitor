@@ -181,8 +181,9 @@ fn assess_pair(
         verification.status = "unscheduled_reset".into();
         verification.note = Some("未到原定时间窗口已恢复，重置时间明显后移".into());
         if let Some(signal_at) = event_first_signal_at {
-            if signal_at >= previous.captured_at && signal_at <= current.captured_at {
-                // 事件时间落在前后快照区间内才可关联；仍不是官方全局结论。
+            // 事件在恢复被观察到之前已开始即视为时间相关：真实重置常滞后预告数日，
+            // 事件首信号几乎总是早于恢复前的最后一次快照，区间内条件会导致永不相关。
+            if signal_at <= current.captured_at {
                 verification.attribution = "radar_correlated".into();
             }
         }
