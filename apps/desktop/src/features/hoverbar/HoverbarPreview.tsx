@@ -200,7 +200,7 @@ const previewAnalysis: RadarAnalysis = {
   id: "preview-analysis",
   createdAt: Date.now() - 39 * 60 * 1000,
   rangeKey: "3d",
-  cutPostId: "preview-3",
+  cutPostId: "2094252447271366730",
   cutLabel: null,
   sourceId: "deepseek-balance-api",
   model: "deepseek-chat",
@@ -224,7 +224,7 @@ const previewAnalysis: RadarAnalysis = {
   validUntil: null,
   timeClaims: [
     {
-      postId: "preview-3",
+      postId: "2094252447271366730",
       rawText: "6pm PST",
       parseStatus: "resolved",
       timezoneKind: "PST",
@@ -240,7 +240,7 @@ const previewEvent: RadarEvent = {
   id: "preview-event",
   phase: "landed_claimed",
   title: "按钮今日已按下，等待本机额度验证",
-  summary: "Tibo 宣布按下重置按钮，庆祝活动推迟至明天。",
+  summary: "新帖 2094252447271366730 宣布按下重置按钮，庆祝活动推迟至明天。",
   firstSignalAt: Date.now() - 26 * 60 * 60 * 1000,
   latestEvidenceAt: Date.now() - 39 * 60 * 1000,
   claimedLandedAt: Date.now() - 20 * 60 * 60 * 1000,
@@ -250,7 +250,7 @@ const previewEvent: RadarEvent = {
     { at: Date.now() - 26 * 60 * 60 * 1000, kind: "signal", label: "首次信号" },
     { at: Date.now() - 20 * 60 * 60 * 1000, kind: "claimed", label: "来源称已落地" },
   ],
-  postIds: ["preview-3", "preview-1"],
+  postIds: ["2094252447271366730", "preview-1"],
   expectedAt: Date.now() - 20 * 60 * 60 * 1000,
   expiresAt: Date.now() + 24 * 60 * 60 * 1000,
   stateRevision: 3,
@@ -341,8 +341,9 @@ const previewRadar: RadarSnapshot = {
       analysis: "上游解读示例：没有重置承诺。",
     },
     {
-      id: "preview-3",
-      url: "https://x.com/tibo/status/preview-3",
+      // 模拟真实 X 帖的长数字 ID：验收「分析依据不暴露原始帖子编号」的友好化展示。
+      id: "2094252447271366730",
+      url: "https://x.com/tibo/status/2094252447271366730",
       text: "Earlier reset landed yesterday evening.",
       postedAt: Date.now() - 26 * 60 * 60 * 1000,
       kind: "direct",
@@ -488,7 +489,7 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
     {
       label: "正常计划内刷新",
       snapshot: withOverrides({
-        event: { ...previewEvent, phase: "upcoming", title: "出现较强的即将重置信号" },
+        event: { ...previewEvent, phase: "upcoming", temporalStatus: "before_expected", title: "出现较强的即将重置信号" },
         quotaVerifications: [
           {
             accountId: "openai-local",
@@ -513,6 +514,24 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
     {
       label: "多账号部分观察到",
       snapshot: withOverrides({}),
+    },
+    {
+      label: "已观察到落地 · 头部单徽章",
+      snapshot: withOverrides({
+        event: {
+          ...previewEvent,
+          phase: "landed_observed",
+          temporalStatus: "observed_landed",
+          observedResetAt: Date.now() - 8 * 60 * 1000,
+          title: "本机已观察到额度刷新",
+        },
+      }),
+    },
+    {
+      label: "预告时间已过 · 等待验证",
+      snapshot: withOverrides({
+        event: { ...previewEvent, phase: "upcoming", temporalStatus: "expected_time_passed", title: "预告时间已过，等待本机验证" },
+      }),
     },
     {
       label: "无事件 · AI 未分析",

@@ -1207,6 +1207,33 @@ html.hoverbar-window #root {
   animation: hb-spin 0.85s linear infinite;
 }
 
+/* 分析范围只读标签：宽停靠展示完整文案，左右 300px 窄停靠切换为紧凑文案（如「3 天」）。 */
+.hb-radar-range {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-width: 0;
+  color: var(--q-hoverbar-muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.hb-radar-range-compact {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-range-full,
+.hb-detail-root[data-edge="right"] .hb-radar-range-full {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-range-compact,
+.hb-detail-root[data-edge="right"] .hb-radar-range-compact {
+  display: inline;
+}
+
 .hb-radar-pill {
   flex: none;
   padding: 2px 8px;

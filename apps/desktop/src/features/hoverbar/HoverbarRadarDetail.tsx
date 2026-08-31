@@ -18,10 +18,13 @@ import {
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import {
   formatHoverbarClock,
+  formatRadarRangeLabel,
+  humanizeRadarPostRefs,
   quotaBadgeLabel,
   quotaCorrelationLabel,
   radarPhaseLabel,
   radarTemporalLabel,
+  shouldShowRadarTemporalBadge,
 } from "./hoverbar-state";
 
 const POST_BADGE_LABEL: Record<string, string> = {
@@ -65,12 +68,20 @@ export function HoverbarRadarDetail({
 
   const event = radar?.event ?? null;
   const phase = radarPhaseLabel(event?.phase);
+  const knownPosts = radar?.posts ?? [];
   const source = radar?.sourceAssessment;
   const aiLines = aiAssessmentLines(radar?.aiAssessment);
   const verifications = radar?.quotaVerifications ?? [];
   const eventPosts = event
     ? (radar?.posts ?? []).filter((post) => event.postIds.includes(post.id))
     : (radar?.posts ?? []).slice(0, 3);
+
+  // 分析范围为只读标签：修改入口在主窗口 AI 辅助分析页，悬浮页不提供第二套选择器。
+  const rangeKey = radar?.analysisPrefs.rangeKey;
+  const rangeTitle =
+    radar?.analysisPrefs.analyze
+      ? "当前检查将使用主窗口中保存的分析范围"
+      : "仅影响启用 AI 后的分析输入；来源公告与帖子同步不受范围限制";
 
   const sourceText =
     source?.headline ?? radar?.notice?.headline ?? radar?.latest?.summary ?? radar?.latest?.translatedText ?? radar?.latest?.text ?? "暂未同步来源内容";
@@ -88,6 +99,10 @@ export function HoverbarRadarDetail({
           返回额度
         </button>
         <b className="hb-radar-title">GPT 重置雷达</b>
+        <span className="hb-radar-range" title={rangeTitle}>
+          <span className="hb-radar-range-full">分析范围：{formatRadarRangeLabel(rangeKey)}</span>
+          <span className="hb-radar-range-compact">{formatRadarRangeLabel(rangeKey, true)}</span>
+        </span>
         {onRefresh ? (
           <button
             type="button"
@@ -118,19 +133,19 @@ export function HoverbarRadarDetail({
           <>
             <p className="hb-radar-field-label">结论</p>
             <p className="hb-radar-text" data-selectable="true">
-              {event.title}
+              {humanizeRadarPostRefs(event.title, knownPosts)}
             </p>
             {event.summary ? (
               <>
                 <p className="hb-radar-field-label">分析依据</p>
                 <p className="hb-radar-meta" data-selectable="true">
-                  {event.summary}
+                  {humanizeRadarPostRefs(event.summary, knownPosts)}
                 </p>
               </>
             ) : null}
             {(() => {
               const temporal = radarTemporalLabel(event.temporalStatus);
-              return temporal && temporal !== phase ? (
+              return temporal && shouldShowRadarTemporalBadge(event.phase, event.temporalStatus) ? (
                 <p className="hb-radar-meta" data-temporal={event.temporalStatus}>
                   {temporal}
                   {event.expectedAt ? ` · 预告 ${formatHoverbarClock(event.expectedAt)}` : ""}
@@ -167,7 +182,7 @@ export function HoverbarRadarDetail({
           <span className="hb-radar-strip-tag">AI分析</span>
           <div className="hb-radar-judge-body">
             <p className="hb-radar-text" data-selectable="true">
-              {aiLines.primary}
+              {humanizeRadarPostRefs(aiLines.primary, knownPosts)}
             </p>
             {aiLines.secondary ? (
               <p className="hb-radar-meta" data-selectable="true">

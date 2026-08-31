@@ -175,6 +175,72 @@ export function radarTemporalLabel(temporalStatus: string | null | undefined): s
   }
 }
 
+/**
+ * 时态第二徽章展示判断（主窗口与悬浮雷达详情页共用，避免规则漂移）。
+ * phase 已经表达、或比 phase 更弱的事实不再重复展示；
+ * 例如 landed_observed + observed_landed 同为「本机已观察到刷新」，只保留阶段徽章。
+ */
+const TEMPORAL_IMPLIED_BY_PHASE: Record<string, ReadonlySet<string>> = {
+  // 已本机观察落地：同义时态与更早的预告/声称信息都算旧闻
+  landed_observed: new Set(["observed_landed", "claimed_landed", "expected_time_passed"]),
+  // 来源称已落地：重复的“声称”不再展示；升级为本机观察时仍展示
+  landed_claimed: new Set(["claimed_landed"]),
+  // 已结束：落地类与等待验证类时态都是过期信息
+  closed: new Set(["historical", "observed_landed", "claimed_landed", "expected_time_passed"]),
+};
+
+export function shouldShowRadarTemporalBadge(
+  phase: string | null | undefined,
+  temporalStatus: string | null | undefined,
+): boolean {
+  if (!temporalStatus) return false;
+  return !TEMPORAL_IMPLIED_BY_PHASE[phase ?? ""]?.has(temporalStatus);
+}
+
+/**
+ * 分析范围（radar.analysisPrefs.rangeKey）的可读文案；主窗口与悬浮雷达页共用。
+ * compact：左右 300px 窄停靠的短文案。自定义区间输出 `MM-DD 至 MM-DD`。
+ * 未知取值按后端默认 `3d` 回显。
+ */
+export function formatRadarRangeLabel(rangeKey: string | null | undefined, compact = false): string {
+  const key = rangeKey?.trim() || "3d";
+  if (key === "today") return "当天";
+  const relative = /^(\d{1,3})d$/.exec(key);
+  if (relative) {
+    const days = Number(relative[1]);
+    if (days >= 1 && days <= 365) return compact ? `${days} 天` : `过去 ${days} 天`;
+  }
+  const custom = /^range:\d{4}-(\d{2})-(\d{2}):\d{4}-(\d{2})-(\d{2})$/.exec(key);
+  if (custom) return `${custom[1]}-${custom[2]} 至 ${custom[3]}-${custom[4]}`;
+  return compact ? "3 天" : "过去 3 天";
+}
+
+/** 原帖引用的友好标签：北京时间「M月D日 HH:MM 的帖子」，与 Rust 侧 radar_post_label 同风格。 */
+function radarPostRefLabel(postedAt: number): string {
+  const beijing = new Date(postedAt + 8 * 60 * 60 * 1000);
+  const hh = String(beijing.getUTCHours()).padStart(2, "0");
+  const mm = String(beijing.getUTCMinutes()).padStart(2, "0");
+  return `${beijing.getUTCMonth() + 1}月${beijing.getUTCDate()}日 ${hh}:${mm} 的帖子`;
+}
+
+/**
+ * 把文本中的已知原帖数字 ID 替换为友好标签（旧分析落库时仍含真实 ID，展示时友好化）。
+ * 只替换已知帖子 ID 的精确出现，不做删除所有长数字的通用清洗，避免误伤 25M、日期、时间。
+ */
+export function humanizeRadarPostRefs(
+  text: string | null | undefined,
+  posts: ReadonlyArray<{ id: string; postedAt: number }>,
+): string {
+  if (!text) return "";
+  let out = text;
+  for (const post of posts) {
+    if (/^\d{8,}$/.test(post.id) && out.includes(post.id)) {
+      out = out.split(post.id).join(radarPostRefLabel(post.postedAt));
+    }
+  }
+  return out;
+}
+
 /** 本机额度观察与事件的时间相关性文案。 */
 export function quotaCorrelationLabel(correlation: string | null | undefined): string | null {
   if (correlation === "high") return "与雷达事件时间高度相关";
@@ -192,7 +258,7 @@ export function radarPhaseLabel(phase: string | null | undefined): string | null
     case "landed_claimed":
       return "来源称已落地";
     case "landed_observed":
-      return "本机观察到刷新";
+      return "本机已观察到刷新";
     case "closed":
       return "已结束";
     default:

@@ -62,7 +62,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v11";
+pub const PROMPT_VERSION: &str = "radar-v12";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -454,7 +454,7 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
         timeline.push(RadarEventNodeView {
             at,
             kind: "observed".into(),
-            label: "本机观察到刷新".into(),
+            label: "本机已观察到刷新".into(),
         });
     }
     if let Some(at) = record.closed_at {
@@ -1101,6 +1101,9 @@ struct DeltaInputs {
     mode: &'static str,
     delta: Vec<TiboPostView>,
     context: Vec<TiboPostView>,
+    /// 真实 post_id -> 本次请求别名（新帖 N1..、上下文帖 C1..）。
+    /// 模型只接触别名，返回 citations 后由 Rust 映射回真实 ID；不落库。
+    aliases: std::collections::HashMap<String, String>,
     /// 活动事件状态摘要（阶段/首信号/本机是否已观察到重置），随输入发给模型。
     event_status: Option<String>,
     time_claims: Vec<RadarTimeClaimRecord>,
@@ -1109,7 +1112,7 @@ struct DeltaInputs {
     state_revision: i64,
 }
 
-fn delta_post_block(post: &TiboPostView, claims: &[RadarTimeClaimRecord]) -> String {
+fn delta_post_block(post: &TiboPostView, claims: &[RadarTimeClaimRecord], alias: &str) -> String {
     let post_claims = claims
         .iter()
         .filter(|claim| claim.post_id == post.id)
@@ -1124,14 +1127,64 @@ fn delta_post_block(post: &TiboPostView, claims: &[RadarTimeClaimRecord]) -> Str
             })
         })
         .collect::<Vec<_>>();
+    // 不发真实 post_id 与 url：二者都内含长数字编号，防止模型在正文里复述。
     json!({
-        "post_id": post.id,
+        "alias": alias,
         "published_beijing_at": format_iso(post.posted_at),
-        "url": post.url,
         "text": post.text,
         "time_claims": post_claims,
     })
     .to_string()
+}
+
+/// 帖子在本次请求中的短别名；别名必然存在（与 delta/context 同源构建）。
+fn post_alias<'a>(aliases: &'a std::collections::HashMap<String, String>, post: &TiboPostView) -> &'a str {
+    aliases
+        .get(&post.id)
+        .map(String::as_str)
+        .unwrap_or_default()
+}
+
+/// 帖子的自然语言友好标签（北京时间，含“最新/此前”分组语境），用于正文可读化。
+fn radar_post_label(post: &TiboPostView, latest: bool) -> String {
+    let group = if latest { "最新" } else { "此前" };
+    let Some(time) = chrono::DateTime::from_timestamp_millis(post.posted_at) else {
+        return format!("时间未知的{group}帖子");
+    };
+    let beijing = chrono::FixedOffset::east_opt(8 * 3600).expect("UTC+8 is a valid offset");
+    let time = time.with_timezone(&beijing);
+    format!(
+        "{}月{}日 {:02}:{:02} 的{}帖子",
+        time.format("%-m"),
+        time.format("%-d"),
+        time.format("%H"),
+        time.format("%M"),
+        group
+    )
+}
+
+/// 确定性可读化：仅替换本次已知帖子的真实 post_id 与别名，不做任何通用长数字清洗，
+/// 避免误伤 25M、日期、时间等正文内容。按匹配串长度降序替换，防止 N1 截断 N12。
+fn humanize_post_refs(text: &str, inputs: &DeltaInputs) -> String {
+    let delta_ids: std::collections::HashSet<&str> =
+        inputs.delta.iter().map(|post| post.id.as_str()).collect();
+    let mut replacements: Vec<(&str, String)> = Vec::new();
+    for post in inputs.delta.iter().chain(inputs.context.iter()) {
+        let label = radar_post_label(post, delta_ids.contains(post.id.as_str()));
+        replacements.push((post.id.as_str(), label.clone()));
+        let alias = post_alias(&inputs.aliases, post);
+        if !alias.is_empty() {
+            replacements.push((alias, label));
+        }
+    }
+    replacements.sort_by_key(|(needle, _)| std::cmp::Reverse(needle.chars().count()));
+    let mut out = text.to_string();
+    for (needle, label) in replacements {
+        if out.contains(needle) {
+            out = out.replace(needle, &label);
+        }
+    }
+    out
 }
 
 fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInputs, String> {
@@ -1172,6 +1225,18 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
     } else {
         "live_delta"
     };
+    // 别名按输入顺序分配：新帖 N1..、上下文帖 C1..，同一次请求内稳定。
+    let aliases = delta
+        .iter()
+        .enumerate()
+        .map(|(index, post)| (post.id.clone(), format!("N{}", index + 1)))
+        .chain(
+            context
+                .iter()
+                .enumerate()
+                .map(|(index, post)| (post.id.clone(), format!("C{}", index + 1))),
+        )
+        .collect();
     let post_ids = delta
         .iter()
         .chain(context.iter())
@@ -1226,6 +1291,7 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
         mode,
         delta,
         context,
+        aliases,
         event_status,
         time_claims: claims,
         temporal_phase,
@@ -1246,7 +1312,7 @@ async fn run_analysis(
     let joined = |posts: &[TiboPostView]| {
         posts
             .iter()
-            .map(|post| delta_post_block(post, &inputs.time_claims))
+            .map(|post| delta_post_block(post, &inputs.time_claims, post_alias(&inputs.aliases, post)))
             .collect::<Vec<_>>()
             .join("\n\n")
     };
@@ -1327,7 +1393,7 @@ async fn run_analysis_inner(
             inputs
                 .context
                 .iter()
-                .map(|post| delta_post_block(post, &inputs.time_claims))
+                .map(|post| delta_post_block(post, &inputs.time_claims, post_alias(&inputs.aliases, post)))
                 .collect::<Vec<_>>()
                 .join("\n\n")
         ));
@@ -1337,7 +1403,7 @@ async fn run_analysis_inner(
         inputs
             .delta
             .iter()
-            .map(|post| delta_post_block(post, &inputs.time_claims))
+            .map(|post| delta_post_block(post, &inputs.time_claims, post_alias(&inputs.aliases, post)))
             .collect::<Vec<_>>()
             .join("\n\n")
     ));
@@ -1582,9 +1648,13 @@ fn ai_settable_phase(value: Option<&str>) -> Option<&'static str> {
 const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "You analyze public Tibo/Codex reset-related posts. NEW POSTS are the batch to judge; ",
     "EVENT CONTEXT POSTS (when present) are previously associated originals of an ongoing reset event, background only. ",
-    "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"post_id\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
+    "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"post_alias\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
     "Write conclusion and analysis_basis in Simplified Chinese. ",
-    "Each post is JSON. Its time_claims are code-authoritative facts: resolved_beijing_at may be repeated verbatim; ambiguous claims must remain ambiguous. Never calculate, convert, or invent a time. ",
+    "Each post is JSON and carries a short alias: N1, N2 … for NEW POSTS, C1, C2 … for EVENT CONTEXT POSTS. ",
+    "In citations return exactly these aliases, one per cited post; never return raw numeric post ids or URLs. ",
+    "Never write a raw numeric post id in conclusion, analysis_basis, support, against, or uncertainty; ",
+    "refer to posts in natural language such as \u{201c}the latest post\u{201d}, \u{201c}the earlier announcement post\u{201d}, or \u{201c}the post from 13:17 on Aug 31\u{201d}. ",
+    "Each post's time_claims are code-authoritative facts: resolved_beijing_at may be repeated verbatim; ambiguous claims must remain ambiguous. Never calculate, convert, or invent a time. ",
     "CODE-AUTHORITATIVE EVENT STATE and NOW are facts and cannot be changed by your output. ",
     "expected_time_passed means the announced time has passed but landing is still unverified; never call it landed without a source claim or local observation in state. ",
     "If state says observed_landed, describe the posts as historical confirmation and use past tense. ",
@@ -1597,7 +1667,7 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "Apply user semantic hints only when judging signal wording and confidence. ",
     "If no user hints are provided, read the posts ordinarily without inventing extra rules. ",
     "This output is speculation, not an official conclusion. ",
-    "Only use the English original posts, timestamps and URLs provided; do not invent quotes."
+    "Only use the English original post texts and timestamps provided; do not invent quotes."
 );
 
 fn persist_failed_analysis(
@@ -1974,21 +2044,46 @@ fn normalize_model_json(parsed: &mut ModelJson, inputs: &DeltaInputs) {
         &["complete", "context_missing", "conflicting"],
     );
     if let Some(conclusion) = &mut parsed.conclusion {
-        *conclusion = conclusion
+        // 先可读化再截断：别名的友好标签比原始 post_id 短得多，40 字上限不被挤占。
+        *conclusion = humanize_post_refs(conclusion, inputs)
             .replace(['`', '#', '*'], "")
             .chars()
             .take(40)
             .collect();
     }
-    let ids = inputs
-        .delta
+    parsed.analysis_basis = parsed.analysis_basis.as_deref().map(|basis| humanize_post_refs(basis, inputs));
+    let humanize_list = |items: &[String]| -> Vec<String> {
+        items
+            .iter()
+            .map(|item| humanize_post_refs(item, inputs))
+            .collect()
+    };
+    parsed.support = humanize_list(&parsed.support);
+    parsed.against = humanize_list(&parsed.against);
+    parsed.uncertainty = humanize_list(&parsed.uncertainty);
+    // citations 只接受别名（N1/C1…），映射回真实 post_id 后再落库；
+    // 模型违规直接回传已知真实 post_id 时也接受，其余（编造值）一律丢弃。
+    let alias_to_id: std::collections::HashMap<&str, &str> = inputs
+        .aliases
         .iter()
-        .chain(inputs.context.iter())
-        .map(|post| post.id.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    parsed
+        .map(|(id, alias)| (alias.as_str(), id.as_str()))
+        .collect();
+    parsed.citations = parsed
         .citations
-        .retain(|citation| ids.contains(citation.as_str()));
+        .iter()
+        .filter_map(|citation| {
+            alias_to_id
+                .get(citation.as_str())
+                .copied()
+                .or_else(|| {
+                    inputs
+                        .aliases
+                        .contains_key(citation.as_str())
+                        .then_some(citation.as_str())
+                })
+                .map(str::to_string)
+        })
+        .collect();
 }
 
 /// 去掉思考型模型输出中的 <think>…</think> 段（大小写不敏感）；未闭合时丢弃其后全部内容。

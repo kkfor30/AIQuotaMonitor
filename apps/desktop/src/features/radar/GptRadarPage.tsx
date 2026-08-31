@@ -35,10 +35,12 @@ import {
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import type { RadarModelOption, RadarPost } from "@/lib/ipc";
 import {
+  humanizeRadarPostRefs,
   quotaBadgeLabel,
   quotaCorrelationLabel,
   radarPhaseLabel,
   radarTemporalLabel,
+  shouldShowRadarTemporalBadge,
 } from "@/features/hoverbar/hoverbar-state";
 import { useContainerWidth, TIBO_SPLIT_MIN_PX } from "@/lib/use-container-width";
 import { ArrowLeft } from "lucide-react";
@@ -279,6 +281,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
   const latest = data?.latest;
   const event = data?.event ?? null;
   const phase = radarPhaseLabel(event?.phase);
+  const knownPosts = data?.posts ?? [];
   const source = data?.sourceAssessment;
   const ai = data?.aiAssessment;
   const verifications = data?.quotaVerifications ?? [];
@@ -371,19 +374,19 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
               <div className="flex flex-col gap-1">
                 <p className="text-[11px] font-semibold tracking-widest text-q-primary">结论</p>
                 <p className="text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
-                  {ai.current.conclusion}
+                  {humanizeRadarPostRefs(ai.current.conclusion, knownPosts)}
                 </p>
               </div>
               {ai.current.analysisBasis ? (
                 <div className="flex flex-col gap-1">
                   <p className="text-[11px] font-semibold tracking-widest text-q-primary">
-                    分析依据 · {ai.current.analysisBasis.length} 字
+                    分析依据 · {humanizeRadarPostRefs(ai.current.analysisBasis, knownPosts).length} 字
                   </p>
                   <div
                     className="max-h-44 overflow-y-auto rounded-q-card border border-q-border bg-q-primary-softer px-3 py-2.5 text-xs leading-relaxed text-q-text-secondary"
                     data-selectable="true"
                   >
-                    {ai.current.analysisBasis}
+                    {humanizeRadarPostRefs(ai.current.analysisBasis, knownPosts)}
                   </div>
                 </div>
               ) : null}
@@ -416,7 +419,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             ) : null}
             {(() => {
               const temporal = radarTemporalLabel(event?.temporalStatus);
-              return temporal && temporal !== phase ? (
+              return temporal && shouldShowRadarTemporalBadge(event?.phase, event?.temporalStatus) ? (
                 <span className="rounded-q-pill bg-q-warning-soft px-2.5 py-1 text-[11px] text-q-warning">{temporal}</span>
               ) : null;
             })()}
@@ -425,13 +428,13 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             <div className="flex min-h-0 flex-col gap-2">
               <p className="text-[11px] font-semibold tracking-widest text-q-primary">结论</p>
               <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
-                {event.title}
+                {humanizeRadarPostRefs(event.title, knownPosts)}
               </p>
               {event.summary && (
                 <div className="flex flex-col gap-1">
                   <p className="text-[11px] font-semibold tracking-widest text-q-primary">分析依据</p>
                   <p className="text-xs leading-relaxed text-q-text-secondary" data-selectable="true">
-                    {event.summary}
+                    {humanizeRadarPostRefs(event.summary, knownPosts)}
                   </p>
                 </div>
               )}
@@ -842,6 +845,7 @@ function AiAnalysisView({
   onUserPromptChange: (value: string) => void;
 }) {
   const analysis = data?.analysis;
+  const knownPosts = data?.posts ?? [];
   const latestCheck = data?.checks[0];
   const analyzeError = latestCheck?.analyzeStatus === "failed" ? latestCheck.errorMessage : null;
   const analysisInput = useMemo(() => {
@@ -1045,27 +1049,27 @@ function AiAnalysisView({
             <div className="flex flex-col gap-1.5">
               <p className="text-[11px] font-semibold tracking-widest text-q-primary">结论</p>
               <p className="text-[15px] font-medium leading-relaxed text-q-text-primary" data-selectable="true">
-                {analysis.conclusion}
+                {humanizeRadarPostRefs(analysis.conclusion, knownPosts)}
               </p>
             </div>
             {analysis.analysisBasis ? (
               <div className="flex flex-col gap-1.5">
                 <p className="text-[11px] font-semibold tracking-widest text-q-primary">
-                  分析依据 · {analysis.analysisBasis.length} 字
+                  分析依据 · {humanizeRadarPostRefs(analysis.analysisBasis, knownPosts).length} 字
                 </p>
                 <div
                   className="max-h-72 overflow-y-auto rounded-q-card border border-q-border bg-q-primary-softer px-3.5 py-3 text-[13px] leading-relaxed text-q-text-secondary"
                   data-selectable="true"
                 >
-                  {analysis.analysisBasis}
+                  {humanizeRadarPostRefs(analysis.analysisBasis, knownPosts)}
                 </div>
               </div>
             ) : null}
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-x-8 gap-y-3">
-              <ListBlock title="引用" icon={<Link2 size={13} aria-hidden />} items={analysis.citations} />
-              <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={analysis.support} />
-              <ListBlock title="反向依据" icon={<ThumbsDown size={13} aria-hidden />} items={analysis.against} />
-              <ListBlock title="不确定性" icon={<HelpCircle size={13} aria-hidden />} items={analysis.uncertainty} />
+              <CitationList citations={analysis.citations} posts={knownPosts} />
+              <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={analysis.support.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
+              <ListBlock title="反向依据" icon={<ThumbsDown size={13} aria-hidden />} items={analysis.against.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
+              <ListBlock title="不确定性" icon={<HelpCircle size={13} aria-hidden />} items={analysis.uncertainty.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
             </div>
           </>
         ) : (
@@ -1297,6 +1301,65 @@ function ListBlock({
       </ul>
     </div>
   );
+}
+
+/** 引用卡：别名映射回真实 post_id 后，用「时间 · 查看原帖」展示，不暴露原始帖子编号。 */
+function CitationList({ citations, posts }: { citations: string[]; posts: RadarPost[] }) {
+  const [linkError, setLinkError] = useState<string | null>(null);
+  if (citations.length === 0) return null;
+  const byId = new Map(posts.map((post) => [post.id, post]));
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-q-text-secondary">
+        <span aria-hidden className="text-q-primary">
+          <Link2 size={13} aria-hidden />
+        </span>
+        引用
+        <span className="text-q-text-muted">· {citations.length}</span>
+      </p>
+      <ul className="flex flex-col gap-1 pl-0.5">
+        {citations.map((citation, index) => {
+          const post = byId.get(citation);
+          return (
+            <li
+              key={`${index}-${citation.slice(0, 12)}`}
+              className="flex items-center gap-2 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2 text-xs leading-relaxed text-q-text-primary"
+            >
+              <span className="shrink-0 tabular-nums font-medium text-q-primary">{index + 1}.</span>
+              {post ? (
+                <>
+                  <span className="min-w-0 shrink-0 tabular-nums text-q-text-muted">{citationTimeLabel(post.postedAt)}</span>
+                  <button
+                    type="button"
+                    className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
+                    onClick={() => {
+                      setLinkError(null);
+                      void openExternalUrl(post.url).catch((error) => {
+                        setLinkError(ipcErrorMessage(error, "无法打开原帖"));
+                      });
+                    }}
+                  >
+                    <ExternalLink size={12} aria-hidden />
+                    查看原帖
+                  </button>
+                </>
+              ) : (
+                <span className="min-w-0 text-q-text-muted">引用帖（不在当前同步列表）</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {linkError ? <p className="text-[11px] text-q-danger">{linkError}</p> : null}
+    </div>
+  );
+}
+
+/** 引用时间标签：固定 `MM-DD HH:mm`。 */
+function citationTimeLabel(epochMs: number): string {
+  const date = new Date(epochMs);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 /** 时间范围换算成 [起始毫秒, 结束毫秒]（含端点）；无上限用 MAX_SAFE_INTEGER。 */
