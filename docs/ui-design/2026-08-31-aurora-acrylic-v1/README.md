@@ -16,6 +16,8 @@
 | `08-radar-tibo-dark.png` | Tibo 动态主从页深色母版 |
 | `09-hoverbar-overview-light.png` | 悬浮总览浅色母版 |
 | `10-hoverbar-overview-dark.png` | 悬浮总览深色母版 |
+| `11-hoverbar-radar-detail-light.png` | GPT 重置雷达悬浮详情浅色母版 |
+| `12-hoverbar-radar-detail-dark.png` | GPT 重置雷达悬浮详情深色母版 |
 
 ## 视觉约束
 

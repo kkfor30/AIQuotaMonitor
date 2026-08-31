@@ -24,6 +24,7 @@
 | `09-hoverbar-overview-light-approved.png` | 悬浮主页浅色 | 已认可最终基准 |
 | `10-hoverbar-overview-dark-approved.png` | 悬浮主页深色 | 已认可最终基准 |
 | `11-hoverbar-radar-detail-light-approved.png` | GPT 重置雷达详情浅色 | 已认可 |
+| `12-hoverbar-radar-detail-dark-approved.png` | GPT 重置雷达详情深色 | 已认可 |
 
 ## 固定视觉基调
 
@@ -78,7 +79,6 @@
 
 ## 尚未补齐
 
-- GPT 重置雷达悬浮详情深色版。
 - 信号摘要、AI 辅助分析、设置页等页面的 Aurora Acrylic 成对母版。
 - 顶部/底部宽停靠悬浮主页与雷达详情的本轮视觉适配稿。
 
