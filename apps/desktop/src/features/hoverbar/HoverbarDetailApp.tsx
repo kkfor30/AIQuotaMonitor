@@ -130,14 +130,13 @@ export function HoverbarDetailApp() {
     }, HOVERBAR_EXIT_ANIMATION_MS);
   }, [setMotion]);
 
-  // 打开/收起事件驱动动画状态机；每次重新展开都回到额度列表页
+  // 打开/收起事件驱动动画状态机；重新展开保留上次视图（含雷达二级页），由用户点返回回到额度列表
   useEffect(() => {
     let disposed = false;
     const unlisteners: Array<() => void> = [];
     void listen<HoverbarAnchor>("hoverbar-detail-open", (event) => {
       if (disposed) return;
       window.clearTimeout(exitTimer.current);
-      setView("quota");
       setAnchor(normalizeHoverbarAnchor(event.payload));
       void refetchRadar();
       setMotion("opening");
