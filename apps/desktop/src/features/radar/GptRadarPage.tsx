@@ -1062,7 +1062,7 @@ function AiAnalysisView({
               </div>
             ) : null}
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-x-8 gap-y-3">
-              <CitationBlock citations={analysis.citations} posts={data?.posts ?? []} />
+              <ListBlock title="引用" icon={<Link2 size={13} aria-hidden />} items={analysis.citations} />
               <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={analysis.support} />
               <ListBlock title="反向依据" icon={<ThumbsDown size={13} aria-hidden />} items={analysis.against} />
               <ListBlock title="不确定性" icon={<HelpCircle size={13} aria-hidden />} items={analysis.uncertainty} />
@@ -1260,61 +1260,6 @@ function PostGroupPreview({
         ))}
         {posts.length > 8 && <p className="px-1 text-[11px] text-q-text-muted">…共 {posts.length} 条</p>}
       </div>
-    </div>
-  );
-}
-
-/** AI 输出引用：把 post_id 映射为可读条目（时间 + 打开 X 原帖），不裸显示 ID。 */
-function CitationBlock({
-  citations,
-  posts,
-}: {
-  citations: string[];
-  posts: RadarPost[];
-}) {
-  if (citations.length === 0) return null;
-  const byId = useMemo(() => new Map(posts.map((post) => [post.id, post])), [posts]);
-  return (
-    <div className="flex flex-col gap-1.5">
-      <p className="flex items-center gap-1.5 text-xs font-medium text-q-text-secondary">
-        <span aria-hidden className="text-q-primary">
-          <Link2 size={13} />
-        </span>
-        引用
-        <span className="text-q-text-muted">· {citations.length}</span>
-      </p>
-      <ul className="flex flex-col gap-1 pl-0.5">
-        {citations.map((id, index) => {
-          const post = byId.get(id);
-          return (
-            <li
-              key={`${index}-${id.slice(0, 12)}`}
-              className="flex items-center justify-between gap-2 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2 text-xs leading-relaxed text-q-text-primary"
-            >
-              <span className="min-w-0">
-                <span className="mr-1.5 tabular-nums font-medium text-q-primary">{index + 1}.</span>
-                {post ? (
-                  <>
-                    <StatusBadge tone={postBadgeTone(post)}>{post.badge}</StatusBadge>
-                    <span className="ml-2 tabular-nums text-q-text-muted">{formatTime(post.postedAt)}</span>
-                  </>
-                ) : (
-                  <span className="text-q-text-muted">引用帖（已不在同步列表）</span>
-                )}
-              </span>
-              {post ? (
-                <button
-                  type="button"
-                  className="shrink-0 text-q-primary hover:underline"
-                  onClick={() => void openExternalUrl(post.url)}
-                >
-                  打开原帖
-                </button>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
     </div>
   );
 }
