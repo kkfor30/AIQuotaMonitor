@@ -59,7 +59,12 @@ function source(
     accountId,
     accountName: accountId === "openai-local" ? "本机 Codex" : accountId === "openai-extra-2" ? "额外账号 2" : "默认账号",
     accountKind: accountId === "openai-local" ? "local" : accountId === "openai-extra-2" ? "additional" : "default",
-    sourceType: accessMode === "local_cli" ? "local_cli" : accessMode === "personal_balance" ? "web_session" : "api_key",
+    sourceType:
+      accessMode === "local_cli"
+        ? "local_cli"
+        : accessMode === "personal_balance" || accessMode === "web_usage"
+          ? "web_session"
+          : "api_key",
     displayName,
     state,
     credentialConfigured,
@@ -79,6 +84,7 @@ function cap(
   primary: string | null,
   secondary: string | null,
   freshness: CapabilitySnapshotViewModel["freshness"] = "fresh",
+  progress: number | null = null,
 ): CapabilitySnapshotViewModel {
   return {
     capabilityId,
@@ -98,7 +104,12 @@ function cap(
     freshness,
     capturedAt: null,
     lastGoodAt: null,
-    value: { kind: capabilityId === "balance" ? "money" : "percent", primary, secondary, progress: null },
+    value: {
+      kind: capabilityId === "balance" ? "money" : capabilityId === "cache_hit_rate" ? "percent" : "tokens",
+      primary,
+      secondary,
+      progress,
+    },
     trend: [],
   };
 }
@@ -156,22 +167,60 @@ const glmPlatform: PlatformSummaryViewModel = {
   ],
 };
 
+const deepseekBalanceSource = "preview-ds-balance";
+const deepseekWebSource = "preview-ds-web";
+
+/** DeepSeek 全 fresh：资金 + V4 Flash/Pro 模型行 + 靶心缓存命中率（含后端 secondary 说明）。 */
 const deepseekHealthy: PlatformSummaryViewModel = {
   providerId: "deepseek",
   displayName: "DeepSeek",
   aggregateStatus: "healthy",
-  accessSummary: "API Key",
+  accessSummary: "API Key + 网页会话",
   supportsMultipleAccounts: true,
-  accounts: [{ accountId: "deepseek-default", displayName: "默认账号", kind: "default", status: "healthy", sourceIds: ["preview-balance"], canRename: false, canRemove: false }],
+  accounts: [{ accountId: "deepseek-default", displayName: "默认账号", kind: "default", status: "healthy", sourceIds: [deepseekBalanceSource, deepseekWebSource], canRename: false, canRemove: false }],
   sources: [
-    source("preview-balance", "余额来源", ["balance", "today_spend", "month_spend", "cache_hit_rate"], "personal_balance"),
+    source(deepseekBalanceSource, "API 余额", ["balance"], "personal_balance"),
+    source(deepseekWebSource, "网页用量与缓存", ["today_spend", "month_spend", "model_usage_v4_flash", "model_usage_v4_pro", "cache_hit_rate"], "web_usage"),
   ],
   capabilities: [
-    cap("balance", "preview-balance", "账户余额", "¥25.00", "赠送 ¥1.00 · 充值 ¥24.00"),
-    cap("today_spend", "preview-balance", "今日消费", "¥1.20", null),
-    cap("month_spend", "preview-balance", "本月消费", "¥8.00", null),
-    cap("cache_hit_rate", "preview-balance", "缓存命中率", "72%", "命中 720 / 输入 1000"),
+    cap("balance", deepseekBalanceSource, "充值余额", "¥25.00", null),
+    cap("today_spend", deepseekWebSource, "今日消费", "¥7.42", null),
+    cap("month_spend", deepseekWebSource, "本月消费", "¥24.63", null),
+    cap("model_usage_v4_flash", deepseekWebSource, "V4 Flash 用量", "181.25M", null),
+    cap("model_usage_v4_pro", deepseekWebSource, "V4 Pro 用量", "1.94M", null),
+    cap("cache_hit_rate", deepseekWebSource, "缓存命中率", "97.3%", "命中 181.25M / 输入 234.52M", "fresh", 0.973),
   ],
+};
+
+/** DeepSeek 余额实时 + 网页用量 stale：保留真实值，仅展示缓存提示。 */
+const deepseekWebStale: PlatformSummaryViewModel = {
+  ...deepseekHealthy,
+  aggregateStatus: "partial",
+  capabilities: deepseekHealthy.capabilities.map((item) =>
+    item.sourceId === deepseekWebSource ? { ...item, freshness: "stale" as const } : item,
+  ),
+};
+
+/** DeepSeek 余额 missing + 网页用量 fresh：missing 不补零，只展示「暂不可用」。 */
+const deepseekBalanceMissing: PlatformSummaryViewModel = {
+  ...deepseekHealthy,
+  aggregateStatus: "partial",
+  capabilities: deepseekHealthy.capabilities.map((item) =>
+    item.sourceId === deepseekBalanceSource
+      ? { ...item, freshness: "missing" as const, value: { ...item.value, primary: null, secondary: null } }
+      : item,
+  ),
+};
+
+/** DeepSeek 全 missing：两个来源都无最后成功快照，不补零。 */
+const deepseekAllMissing: PlatformSummaryViewModel = {
+  ...deepseekHealthy,
+  aggregateStatus: "error",
+  capabilities: deepseekHealthy.capabilities.map((item) => ({
+    ...item,
+    freshness: "missing" as const,
+    value: { ...item.value, primary: null, secondary: null, progress: null },
+  })),
 };
 
 const kimiError: PlatformSummaryViewModel = {
@@ -715,8 +764,20 @@ function HoverbarPreview() {
 
       <div className="hb-preview-panel-grid">
         <section>
-          <h2>正常</h2>
+          <h2>DeepSeek · 全 fresh（资金 + 模型行 + 靶心缓存）</h2>
           <HoverbarPlatformCard platform={deepseekHealthy} />
+        </section>
+        <section>
+          <h2>DeepSeek · 余额实时 + 网页用量缓存</h2>
+          <HoverbarPlatformCard platform={deepseekWebStale} />
+        </section>
+        <section>
+          <h2>DeepSeek · 余额未获取 + 网页用量实时</h2>
+          <HoverbarPlatformCard platform={deepseekBalanceMissing} />
+        </section>
+        <section>
+          <h2>DeepSeek · 全部缺失</h2>
+          <HoverbarPlatformCard platform={deepseekAllMissing} />
         </section>
         <section>
           <h2>部分可用 · 缓存可能过期</h2>

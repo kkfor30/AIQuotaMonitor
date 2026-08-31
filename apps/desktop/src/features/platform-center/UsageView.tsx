@@ -1,7 +1,7 @@
 import { CapabilityCard } from "./CapabilityCard";
+import { DeepSeekUsageSummary, splitDeepSeekUsageCapabilities } from "./DeepSeekUsageSummary";
 import { RefreshHistory } from "./RefreshHistory";
 import { SourceHealthSummary } from "./SourceHealthSummary";
-import { UsageTrend } from "./UsageTrend";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
@@ -71,6 +71,25 @@ function groupedCapabilitySections(
     }));
 }
 
+/** 账号用量体：命中 DeepSeek 组合能力时走组合渲染，其余能力仍走通用语义分组卡。 */
+function AccountUsageBody({
+  composition,
+  rest,
+}: {
+  composition: CapabilitySnapshotViewModel[];
+  rest: CapabilitySnapshotViewModel[];
+}) {
+  if (composition.length === 0 && rest.length === 0) {
+    return <p className="px-1 text-xs text-q-text-muted">该账号暂无额度数据。</p>;
+  }
+  return (
+    <>
+      {composition.length > 0 && <DeepSeekUsageSummary capabilities={composition} />}
+      {rest.length > 0 && <CapabilitySections capabilities={rest} />}
+    </>
+  );
+}
+
 /**
  * 语义分组能力卡列表；账号区块与单账号平台共用。
  * 列数由实际容器宽度决定（auto-fit + 单卡最小可读 250px），不依赖全局 xl/2xl 断点：
@@ -130,7 +149,8 @@ function AccountHeader({ account, plan }: { account: AccountSummaryViewModel; pl
  * 平台中心 / 额度与用量（Apple Glass V6/V7）：
  * 多账号平台先按账号分组（本机 → 默认 → 额外，顺序由后端决定），账号内再语义分组；
  * 单账号平台保持原布局。Capability 通过 accountId 归属账号，跨账号不合并。
- * 布局由本组件实际宽度驱动（不依赖全局视口断点）：
+ * DeepSeek 等命中专属用量能力的账号改走组合渲染（资金概览 / 模型行 / 缓存效率 / 消费趋势），
+ * 其余账号保持通用能力卡。布局由本组件实际宽度驱动（不依赖全局视口断点）：
  * - wide（≥960）：主内容 + 最近刷新记录双栏；历史栏 sticky 跟随滚动容器，不被拉伸；
  * - medium/compact：单栏，刷新记录折叠卡放在来源状态之后、账号额度之前。
  * 滚动由外层 TabContent 统一承担，本组件自身不产生第二个滚动区。
@@ -148,20 +168,19 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
     );
   }
 
-  const trendCapability = platform.capabilities.find(
-    (capability) => capability.capabilityId === "usage_trend",
-  );
   const cardCapabilities = platform.capabilities.filter(
     (capability) => capability.capabilityId !== "usage_trend" && isVisibleQuotaCard(capability),
   );
   const multiAccount = platform.accounts.length > 1;
   const accountSections = platform.accounts.map((account) => {
     const capabilities = cardCapabilities.filter((capability) => capability.accountId === account.accountId);
-    return {
-      account,
-      plan: planOf(capabilities),
-      capabilities: capabilities.filter((capability) => capability.capabilityId !== "plan_level"),
-    };
+    const visible = capabilities.filter((capability) => capability.capabilityId !== "plan_level");
+    // usage_trend 按账号归属：DeepSeek 组合渲染用它绘制近 7 日消费趋势（无点时为空状态）
+    const trend = platform.capabilities.find(
+      (capability) => capability.capabilityId === "usage_trend" && capability.accountId === account.accountId,
+    );
+    const { composition, rest } = splitDeepSeekUsageCapabilities(trend ? [...visible, trend] : visible);
+    return { account, plan: planOf(capabilities), composition, rest };
   });
 
   const mainContent = (
@@ -170,28 +189,22 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
       {!wide && <RefreshHistory platform={platform} variant="inline" />}
       {multiAccount ? (
         <div className="flex flex-col gap-6">
-          {accountSections.map(({ account, plan, capabilities }) => (
+          {accountSections.map(({ account, plan, composition, rest }) => (
             <section key={account.accountId} className="flex min-w-0 flex-col gap-3">
               <AccountHeader account={account} plan={plan} />
-              {capabilities.length > 0 ? (
-                <CapabilitySections capabilities={capabilities} />
-              ) : (
-                <p className="px-1 text-xs text-q-text-muted">该账号暂无额度数据。</p>
-              )}
+              <AccountUsageBody composition={composition} rest={rest} />
             </section>
           ))}
         </div>
       ) : (
         // 单账号平台同样展示账户头（套餐徽章挂在账户名旁，订阅计划不再单独成卡）
         <div className="flex min-w-0 flex-col gap-3">
-          <AccountHeader account={platform.accounts[0]} plan={planOf(cardCapabilities)} />
-          <CapabilitySections
-            capabilities={cardCapabilities.filter((capability) => capability.capabilityId !== "plan_level")}
+          <AccountHeader account={platform.accounts[0]} plan={accountSections[0]?.plan} />
+          <AccountUsageBody
+            composition={accountSections[0]?.composition ?? []}
+            rest={accountSections[0]?.rest ?? []}
           />
         </div>
-      )}
-      {trendCapability && trendCapability.trend.length > 0 && (
-        <UsageTrend capability={trendCapability} />
       )}
     </div>
   );

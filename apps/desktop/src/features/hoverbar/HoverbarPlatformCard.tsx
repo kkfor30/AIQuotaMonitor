@@ -1,15 +1,17 @@
 /**
- * 悬浮详情平台卡片（Aurora Acrylic V2 认可稿 09/10）。
+ * 悬浮详情平台卡片（Aurora Acrylic V2 认可稿 09/10 + DeepSeek 用量重设计 V1）。
  * 一个平台一张卡：卡头为图标 + 名称 + 平台聚合状态；套餐徽章与账户别名下沉为
  * 各账户分区的分组头行（首分区同构、无分隔线），别名过长只在本行内截断；
  * 每个账号只聚合自己的 Source 与 Capability；
  * 窗口行统一为「窗口名称 → 细进度条 → 剩余百分比 → 重置时间」（数值型 remainingPercent）；
  * 余额统一为账户分区底部的财务条（钱包线性图标 + 个人余额 + 右对齐金额）；
- * DeepSeek 余额下方为今日/本月消费等宽次级单元与缓存命中率进度行；
+ * DeepSeek 余额下方为今日/本月消费等宽次级单元、V4 Flash/Pro 两条紧凑模型行，
+ * 以及带靶心数据环图标的缓存命中率行（固定主蓝细进度条 + 后端 secondary 说明）；
  * stale 保留真实值与进度色，仅以低饱和蓝灰缓存提示；
  * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Radar, RefreshCw, Wallet } from "lucide-react";
+import { FlashCrystalIcon, ProCoreIcon, TargetRingIcon } from "@/components/ui/MetricIcons";
 import type {
   CapabilitySnapshotViewModel,
   DataFreshness,
@@ -30,7 +32,8 @@ import {
 import { hoverbarProviderVisual } from "./provider-visuals";
 
 const DEEPSEEK_EXTRA_IDS = new Set<string>(["today_spend", "month_spend", "cache_hit_rate"]);
-const ALLOWED_IDS = new Set<string>(["balance", "plan_level", ...DEEPSEEK_EXTRA_IDS]);
+const DEEPSEEK_MODEL_IDS = new Set<string>(["model_usage_v4_flash", "model_usage_v4_pro"]);
+const ALLOWED_IDS = new Set<string>(["balance", "plan_level", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
 const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
 
 /** 窗口额度行数据：percent 为数值型剩余百分比，色阶由 QuotaProgress 三段规则给出。 */
@@ -51,6 +54,15 @@ type HoverbarFinance = {
 type HoverbarCache = {
   percent: number | null;
   percentText: string | null;
+  /** 后端 secondary 说明（如「命中 181.25M / 输入 234.52M」），前端不自行汇总。 */
+  desc: string | null;
+  freshness: DataFreshness;
+};
+
+type HoverbarModel = {
+  id: string;
+  name: string;
+  value: string | null;
   freshness: DataFreshness;
 };
 
@@ -62,6 +74,7 @@ type HoverbarSection = {
   windows: HoverbarWindow[];
   balance: HoverbarFinance | null;
   spend: { today: HoverbarFinance | null; month: HoverbarFinance | null };
+  models: HoverbarModel[];
   cacheHit: HoverbarCache | null;
   /** 分区内存在 stale 快照时的低饱和缓存提示（带最后一次成功时间）；null 表示无 stale。 */
   staleNote: string | null;
@@ -208,10 +221,16 @@ function GroupHead({
   );
 }
 
-/** 一个账户分区的数据体：窗口额度行 → 余额财务条 → 消费双列 → 缓存命中率 → 缓存提示。 */
+/** 一个账户分区的数据体：窗口额度行 → 余额财务条 → 消费双列 → 模型行 → 靶心缓存行 → 缓存提示。 */
 function SectionBody({ section }: { section: HoverbarSection }) {
   const hasSpend = section.spend.today !== null || section.spend.month !== null;
-  if (section.windows.length === 0 && !section.balance && !hasSpend && !section.cacheHit) {
+  if (
+    section.windows.length === 0
+    && !section.balance
+    && !hasSpend
+    && section.models.length === 0
+    && !section.cacheHit
+  ) {
     return <p className="hb-primary-missing">暂不可用</p>;
   }
   return (
@@ -224,6 +243,13 @@ function SectionBody({ section }: { section: HoverbarSection }) {
         <div className="hb-spend-grid">
           {section.spend.today ? <SpendCell label="今日消费" item={section.spend.today} /> : null}
           {section.spend.month ? <SpendCell label="本月消费" item={section.spend.month} /> : null}
+        </div>
+      ) : null}
+      {section.models.length > 0 ? (
+        <div className="hb-model-list">
+          {section.models.map((model) => (
+            <ModelLine key={model.id} model={model} />
+          ))}
         </div>
       ) : null}
       {section.cacheHit ? <CacheLine cache={section.cacheHit} /> : null}
@@ -308,34 +334,67 @@ function SpendCell({ label, item }: { label: string; item: HoverbarFinance }) {
   );
 }
 
-/** 缓存命中率进度行：固定主色填充，不套剩余额度三段色阶（非额度语义）。 */
+/**
+ * 缓存命中率行（DeepSeek 用量重设计 V1）：靶心数据环图标 + 固定主色细进度条 + 百分比，
+ * 下挂后端 secondary 说明；不套剩余额度三段色阶（非额度语义）。
+ */
 function CacheLine({ cache }: { cache: HoverbarCache }) {
   const missing = cache.freshness === "missing" || cache.percentText === null;
   return (
-    <div className="hb-quota-line">
-      <span className="hb-quota-label">缓存命中率</span>
-      <span
-        className="hb-quota-track"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={missing ? undefined : Math.round(cache.percent ?? 0)}
-      >
+    <div className="hb-cache-block">
+      <div className="hb-quota-line">
+        <span className="hb-metric-chip" data-variant="target" aria-hidden="true">
+          <TargetRingIcon size={13} />
+        </span>
+        <span className="hb-quota-label">缓存命中率</span>
         <span
-          className="hb-quota-fill"
-          style={{
-            width: `${missing ? 0 : Math.min(100, Math.max(0, cache.percent ?? 0))}%`,
-            background: "var(--q-hoverbar-primary)",
-            opacity: 0.75,
-          }}
-        />
+          className="hb-quota-track"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={missing ? undefined : Math.round(cache.percent ?? 0)}
+        >
+          <span
+            className="hb-quota-fill"
+            style={{
+              width: `${missing ? 0 : Math.min(100, Math.max(0, cache.percent ?? 0))}%`,
+              background: "var(--q-hoverbar-primary)",
+            }}
+          />
+        </span>
+        <span
+          className="hb-cache-value"
+          data-missing={missing || undefined}
+          data-selectable="true"
+        >
+          {missing ? "暂不可用" : cache.percentText}
+        </span>
+      </div>
+      {!missing && cache.desc ? <p className="hb-cache-desc">{cache.desc}</p> : null}
+    </div>
+  );
+}
+
+/** V4 Flash / Pro 紧凑模型行：晶体/六边核图标 + 名称 + 右对齐真实 Token 文本。 */
+function ModelLine({ model }: { model: HoverbarModel }) {
+  const missing = model.freshness === "missing" || model.value === null;
+  const isFlash = model.id === "model_usage_v4_flash";
+  return (
+    <div className="hb-model-line">
+      <span className="hb-metric-chip" data-variant={isFlash ? "flash" : "pro"} aria-hidden="true">
+        {isFlash ? <FlashCrystalIcon size={13} /> : <ProCoreIcon size={13} />}
+      </span>
+      <span className="hb-model-meta">
+        <span className="hb-model-name">{isFlash ? "V4 Flash" : "V4 Pro"}</span>
+        <span className="hb-model-sub">本月累计 Token</span>
       </span>
       <span
-        className="hb-cache-value"
+        className="hb-model-value"
         data-missing={missing || undefined}
+        data-freshness={model.freshness}
         data-selectable="true"
       >
-        {missing ? "暂不可用" : cache.percentText}
+        {missing ? "暂不可用" : model.value}
       </span>
     </div>
   );
@@ -458,6 +517,7 @@ function isEmptySection(section: HoverbarSection): boolean {
     && section.balance === null
     && section.spend.today === null
     && section.spend.month === null
+    && section.models.length === 0
     && section.cacheHit === null
     && !section.plan
   );
@@ -478,8 +538,19 @@ function sectionFromAccount(
     .filter((item) => isQuotaWindow(item.capabilityId))
     .sort((left, right) => compareWindowIds(left.capabilityId, right.capabilityId))
     .map(toWindowMetric);
-  // 今日/本月消费与缓存命中率目前只有 DeepSeek 官方用量来源产出；有真实现身才渲染对应结构
-  const hasDeepseekExtras = own.some((item) => DEEPSEEK_EXTRA_IDS.has(item.capabilityId));
+  // 今日/本月消费、模型行与缓存命中率目前只有 DeepSeek 官方用量来源产出；有真实现身才渲染对应结构
+  const hasDeepseekExtras =
+    own.some((item) => DEEPSEEK_EXTRA_IDS.has(item.capabilityId))
+    || own.some((item) => DEEPSEEK_MODEL_IDS.has(item.capabilityId));
+  const models = own
+    .filter((item) => DEEPSEEK_MODEL_IDS.has(item.capabilityId))
+    .sort((left, right) => left.capabilityId.localeCompare(right.capabilityId))
+    .map((item) => ({
+      id: item.capabilityId,
+      name: item.capabilityId === "model_usage_v4_flash" ? "V4 Flash" : "V4 Pro",
+      value: item.freshness === "missing" || !item.value.primary ? null : compactPercentText(item.value.primary),
+      freshness: item.freshness,
+    }));
   const staleCandidates = own.filter((item) => item.freshness === "stale");
   const staleAt = staleCandidates.reduce<number | null>((latest, item) => {
     const at = item.lastGoodAt ?? item.capturedAt;
@@ -501,6 +572,7 @@ function sectionFromAccount(
     spend: hasDeepseekExtras
       ? { today: financeOf(own, "today_spend"), month: financeOf(own, "month_spend") }
       : { today: null, month: null },
+    models,
     cacheHit: hasDeepseekExtras ? cacheOf(own, "cache_hit_rate") : null,
     staleNote,
   };
@@ -545,6 +617,7 @@ function cacheOf(
   return {
     percent: missing || percent === null ? null : percent,
     percentText: missing ? null : compactPercentText(capability.value.primary!),
+    desc: missing ? null : capability.value.secondary,
     freshness: capability.freshness,
   };
 }
