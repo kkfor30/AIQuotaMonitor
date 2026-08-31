@@ -193,7 +193,7 @@ function GeneralSection() {
         </SettingRow>
         <SettingRow
           title="展开悬浮详情时自动检查重置雷达"
-          description="悬浮球展开详情时自动同步 Tibo 动态并按偏好运行 AI 分析；距上次检查不足 10 分钟时跳过"
+          description="悬浮球展开详情时自动同步 Tibo 动态并按偏好运行 AI 分析；距上次检查不足 5 分钟时跳过"
         >
           <Switch
             checked={settings?.hoverbarAutoRadarCheck ?? false}
