@@ -62,7 +62,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v11";
+pub const PROMPT_VERSION: &str = "radar-v12";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -1109,7 +1109,9 @@ struct DeltaInputs {
     state_revision: i64,
 }
 
-fn delta_post_block(post: &TiboPostView, claims: &[RadarTimeClaimRecord]) -> String {
+/// 帖子块按组编号提供引用标签（NEW POSTS 用 P1..Pn，EVENT CONTEXT POSTS 用 C1..Cn），
+/// 让模型在文本结论里用短标签引用帖子，而不是照抄裸 post_id。
+fn delta_post_block(label: &str, post: &TiboPostView, claims: &[RadarTimeClaimRecord]) -> String {
     let post_claims = claims
         .iter()
         .filter(|claim| claim.post_id == post.id)
@@ -1125,6 +1127,7 @@ fn delta_post_block(post: &TiboPostView, claims: &[RadarTimeClaimRecord]) -> Str
         })
         .collect::<Vec<_>>();
     json!({
+        "ref": label,
         "post_id": post.id,
         "published_beijing_at": format_iso(post.posted_at),
         "url": post.url,
@@ -1243,20 +1246,21 @@ async fn run_analysis(
 ) -> Result<(), String> {
     let inputs = collect_delta_inputs(database, range_key)?;
     let user_prompt = load_analysis_prefs(database)?.user_prompt;
-    let joined = |posts: &[TiboPostView]| {
+    let joined = |prefix: &str, posts: &[TiboPostView]| {
         posts
             .iter()
-            .map(|post| delta_post_block(post, &inputs.time_claims))
+            .enumerate()
+            .map(|(i, post)| delta_post_block(&format!("{prefix}{}", i + 1), post, &inputs.time_claims))
             .collect::<Vec<_>>()
             .join("\n\n")
     };
-    let input_hash = format!("{:x}", simple_hash(&joined(&inputs.delta)));
+    let input_hash = format!("{:x}", simple_hash(&joined("P", &inputs.delta)));
     // 事件状态参与复用键：阶段/本机观察变化后，旧的结论不应被复用。
     let context_hash = format!(
         "{:x}",
         simple_hash(&format!(
             "{}|{}|{}|{}|{}",
-            joined(&inputs.context),
+            joined("C", &inputs.context),
             inputs.event_status.as_deref().unwrap_or(""),
             inputs.mode,
             inputs.temporal_phase,
@@ -1327,7 +1331,8 @@ async fn run_analysis_inner(
             inputs
                 .context
                 .iter()
-                .map(|post| delta_post_block(post, &inputs.time_claims))
+                .enumerate()
+                .map(|(i, post)| delta_post_block(&format!("C{}", i + 1), post, &inputs.time_claims))
                 .collect::<Vec<_>>()
                 .join("\n\n")
         ));
@@ -1337,7 +1342,8 @@ async fn run_analysis_inner(
         inputs
             .delta
             .iter()
-            .map(|post| delta_post_block(post, &inputs.time_claims))
+            .enumerate()
+            .map(|(i, post)| delta_post_block(&format!("P{}", i + 1), post, &inputs.time_claims))
             .collect::<Vec<_>>()
             .join("\n\n")
     ));
@@ -1596,6 +1602,8 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "context_status: complete when the context posts give enough background, context_missing when not, conflicting when they contradict the new posts. ",
     "Apply user semantic hints only when judging signal wording and confidence. ",
     "If no user hints are provided, read the posts ordinarily without inventing extra rules. ",
+    "Refer to posts in conclusion and analysis_basis only by their ref label (e.g. P1, C2); never output raw post_id values or full URLs in the text. ",
+    "citations must still contain the exact post_id values of the referenced posts. ",
     "This output is speculation, not an official conclusion. ",
     "Only use the English original posts, timestamps and URLs provided; do not invent quotes."
 );
