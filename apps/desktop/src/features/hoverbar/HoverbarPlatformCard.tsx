@@ -1,7 +1,8 @@
 /**
  * 悬浮详情平台卡片（Aurora Acrylic V2 认可稿 09/10）。
- * 一个平台一张卡：卡头为图标 + 名称 + 首账户套餐/别名 + 平台聚合状态；
- * 按后端 accounts 分组，每个账号只聚合自己的 Source 与 Capability；
+ * 一个平台一张卡：卡头为图标 + 名称 + 平台聚合状态；套餐徽章与账户别名下沉为
+ * 各账户分区的分组头行（首分区同构、无分隔线），别名过长只在本行内截断；
+ * 每个账号只聚合自己的 Source 与 Capability；
  * 窗口行统一为「窗口名称 → 细进度条 → 剩余百分比 → 重置时间」（数值型 remainingPercent）；
  * 余额统一为账户分区底部的财务条（钱包线性图标 + 个人余额 + 右对齐金额）；
  * DeepSeek 余额下方为今日/本月消费等宽次级单元与缓存命中率进度行；
@@ -136,35 +137,22 @@ export function HoverbarPlatformCard({
           )}
         </span>
         <b className="hb-card-name">{platform.displayName}</b>
-        {first?.plan ? (
-          <span className="hb-plan-chip" data-plan={planKey(first.plan)}>
-            {first.plan}
-          </span>
-        ) : null}
-        {multi && first ? <span className="hb-card-account">{first.title}</span> : null}
         <StatusChip status={platform.aggregateStatus} />
       </header>
 
       {sections.length === 0 || !first ? (
         <p className="hb-primary-missing">暂无真实数据</p>
       ) : (
-        <div className={multi ? "hb-sections" : "hb-section-body"}>
-          <SectionBody section={first} />
-          {multi &&
-            sections.slice(1).map((section) => (
-              <section key={section.id} className="hb-group">
-                <div className="hb-group-head">
-                  {section.plan ? (
-                    <span className="hb-plan-chip" data-plan={planKey(section.plan)}>
-                      {section.plan}
-                    </span>
-                  ) : null}
-                  <span className="hb-group-name">{section.title}</span>
-                  {section.status !== "healthy" ? <StatusChip status={section.status} /> : null}
-                </div>
-                <SectionBody section={section} />
-              </section>
-            ))}
+        <div className="hb-sections">
+          {sections.map((section, index) => (
+            <section
+              key={section.id}
+              className={index === 0 ? "hb-group hb-group-first" : "hb-group"}
+            >
+              <GroupHead section={section} showAlias={multi} showStatus={index > 0} />
+              <SectionBody section={section} />
+            </section>
+          ))}
         </div>
       )}
 
@@ -189,6 +177,34 @@ function StatusChip({ status }: { status: PlatformAggregateStatus }) {
       <Icon size={11} aria-hidden />
       {STATUS_LABEL[status]}
     </span>
+  );
+}
+
+/**
+ * 账户分区头：套餐徽章 + 账户别名独占一行，别名过长只在本行内截断，不与平台名争抢空间。
+ * 单账户且无套餐的平台（DeepSeek/Kimi/MiMo 等）不渲染此行，与认可稿一致；
+ * 别名仅多账户平台展示；非首分区的状态异常徽章保留在此行（首分区由卡头聚合状态覆盖）。
+ */
+function GroupHead({
+  section,
+  showAlias,
+  showStatus,
+}: {
+  section: HoverbarSection;
+  showAlias: boolean;
+  showStatus: boolean;
+}) {
+  if (!section.plan && !showAlias) return null;
+  return (
+    <div className="hb-group-head">
+      {section.plan ? (
+        <span className="hb-plan-chip" data-plan={planKey(section.plan)}>
+          {section.plan}
+        </span>
+      ) : null}
+      {showAlias ? <span className="hb-group-name">{section.title}</span> : null}
+      {showStatus && section.status !== "healthy" ? <StatusChip status={section.status} /> : null}
+    </div>
   );
 }
 

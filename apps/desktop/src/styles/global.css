@@ -687,6 +687,12 @@ html.hoverbar-window #root {
   border-top: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
 }
 
+/* 首个账户分区：分组头直接跟在卡头后，不画分隔线 */
+.hb-group-first {
+  padding-top: 0;
+  border-top: 0;
+}
+
 .hb-group-head {
   display: flex;
   min-width: 0;
@@ -694,18 +700,7 @@ html.hoverbar-window #root {
   gap: 7px;
 }
 
-.hb-card-account {
-  flex: none;
-  max-width: 40%;
-  overflow: hidden;
-  color: var(--q-hoverbar-ink);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 17px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
+/* 卡头账户别名：空间不足时先于平台名截断（shrink 权重更高），平台名保持完整 */
 .hb-group-name {
   min-width: 0;
   overflow: hidden;
@@ -1773,6 +1768,27 @@ html.hoverbar-window #root {
   align-items: stretch;
   gap: 4px;
   padding: 2px 5px 8px;
+}
+
+/* 左右侧 300px：分组头收紧间距，状态徽章去图标保文字，给账户别名让位（别名本行内截断） */
+.hb-detail-root[data-edge="left"] .hb-group-head,
+.hb-detail-root[data-edge="right"] .hb-group-head {
+  gap: 6px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-group-head .hb-status-chip svg,
+.hb-detail-root[data-edge="right"] .hb-group-head .hb-status-chip svg {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-status-chip,
+.hb-detail-root[data-edge="right"] .hb-status-chip {
+  padding: 3px 7px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-plan-chip,
+.hb-detail-root[data-edge="right"] .hb-plan-chip {
+  padding: 2px 7px;
 }
 
 /* 左右侧停靠：雷达二级页标题放不下（300px 面板），隐藏后由「返回额度/仅为推测」承载语境。 */
