@@ -47,11 +47,11 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v6";
+pub const PROMPT_VERSION: &str = "radar-v7";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
-帖子提及的未标注时区的具体时间多为太平洋时间（OpenAI/旧金山），结论或依据中请换算成北京时间表述，例如「北京时间8月31日06:00」。
+帖子提及的未标注时区的具体时间多为太平洋时间（PST，比北京时间慢16小时）；换算用跨度平移：发帖北京时间减16小时得发帖PST时间，算出到预告PST时间的时间跨度，再把该跨度加到发帖北京时间上，得出北京时间；不要把PST的钟点直接当北京时间。
 没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
 
 #[derive(Debug, Clone, Serialize)]
@@ -1134,10 +1134,15 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "EVENT CONTEXT POSTS (when present) are previously associated originals of an ongoing reset event, background only. ",
     "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed|landed_observed|closed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
     "Write conclusion and analysis_basis in Simplified Chinese. ",
-    "Every POST TIME line is already Beijing time (UTC+8). ",
-    "Posts may mention explicit clock times without a timezone; Tibo posts from OpenAI staff are usually US Pacific Time (America/Los_Angeles). ",
-    "When such a time matters, convert it to Beijing time and write it as 北京时间M月D日HH:MM in conclusion or analysis_basis; ",
-    "mark it explicitly as an assumption when the timezone is ambiguous, and never invent a time that no post states. ",
+    "Every POST TIME line is already the post's publish time in Beijing time (UTC+8). ",
+    "Posts may announce explicit times like 6pm PST; PST is UTC-8 and Beijing is exactly 16 hours ahead of PST. ",
+    "When a post mentions such a time, convert with this exact procedure and never skip a step: ",
+    "1) subtract 16 hours from the POST TIME to get the posting moment in PST; ",
+    "2) compute the elapsed span from that posting moment to the announced PST time; ",
+    "3) add the same span to the POST TIME to get the reset moment in Beijing time. ",
+    "Worked example: POST TIME 2026-08-31T03:24 Beijing, post says 6pm PST: 03:24-16h=08-30 11:24 PST; span to 18:00 PST is 6h36m; 03:24+6h36m = 北京时间2026年8月31日10:00. ",
+    "Never write the PST clock hour directly as a Beijing time. ",
+    "Write converted times as 北京时间M月D日HH:MM in conclusion or analysis_basis, mark assumptions when ambiguous, and never invent a time that no post states. ",
     "conclusion must be a direct decision of at most 40 Chinese characters, without markdown, evidence, or repeated reasoning. ",
     "analysis_basis must contain the reasoning separately in 1 to 3 concise sentences and must not repeat the conclusion verbatim. ",
     "event_relation: new_event when the new posts start a distinct reset cycle; same_event when they update the ongoing event; none when unrelated. ",
