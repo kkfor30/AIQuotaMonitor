@@ -19,10 +19,15 @@ pub struct AppSettingsView {
 
 #[tauri::command]
 pub fn get_app_settings(database: State<'_, Database>) -> Result<AppSettingsView, String> {
+    // 只保留浅/深两档：旧库里的 "system" 或空值一律归一为浅色。
+    let saved_theme = database.setting_string("theme")?;
+    let theme = if saved_theme.as_deref() == Some("dark") {
+        "dark".to_string()
+    } else {
+        "light".to_string()
+    };
     Ok(AppSettingsView {
-        theme: database
-            .setting_string("theme")?
-            .unwrap_or_else(|| "system".into()),
+        theme,
         autostart: database.setting_bool("autostart")?,
         refresh_interval_minutes: database
             .setting_string("refresh_interval_minutes")?
@@ -56,7 +61,7 @@ pub fn set_app_theme(
     database: State<'_, Database>,
 ) -> Result<AppSettingsView, String> {
     require_label(&window, &["main"])?;
-    if !matches!(theme.as_str(), "light" | "dark" | "system") {
+    if !matches!(theme.as_str(), "light" | "dark") {
         return Err("不支持的主题".into());
     }
     database.set_setting_string("theme", &theme)?;

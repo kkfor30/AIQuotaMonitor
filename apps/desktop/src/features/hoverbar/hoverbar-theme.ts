@@ -3,7 +3,8 @@
  *
  * 迁移来源：DeepSeek-Monitor-Windows/DeepSeekMonitorWindows
  * src/theme-preference.ts 与 src/main.tsx/useUiTheme（提交 af6cfe07，MIT）。
- * 设置页的浅色/深色会覆盖本地偏好；跟随系统时仍可用详情内按钮临时切换。
+ * 设置页的浅色/深色会覆盖本地偏好；详情内按钮可临时切换，两者只取浅色/深色两档，
+ * 不再支持跟随系统。
  */
 import { useCallback, useEffect, useState } from "react";
 import { fetchAppSettings } from "@/lib/ipc";
@@ -17,9 +18,9 @@ function loadHoverbarTheme(): HoverbarTheme {
     const saved = window.localStorage.getItem(HOVERBAR_THEME_KEY);
     if (saved === "light" || saved === "dark") return saved;
   } catch {
-    // WebView 禁止本地存储时继续使用系统偏好，不影响详情打开。
+    // WebView 禁止本地存储时继续使用默认浅色，不影响详情打开。
   }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return "light";
 }
 
 export function useHoverbarTheme() {

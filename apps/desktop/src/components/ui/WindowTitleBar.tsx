@@ -1,5 +1,5 @@
-import { Check, Minus, Monitor, Moon, Palette, Square, Sun, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Minus, Moon, Square, SunMedium, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAppSettings, setAppTheme } from "@/lib/ipc";
@@ -60,21 +60,18 @@ export function WindowTitleBar() {
   );
 }
 
-const THEME_OPTIONS: Array<{ id: string; label: string; icon: typeof Sun }> = [
-  { id: "light", label: "浅色", icon: Sun },
-  { id: "dark", label: "深色", icon: Moon },
-  { id: "system", label: "跟随系统", icon: Monitor },
-];
-
-/** 标题栏换肤按钮：下拉选择浅色 / 深色 / 跟随系统，写入同一份主题设置。 */
+/**
+ * 标题栏换肤按钮：单击在浅色 / 深色之间切换（与悬浮详情同款），写入同一份主题设置。
+ * 不再提供「跟随系统」。
+ */
 function ThemeSwitchButton() {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
   const { data: settings } = useQuery({
     queryKey: APP_SETTINGS_QUERY_KEY,
     queryFn: fetchAppSettings,
   });
+
+  const theme = settings?.theme === "dark" ? "dark" : "light";
 
   const themeMutation = useMutation({
     mutationFn: setAppTheme,
@@ -84,73 +81,23 @@ function ThemeSwitchButton() {
     },
   });
 
-  // 点击菜单外部关闭
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", onPointerDown);
-    return () => window.removeEventListener("mousedown", onPointerDown);
-  }, [open]);
-
-  const theme = settings?.theme ?? "system";
-
+  // 深色时显示太阳（点击回到浅色）；浅色时显示月亮（点击进入深色）
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        aria-label="切换主题"
-        title="切换主题"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className={cn(
-          "inline-flex h-7 w-10 cursor-pointer items-center justify-center rounded-md text-q-text-secondary transition-colors duration-100",
-          open
-            ? "bg-q-primary-soft text-q-primary"
-            : "hover:bg-q-border hover:text-q-text-primary",
-        )}
-      >
-        <Palette size={14} />
-      </button>
-      {open && (
-        <div
-          role="menu"
-          aria-label="主题"
-          className="absolute right-0 top-[calc(100%+6px)] z-50 w-40 rounded-[13px] border border-q-border bg-q-surface-solid p-1.5 shadow-q-lg backdrop-blur"
-        >
-          {THEME_OPTIONS.map((option) => {
-            const Icon = option.icon;
-            const selected = theme === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                role="menuitemradio"
-                aria-checked={selected}
-                onClick={() => {
-                  themeMutation.mutate(option.id);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-left text-[13px] transition-colors duration-100",
-                  selected
-                    ? "bg-q-primary-soft text-q-primary"
-                    : "text-q-text-secondary hover:bg-q-surface-hover hover:text-q-text-primary",
-                )}
-              >
-                <Icon size={15} aria-hidden className="shrink-0" />
-                <span className="flex-1">{option.label}</span>
-                {selected && <Check size={14} aria-hidden className="shrink-0" />}
-              </button>
-            );
-          })}
-        </div>
+    <button
+      type="button"
+      aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+      title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+      onClick={() => {
+        if (themeMutation.isPending) return;
+        themeMutation.mutate(theme === "dark" ? "light" : "dark");
+      }}
+      className={cn(
+        "inline-flex h-7 w-10 cursor-pointer items-center justify-center rounded-md text-q-text-secondary transition-colors duration-100",
+        "hover:bg-q-border hover:text-q-text-primary",
       )}
-    </div>
+    >
+      {theme === "dark" ? <SunMedium size={14} /> : <Moon size={14} />}
+    </button>
   );
 }
 

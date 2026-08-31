@@ -166,7 +166,7 @@ function GeneralSection() {
     onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
   });
 
-  const theme = settings?.theme ?? "system";
+  const theme = settings?.theme === "dark" ? "dark" : "light";
   const error =
     themeMutation.error ?? autostartMutation.error ?? hoverbarMutation.error;
 
@@ -202,12 +202,11 @@ function GeneralSection() {
             label="展开悬浮详情时自动检查重置雷达"
           />
         </SettingRow>
-        <SettingRow title="主题" description="主窗口与悬浮详情一起切换；跟随系统时尊重 Windows 深浅色">
+        <SettingRow title="主题" description="主窗口与悬浮详情一起切换；仅提供浅色 / 深色两档">
           <div className="inline-flex gap-1 rounded-q-control border border-q-border bg-q-surface-muted p-1">
             {[
               ["light", "浅色"],
               ["dark", "深色"],
-              ["system", "跟随系统"],
             ].map(([id, label]) => (
               <button
                 key={id}
