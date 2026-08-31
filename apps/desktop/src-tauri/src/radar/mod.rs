@@ -22,7 +22,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub const FEED_URL: &str = "https://codexradar.com/";
 pub const PROMPT_VERSION: &str = "radar-v6";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
-pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表板（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
+pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
 帖子提及的未标注时区的具体时间多为太平洋时间（OpenAI/旧金山），结论或依据中请换算成北京时间表述，例如「北京时间8月31日06:00」。
 没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
