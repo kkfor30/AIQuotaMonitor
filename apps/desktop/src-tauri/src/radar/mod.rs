@@ -47,7 +47,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v8";
+pub const PROMPT_VERSION: &str = "radar-v9";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -876,11 +876,19 @@ struct DeltaInputs {
 }
 
 fn delta_post_block(post: &TiboPostView) -> String {
+    // PST_PUBLISHED 由代码确定性换算（同一时刻按 UTC-8 渲染），
+    // 模型换算预告时间时以它为锚点，不再自行做「北京减16小时」的退位算术。
+    let nl = "\n";
     format!(
-        "POST {}\nTIME {}\nURL {}\nTEXT {}",
+        "POST {}{}TIME {}{}PST_PUBLISHED {}{}URL {}{}TEXT {}",
         post.id,
+        nl,
         format_iso(post.posted_at),
+        nl,
+        format_pst(post.posted_at),
+        nl,
         post.url,
+        nl,
         post.text
     )
 }
@@ -1201,14 +1209,13 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "EVENT CONTEXT POSTS (when present) are previously associated originals of an ongoing reset event, background only. ",
     "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed|landed_observed|closed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
     "Write conclusion and analysis_basis in Simplified Chinese. ",
-    "Every POST TIME line is already the post's publish time in Beijing time (UTC+8). ",
-    "Posts may announce explicit times like 6pm PST; PST is UTC-8 and Beijing is exactly 16 hours ahead of PST. ",
-    "When a post mentions such a time, convert with this exact procedure and never skip a step: ",
-    "1) subtract 16 hours from the POST TIME to get the posting moment in PST; ",
-    "2) compute the elapsed span from that posting moment to the announced PST time; ",
-    "3) add the same span to the POST TIME to get the reset moment in Beijing time. ",
-    "Worked example: POST TIME 2026-08-31T03:24 Beijing, post says 6pm PST: 03:24-16h=08-30 11:24 PST; span to 18:00 PST is 6h36m; 03:24+6h36m = 北京时间2026年8月31日10:00. ",
-    "Never write the PST clock hour directly as a Beijing time. ",
+    "Every POST TIME line is the post's publish time in Beijing time (UTC+8); ",
+    "every POST also carries PST_PUBLISHED - the same posting moment in PST (UTC-8), pre-computed by code. Use PST_PUBLISHED as the anchor; do not recompute it from TIME. ",
+    "When a post announces a PST clock time (6pm = 18:00, 6am = 06:00; re-check the meridiem): ",
+    "1) the announced PST day is the same day as PST_PUBLISHED if the announced hour-of-day is not earlier than PST_PUBLISHED's hour-of-day, otherwise the next PST day; ",
+    "2) Beijing time = announced PST time + 16 hours. Lookup table: 00:00 PST = 16:00 next-day Beijing; 06:00 PST = 22:00 next-day Beijing; 12:00 PST = 04:00 next-day Beijing; 18:00 PST = 10:00 next-day Beijing. ",
+    "Worked example: PST_PUBLISHED 2026-08-30T11:24-08:00, post says 6pm PST: 18:00 is later than 11:24, same PST day 08-30; +16h = 北京时间2026年8月31日10:00. ",
+    "Never write the PST clock hour directly as a Beijing time, and never do subtraction on TIME yourself. ",
     "am/pm: 6pm is 18:00 and 6am is 06:00; re-check each meridiem before converting. ",
     "The input gives NOW (current Beijing time) and ONGOING EVENT STATUS. ",
     "If an announced reset time is already in the past, or the event status shows local_quota_reset_observed is set, the reset has already landed: ",
@@ -1718,6 +1725,14 @@ fn range_bounds(range_key: &str) -> (i64, i64) {
 
 /// 模型输入统一使用北京时间（UTC+8）：帖子时间戳在此确定性换算，
 /// 原帖文本内提及的未标注时区时间（多为太平洋时间）才交给模型按系统提示词换算。
+/// 同一时刻按太平洋时间（PST，UTC-8）渲染；发帖 PST 锚点由代码给出，模型不自己换算。
+fn format_pst(ms: i64) -> String {
+    let pst = chrono::FixedOffset::west_opt(8 * 3600).expect("UTC-8 is a valid offset");
+    chrono::DateTime::from_timestamp_millis(ms)
+        .map(|time| time.with_timezone(&pst).to_rfc3339())
+        .unwrap_or_else(|| ms.to_string())
+}
+
 fn format_iso(ms: i64) -> String {
     let beijing = chrono::FixedOffset::east_opt(8 * 3600).expect("UTC+8 is a valid offset");
     chrono::DateTime::from_timestamp_millis(ms)
