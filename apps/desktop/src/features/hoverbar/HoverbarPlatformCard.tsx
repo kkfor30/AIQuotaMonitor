@@ -1,10 +1,14 @@
 /**
- * 悬浮详情平台卡片（最终稿）。
- * 一个平台一张卡：卡头为图标 + 名称 + 平台聚合状态；按后端 accounts 分组，
- * 每个账号只聚合自己的 Source 与 Capability；窗口时间只显示时间值；
+ * 悬浮详情平台卡片（Aurora Acrylic V2 认可稿 09/10）。
+ * 一个平台一张卡：卡头为图标 + 名称 + 首账户套餐/别名 + 平台聚合状态；
+ * 按后端 accounts 分组，每个账号只聚合自己的 Source 与 Capability；
+ * 窗口行统一为「窗口名称 → 细进度条 → 剩余百分比 → 重置时间」（数值型 remainingPercent）；
+ * 余额统一为账户分区底部的财务条（钱包线性图标 + 个人余额 + 右对齐金额）；
+ * DeepSeek 余额下方为今日/本月消费等宽次级单元与缓存命中率进度行；
+ * stale 保留真实值与进度色，仅以低饱和蓝灰缓存提示；
  * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
-import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Radar, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Radar, RefreshCw, Wallet } from "lucide-react";
 import type {
   CapabilitySnapshotViewModel,
   DataFreshness,
@@ -13,8 +17,10 @@ import type {
 } from "@/lib/types";
 import type { RadarSnapshot } from "@/lib/ipc";
 import { compactPercentText } from "@/lib/format";
+import { capabilityRemainingPercent, quotaTone, quotaToneColor } from "@/components/ui/QuotaProgress";
 import {
   QUOTA_STATUS_PRIORITY,
+  formatHoverbarClock,
   radarAiLine,
   radarPhaseLabel,
   radarQuotaLine,
@@ -22,24 +28,42 @@ import {
 } from "./hoverbar-state";
 import { hoverbarProviderVisual } from "./provider-visuals";
 
-const DEEPSEEK_EXTRA_IDS = ["today_spend", "month_spend", "cache_hit_rate"] as const;
+const DEEPSEEK_EXTRA_IDS = new Set<string>(["today_spend", "month_spend", "cache_hit_rate"]);
 const ALLOWED_IDS = new Set<string>(["balance", "plan_level", ...DEEPSEEK_EXTRA_IDS]);
 const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
 
-type HoverbarMetric = {
+/** 窗口额度行数据：percent 为数值型剩余百分比，色阶由 QuotaProgress 三段规则给出。 */
+type HoverbarWindow = {
   id: string;
   label: string;
-  value: string | null;
+  percent: number | null;
+  percentText: string | null;
   time: string | null;
   freshness: DataFreshness;
 };
 
-type HoverbarGroup = {
+type HoverbarFinance = {
+  value: string | null;
+  freshness: DataFreshness;
+};
+
+type HoverbarCache = {
+  percent: number | null;
+  percentText: string | null;
+  freshness: DataFreshness;
+};
+
+type HoverbarSection = {
   id: string;
   title: string;
   plan: string | null;
   status: PlatformAggregateStatus;
-  metrics: HoverbarMetric[];
+  windows: HoverbarWindow[];
+  balance: HoverbarFinance | null;
+  spend: { today: HoverbarFinance | null; month: HoverbarFinance | null };
+  cacheHit: HoverbarCache | null;
+  /** 分区内存在 stale 快照时的低饱和缓存提示（带最后一次成功时间）；null 表示无 stale。 */
+  staleNote: string | null;
 };
 
 const STATUS_LABEL: Record<PlatformAggregateStatus, string> = {
@@ -53,15 +77,7 @@ const METRIC_LABEL: Record<string, string> = {
   quota_window_5h: "5小时窗口",
   quota_window_7d: "7天窗口",
   quota_window_30d: "30天窗口",
-  balance: "个人余额",
-  today_spend: "今日消费",
-  month_spend: "本月消费",
-  cache_hit_rate: "缓存命中率",
 };
-
-function metricIdsFor(providerId: string): string[] {
-  return providerId === "deepseek" ? ["balance", ...DEEPSEEK_EXTRA_IDS] : ["balance"];
-}
 
 function isQuotaWindow(id: string): boolean {
   return id.startsWith("quota_window_");
@@ -93,10 +109,10 @@ export function HoverbarPlatformCard({
   radarRefreshing?: boolean;
   radarRefreshError?: string | null;
 }) {
-  const groups = buildGroups(platform);
+  const sections = buildSections(platform);
   const multi = platform.accounts.length > 1;
-  const single = groups[0];
-  const hasStale = groups.some((group) => group.metrics.some((metric) => metric.freshness === "stale"));
+  const first = sections[0];
+  const hasStale = sections.some((section) => section.staleNote !== null);
   const visual = hoverbarProviderVisual(platform.providerId);
   const showRadarStrip = platform.providerId === "openai" && radar !== undefined && onOpenRadar !== undefined;
   return (
@@ -120,35 +136,36 @@ export function HoverbarPlatformCard({
           )}
         </span>
         <b className="hb-card-name">{platform.displayName}</b>
-        {!multi && single?.plan ? (
-          <span className="hb-plan-chip" data-plan={planKey(single.plan)}>
-            {single.plan}
+        {first?.plan ? (
+          <span className="hb-plan-chip" data-plan={planKey(first.plan)}>
+            {first.plan}
           </span>
         ) : null}
+        {multi && first ? <span className="hb-card-account">{first.title}</span> : null}
         <StatusChip status={platform.aggregateStatus} />
       </header>
 
-      {groups.length === 0 ? (
+      {sections.length === 0 || !first ? (
         <p className="hb-primary-missing">暂无真实数据</p>
-      ) : multi ? (
-        <div className="hb-groups">
-          {groups.map((group) => (
-            <section key={group.id} className="hb-group">
-              <div className="hb-group-head">
-                {group.plan ? (
-                  <span className="hb-plan-chip" data-plan={planKey(group.plan)}>
-                    {group.plan}
-                  </span>
-                ) : null}
-                <span className="hb-group-name">{group.title}</span>
-                {group.status !== "healthy" ? <StatusChip status={group.status} /> : null}
-              </div>
-              <MetricRows metrics={group.metrics} />
-            </section>
-          ))}
-        </div>
       ) : (
-        <MetricRows metrics={single?.metrics ?? []} />
+        <div className={multi ? "hb-sections" : "hb-section-body"}>
+          <SectionBody section={first} />
+          {multi &&
+            sections.slice(1).map((section) => (
+              <section key={section.id} className="hb-group">
+                <div className="hb-group-head">
+                  {section.plan ? (
+                    <span className="hb-plan-chip" data-plan={planKey(section.plan)}>
+                      {section.plan}
+                    </span>
+                  ) : null}
+                  <span className="hb-group-name">{section.title}</span>
+                  {section.status !== "healthy" ? <StatusChip status={section.status} /> : null}
+                </div>
+                <SectionBody section={section} />
+              </section>
+            ))}
+        </div>
       )}
 
       {showRadarStrip && radar && onOpenRadar ? (
@@ -175,39 +192,135 @@ function StatusChip({ status }: { status: PlatformAggregateStatus }) {
   );
 }
 
-function MetricRows({ metrics }: { metrics: HoverbarMetric[] }) {
-  if (metrics.length === 0) {
+/** 一个账户分区的数据体：窗口额度行 → 余额财务条 → 消费双列 → 缓存命中率 → 缓存提示。 */
+function SectionBody({ section }: { section: HoverbarSection }) {
+  const hasSpend = section.spend.today !== null || section.spend.month !== null;
+  if (section.windows.length === 0 && !section.balance && !hasSpend && !section.cacheHit) {
     return <p className="hb-primary-missing">暂不可用</p>;
   }
   return (
-    <div className="hb-rows">
-      {metrics.map((metric) => {
-        const missing = metric.value === null;
-        return (
-          <div key={metric.id} className="hb-row">
-            <span className="hb-row-label">{metric.label}</span>
-            <span
-              className="hb-row-value"
-              data-id={metric.id}
-              data-selectable="true"
-              data-freshness={metric.freshness}
-              data-missing={missing || undefined}
-            >
-              {missing ? "暂不可用" : metric.value}
-            </span>
-            <span className="hb-row-end">
-              {metric.time && !missing ? (
-                <span className="hb-row-time" data-selectable="true">
-                  {metric.time}
-                </span>
-              ) : null}
-              {metric.freshness === "stale" && !missing ? (
-                <span className="hb-row-stale">可能过期</span>
-              ) : null}
-            </span>
-          </div>
-        );
-      })}
+    <div className="hb-section-body">
+      {section.windows.map((item) => (
+        <QuotaLine key={item.id} item={item} />
+      ))}
+      {section.balance ? <BalanceBar balance={section.balance} /> : null}
+      {hasSpend ? (
+        <div className="hb-spend-grid">
+          {section.spend.today ? <SpendCell label="今日消费" item={section.spend.today} /> : null}
+          {section.spend.month ? <SpendCell label="本月消费" item={section.spend.month} /> : null}
+        </div>
+      ) : null}
+      {section.cacheHit ? <CacheLine cache={section.cacheHit} /> : null}
+      {section.staleNote ? <p className="hb-stale-note">{section.staleNote}</p> : null}
+    </div>
+  );
+}
+
+/** 统一额度行：missing 显示灰轨道与「暂不可用」，不补零；stale 按真实剩余着色。 */
+function QuotaLine({ item }: { item: HoverbarWindow }) {
+  const missing = item.freshness === "missing" || item.percent === null;
+  const tone = quotaTone(item.percent);
+  const color = quotaToneColor(tone);
+  return (
+    <div className="hb-quota-line">
+      <span className="hb-quota-label">{item.label}</span>
+      <span
+        className="hb-quota-track"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={missing ? undefined : Math.round(item.percent ?? 0)}
+        aria-valuetext={missing ? "暂不可用" : `剩余 ${item.percentText}`}
+      >
+        <span
+          className="hb-quota-fill"
+          style={{
+            width: `${missing ? 0 : Math.min(100, Math.max(0, item.percent ?? 0))}%`,
+            background: color,
+          }}
+        />
+      </span>
+      <span
+        className="hb-quota-percent"
+        data-missing={missing || undefined}
+        data-freshness={item.freshness}
+        style={missing ? undefined : { color }}
+        data-selectable="true"
+      >
+        {missing ? "暂不可用" : item.percentText}
+      </span>
+      <span className="hb-quota-time" data-selectable="true">
+        {!missing && item.time ? item.time : null}
+      </span>
+    </div>
+  );
+}
+
+/** 统一余额财务条：钱包线性图标 + 「个人余额」，金额 tabular 等宽、严格右对齐。 */
+function BalanceBar({ balance }: { balance: HoverbarFinance }) {
+  const missing = balance.freshness === "missing" || balance.value === null;
+  return (
+    <div className="hb-balance-bar">
+      <Wallet size={14} aria-hidden />
+      <span className="hb-balance-label">个人余额</span>
+      <span
+        className="hb-balance-amount"
+        data-missing={missing || undefined}
+        data-freshness={balance.freshness}
+        data-selectable="true"
+      >
+        {missing ? "暂不可用" : balance.value}
+      </span>
+    </div>
+  );
+}
+
+function SpendCell({ label, item }: { label: string; item: HoverbarFinance }) {
+  const missing = item.freshness === "missing" || item.value === null;
+  return (
+    <div className="hb-spend-cell">
+      <span className="hb-spend-name">{label}</span>
+      <span
+        className="hb-spend-value"
+        data-missing={missing || undefined}
+        data-freshness={item.freshness}
+        data-selectable="true"
+      >
+        {missing ? "暂不可用" : item.value}
+      </span>
+    </div>
+  );
+}
+
+/** 缓存命中率进度行：固定主色填充，不套剩余额度三段色阶（非额度语义）。 */
+function CacheLine({ cache }: { cache: HoverbarCache }) {
+  const missing = cache.freshness === "missing" || cache.percentText === null;
+  return (
+    <div className="hb-quota-line">
+      <span className="hb-quota-label">缓存命中率</span>
+      <span
+        className="hb-quota-track"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={missing ? undefined : Math.round(cache.percent ?? 0)}
+      >
+        <span
+          className="hb-quota-fill"
+          style={{
+            width: `${missing ? 0 : Math.min(100, Math.max(0, cache.percent ?? 0))}%`,
+            background: "var(--q-hoverbar-primary)",
+            opacity: 0.75,
+          }}
+        />
+      </span>
+      <span
+        className="hb-cache-value"
+        data-missing={missing || undefined}
+        data-selectable="true"
+      >
+        {missing ? "暂不可用" : cache.percentText}
+      </span>
     </div>
   );
 }
@@ -306,79 +419,116 @@ function planKey(plan: string): string {
 }
 
 /**
- * 按后端账号列表构建分组：每个账号只聚合自己的 Source 与 Capability，
+ * 按后端账号列表构建分区：每个账号只聚合自己的 Source 与 Capability，
  * 账号顺序沿用后端（本机 → 默认 → 额外）。未配置来源的能力不展示，不补零。
  */
-function buildGroups(platform: PlatformSummaryViewModel): HoverbarGroup[] {
-  const ids = metricIdsFor(platform.providerId);
+function buildSections(platform: PlatformSummaryViewModel): HoverbarSection[] {
   const multi = platform.accounts.length > 1;
   const configuredSourceIds = new Set(
     platform.sources.filter((source) => source.credentialConfigured).map((source) => source.sourceId),
   );
-  const groups = platform.accounts.map((account) =>
-    groupFromAccount(account, platform.capabilities, ids, configuredSourceIds),
+  const sections = platform.accounts.map((account) =>
+    sectionFromAccount(account, platform.capabilities, configuredSourceIds),
   );
-  if (!multi && groups.every((group) => group.metrics.length === 0 && !group.plan)) {
+  if (!multi && sections.every((section) => isEmptySection(section))) {
     return [];
   }
-  return groups;
+  return sections;
 }
 
-function groupFromAccount(
+function isEmptySection(section: HoverbarSection): boolean {
+  return (
+    section.windows.length === 0
+    && section.balance === null
+    && section.spend.today === null
+    && section.spend.month === null
+    && section.cacheHit === null
+    && !section.plan
+  );
+}
+
+function sectionFromAccount(
   account: PlatformSummaryViewModel["accounts"][number],
   capabilities: CapabilitySnapshotViewModel[],
-  ids: string[],
   configuredSourceIds: Set<string>,
-): HoverbarGroup {
+): HoverbarSection {
   const own = capabilities.filter(
     (item) =>
       item.accountId === account.accountId &&
       configuredSourceIds.has(item.sourceId) &&
       (ALLOWED_IDS.has(item.capabilityId) || isQuotaWindow(item.capabilityId)),
   );
-  const plan = planOf(own);
-  const windowMetrics = own
-    .filter((item) => isQuotaWindow(item.capabilityId) && hasWindowValue(item))
+  const windows = own
+    .filter((item) => isQuotaWindow(item.capabilityId))
     .sort((left, right) => compareWindowIds(left.capabilityId, right.capabilityId))
-    .map(capabilityToMetric);
-  const extraMetrics = ids
-    .map((id) => toMetric(own, id))
-    .filter((metric): metric is HoverbarMetric => metric !== null);
+    .map(toWindowMetric);
+  // 今日/本月消费与缓存命中率目前只有 DeepSeek 官方用量来源产出；有真实现身才渲染对应结构
+  const hasDeepseekExtras = own.some((item) => DEEPSEEK_EXTRA_IDS.has(item.capabilityId));
+  const staleCandidates = own.filter((item) => item.freshness === "stale");
+  const staleAt = staleCandidates.reduce<number | null>((latest, item) => {
+    const at = item.lastGoodAt ?? item.capturedAt;
+    return at !== null && at !== undefined && (latest === null || at > latest) ? at : latest;
+  }, null);
+  const staleNote =
+    staleCandidates.length > 0
+      ? staleAt !== null
+        ? `缓存 · 上次成功 ${formatHoverbarClock(staleAt)}`
+        : "缓存 · 数据可能已过期"
+      : null;
   return {
     id: account.accountId,
     title: accountTitle(account),
-    plan,
+    plan: planOf(own),
     status: account.status,
-    metrics: [...windowMetrics, ...extraMetrics],
+    windows,
+    balance: financeOf(own, "balance"),
+    spend: hasDeepseekExtras
+      ? { today: financeOf(own, "today_spend"), month: financeOf(own, "month_spend") }
+      : { today: null, month: null },
+    cacheHit: hasDeepseekExtras ? cacheOf(own, "cache_hit_rate") : null,
+    staleNote,
   };
 }
 
-function hasWindowValue(capability: CapabilitySnapshotViewModel): boolean {
-  return capability.freshness !== "missing" && Boolean(capability.value.primary);
-}
-
-function capabilityToMetric(capability: CapabilitySnapshotViewModel): HoverbarMetric {
-  const value = compactPercentText(capability.value.primary ?? "");
+/** 窗口行：数值型剩余百分比 + 后端 secondary 中的重置时间；missing 保留行、灰轨道。 */
+function toWindowMetric(capability: CapabilitySnapshotViewModel): HoverbarWindow {
+  const missing = capability.freshness === "missing";
+  const percent = capabilityRemainingPercent(capability);
+  const raw = capability.value.primary;
   return {
-    id: capability.capabilityId,
+    id: `${capability.sourceId}:${capability.capabilityId}`,
     label: windowMetricLabel(capability),
-    value,
+    percent: missing || percent === null ? null : percent,
+    percentText: missing || !raw ? null : compactPercentText(raw),
     time: extractWindowTime(capability.value.secondary),
     freshness: capability.freshness,
   };
 }
 
-function toMetric(capabilities: CapabilitySnapshotViewModel[], id: string): HoverbarMetric | null {
+function financeOf(
+  capabilities: CapabilitySnapshotViewModel[],
+  id: string,
+): HoverbarFinance | null {
   const capability = capabilities.find((item) => item.capabilityId === id);
   if (!capability) return null;
-  const raw =
-    capability.freshness === "missing" || !capability.value.primary ? null : capability.value.primary;
-  const value = raw ? compactPercentText(raw) : null;
+  const missing = capability.freshness === "missing" || !capability.value.primary;
   return {
-    id,
-    label: METRIC_LABEL[id] ?? capability.displayName,
-    value,
-    time: value ? extractWindowTime(capability.value.secondary) : null,
+    value: missing ? null : compactPercentText(capability.value.primary!),
+    freshness: capability.freshness,
+  };
+}
+
+function cacheOf(
+  capabilities: CapabilitySnapshotViewModel[],
+  id: string,
+): HoverbarCache | null {
+  const capability = capabilities.find((item) => item.capabilityId === id);
+  if (!capability) return null;
+  const missing = capability.freshness === "missing" || !capability.value.primary;
+  const percent = capabilityRemainingPercent(capability);
+  return {
+    percent: missing || percent === null ? null : percent,
+    percentText: missing ? null : compactPercentText(capability.value.primary!),
     freshness: capability.freshness,
   };
 }

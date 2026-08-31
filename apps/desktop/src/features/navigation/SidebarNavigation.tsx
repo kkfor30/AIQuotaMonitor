@@ -79,8 +79,8 @@ export function SidebarNavigation({
         })}
       </div>
 
-      {/* 监控状态卡：真实平台聚合推导 */}
-      <div className="mx-1 mb-2 overflow-hidden rounded-[14px] border border-q-border bg-gradient-to-br from-[#e9f2fe] to-[#f4f9ff] p-3">
+      {/* 监控状态卡：真实平台聚合推导；材质由 Token 驱动，深浅主题各自成调 */}
+      <div className="sidebar-status-card mx-1 mb-2 overflow-hidden rounded-[14px] border border-q-border p-3">
         <div className="flex items-center gap-2">
           <span
             aria-hidden
@@ -106,7 +106,7 @@ export function SidebarNavigation({
           {[9, 14, 11, 18, 24, 16, 21].map((height, index) => (
             <span
               key={index}
-              className="w-[7px] rounded-[3px] bg-gradient-to-t from-[#9fc3f7] to-[#3b82f6] opacity-80"
+              className="sidebar-status-bar w-[7px] rounded-[3px] opacity-80"
               style={{ height }}
             />
           ))}

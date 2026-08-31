@@ -97,7 +97,7 @@ export function TrendLineChart({
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -14 }}>
-            <CartesianGrid strokeDasharray="3 6" stroke="rgba(13,27,54,0.07)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 6" stroke="var(--q-grid-line)" vertical={false} />
             <XAxis
               dataKey="label"
               tickLine={false}
@@ -115,12 +115,13 @@ export function TrendLineChart({
               tickFormatter={(value: number) => formatValue(value, valueKind)}
             />
             <Tooltip
-              cursor={{ stroke: "rgba(10,102,255,0.3)", strokeDasharray: "4 4" }}
+              cursor={{ stroke: "var(--q-border-strong)", strokeDasharray: "4 4" }}
               contentStyle={{
                 borderRadius: 12,
-                border: "1px solid rgba(13,27,54,0.08)",
-                background: "rgba(255,255,255,0.94)",
+                border: "1px solid var(--q-border-strong)",
+                background: "var(--q-tooltip-bg)",
                 boxShadow: "var(--q-shadow-md)",
+                color: "var(--q-text-primary)",
                 fontSize: 12,
                 padding: "6px 10px",
               }}

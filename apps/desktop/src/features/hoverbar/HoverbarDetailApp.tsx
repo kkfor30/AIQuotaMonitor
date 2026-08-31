@@ -11,6 +11,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -36,6 +37,7 @@ import { useHoverbarTheme } from "./hoverbar-theme";
 import {
   DEFAULT_HOVERBAR_PROVIDER_ORDER,
   filterHoverbarPlatforms,
+  formatHoverbarClock,
   HOVERBAR_EXIT_ANIMATION_MS,
   measureHoverbar,
   normalizeHoverbarAnchor,
@@ -54,11 +56,20 @@ export function HoverbarDetailApp() {
   const [anchor, setAnchor] = useState<HoverbarAnchor>({ edge: "right", ratio: 0.4 });
   const [view, setView] = useState<HoverbarView>("quota");
   const [contentHeight, setContentHeight] = useState(0);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const motionPhaseRef = useRef<HoverbarMotionPhase>("anchor");
   const exitTimer = useRef<number | undefined>(undefined);
   const panelRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const footRef = useRef<HTMLElement>(null);
+
+  // 应用版本来自 Tauri 运行时（tauri.conf.json），取不到就不展示该段，不写死假版本。
+  useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion(null));
+  }, []);
 
   const { data: platforms = [], isFetching } = useQuery({
     queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
@@ -200,18 +211,24 @@ export function HoverbarDetailApp() {
     };
   }, [finishClose, refetchRadar, setMotion]);
 
-  // 内容测高：观察头部与内容盒，额度列表与雷达二级页共用同一滚动容器
+  // 内容测高：观察头部、内容盒与底部信息条，额度列表与雷达二级页共用同一滚动容器
   useLayoutEffect(() => {
     const updateContentHeight = () => {
       const panel = panelRef.current;
       const header = headerRef.current;
       const content = contentRef.current;
+      const foot = footRef.current;
       if (!panel || !header || !content) return;
       const style = window.getComputedStyle(panel);
       const padding =
         (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+      const footHeight = foot ? foot.getBoundingClientRect().height + 9 : 0;
       const nextHeight = Math.ceil(
-        header.getBoundingClientRect().height + content.getBoundingClientRect().height + padding + 2,
+        header.getBoundingClientRect().height
+        + content.getBoundingClientRect().height
+        + footHeight
+        + padding
+        + 2,
       );
       setContentHeight((previous) => (previous === nextHeight ? previous : nextHeight));
     };
@@ -220,6 +237,7 @@ export function HoverbarDetailApp() {
     const observer = new ResizeObserver(updateContentHeight);
     if (headerRef.current) observer.observe(headerRef.current);
     if (contentRef.current) observer.observe(contentRef.current);
+    if (footRef.current) observer.observe(footRef.current);
     return () => {
       window.cancelAnimationFrame(frame);
       observer.disconnect();
@@ -333,6 +351,14 @@ export function HoverbarDetailApp() {
             )}
           </div>
         </div>
+
+        <footer ref={footRef} className="hb-foot">
+          <span>数据仅供参考{appVersion ? ` · v${appVersion}` : ""}</span>
+          <span>共 {orderedPlatforms.length} 个平台</span>
+          <span className="hb-foot-time">
+            最后更新：{latestUpdate ? formatHoverbarClock(latestUpdate) : "—"}
+          </span>
+        </footer>
 
       </section>
     </div>

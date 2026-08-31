@@ -641,7 +641,7 @@ function CarouselArrow({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-q-border bg-white/95 text-q-text-secondary shadow-[0_4px_14px_rgba(16,34,64,0.16)] backdrop-blur transition-all duration-150",
+        "flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-q-border bg-q-surface-strong text-q-text-secondary shadow-q-md backdrop-blur transition-all duration-150",
         "hover:border-q-border-selected hover:text-q-primary active:scale-95",
         disabled && "pointer-events-none opacity-0",
       )}
@@ -843,12 +843,12 @@ function AccountCardBody({
   );
 }
 
-/** 窗口行的辅助小字：stale 显示「缓存 · 上次成功」，其余展示后端重置说明；missing 不显示。 */
+/** 窗口行的辅助小字：stale 用低饱和蓝灰提示缓存；其余展示后端重置说明；missing 不显示。 */
 function WindowFootnote({ capability }: { capability: CapabilitySnapshotViewModel }) {
   if (capability.freshness === "missing") return null;
   if (capability.freshness === "stale") {
     return (
-      <p className="truncate pl-[52px] text-[10px] leading-3.5 text-q-warning">
+      <p className="truncate pl-[52px] text-[10px] leading-3.5 text-q-text-muted">
         缓存 · 上次成功 {formatTime(capability.lastGoodAt ?? capability.capturedAt)}
       </p>
     );
@@ -878,7 +878,7 @@ function BalanceBlock({
       <p className="text-[11px] text-q-text-muted">{balance.displayName}</p>
       <p
         className={cn(
-          "truncate font-bold leading-7 tabular-nums text-q-text-primary",
+          "truncate font-bold leading-7 tabular-nums text-[var(--q-money)]",
           large ? "text-[24px]" : "text-[16px]",
         )}
         data-selectable="true"
@@ -886,7 +886,10 @@ function BalanceBlock({
         {compactPercentText(balance.value.primary ?? "")}
       </p>
       {totalSpend && (
-        <p className="truncate text-[11px] font-semibold tabular-nums text-q-text-primary" data-selectable="true">
+        <p
+          className="truncate text-[11px] font-semibold tabular-nums text-q-text-secondary"
+          data-selectable="true"
+        >
           {totalSpend.displayName} {compactPercentText(totalSpend.value.primary ?? "")}
         </p>
       )}

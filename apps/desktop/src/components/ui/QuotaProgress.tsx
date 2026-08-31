@@ -3,11 +3,16 @@ import type { CapabilitySnapshotViewModel } from "@/lib/types";
 
 export type QuotaTone = "good" | "mid" | "low" | "missing";
 
-const TONE_COLOR: Record<Exclude<QuotaTone, "missing">, string> = {
+/** 三段色（V2 固定值，主题间一致）；悬浮卡等场景直接复用，不另起判断。 */
+export const QUOTA_TONE_COLOR: Record<Exclude<QuotaTone, "missing">, string> = {
   good: "var(--q-quota-good)",
   mid: "var(--q-quota-mid)",
   low: "var(--q-quota-low)",
 };
+
+export function quotaToneColor(tone: QuotaTone): string | undefined {
+  return tone === "missing" ? undefined : QUOTA_TONE_COLOR[tone];
+}
 
 /**
  * V7 统一剩余额度色阶（所有额度进度条共用同一判断）：
@@ -50,7 +55,7 @@ export function QuotaProgress({
   const remaining = capabilityRemainingPercent(capability);
   const missing = capability.freshness === "missing" || remaining === null;
   const tone = quotaTone(remaining);
-  const color = tone === "missing" ? undefined : TONE_COLOR[tone];
+  const color = quotaToneColor(tone);
   const percentText = missing ? "未获取" : compactPercentText(`${round1(remaining ?? 0)}%`);
 
   return (
@@ -59,7 +64,7 @@ export function QuotaProgress({
         <span className="w-11 shrink-0 text-[11px] text-q-text-muted">{label}</span>
       )}
       <div
-        className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-q-primary-softer"
+        className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--q-quota-track)]"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}

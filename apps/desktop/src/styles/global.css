@@ -40,7 +40,7 @@ button {
   font-family: inherit;
 }
 
-/* Apple Glass V6 玻璃面板：半透明白 + 细冷描边 + 顶部高光 + 克制模糊 */
+/* 珠光冰晶卡（Aurora Acrylic）：半透明面 + 细冰蓝边 + 内高光 + 克制阴影 */
 @utility glass-panel {
   background: var(--q-surface);
   border: 1px solid var(--q-border);
@@ -48,7 +48,7 @@ button {
   box-shadow:
     inset 0 1px 0 var(--q-surface-highlight),
     var(--q-shadow-md);
-  backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.25);
 }
 
 @utility glass-inset {
@@ -73,21 +73,9 @@ button {
   outline-offset: -1px;
 }
 
-/* V6 画布：冷白 → 淡蓝纵向渐变 + 两团柔和色光（深色主题回退纯色底） */
+/* Aurora Acrylic V2 画布：冰蓝银白（浅）/ 深蓝灰亚克力（深），整幅由 Token 驱动 */
 @utility app-backdrop {
-  background:
-    radial-gradient(1100px 520px at 6% -8%, var(--q-bg-glow-a), transparent 55%),
-    radial-gradient(900px 620px at 104% 112%, var(--q-bg-glow-b), transparent 55%),
-    radial-gradient(1400px 500px at 50% -20%, var(--q-bg-glow-c), transparent 60%),
-    linear-gradient(180deg, #edf4fc 0%, #f4f8fe 55%, #f7fafe 100%);
-}
-
-:root[data-theme="dark"] .app-backdrop,
-:root:not([data-theme="light"]) .app-backdrop {
-  background:
-    radial-gradient(1100px 520px at 6% -8%, var(--q-bg-glow-a), transparent 55%),
-    radial-gradient(900px 620px at 104% 112%, var(--q-bg-glow-b), transparent 55%),
-    var(--q-bg);
+  background: var(--q-canvas);
 }
 
 *::-webkit-scrollbar {
@@ -96,14 +84,14 @@ button {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(22, 35, 59, 0.16);
+  background: color-mix(in srgb, var(--q-text-primary) 16%, transparent);
   border: 3px solid transparent;
   border-radius: 999px;
   background-clip: content-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(22, 35, 59, 0.28);
+  background: color-mix(in srgb, var(--q-text-primary) 28%, transparent);
   border: 3px solid transparent;
   background-clip: content-box;
 }
@@ -258,8 +246,10 @@ html.hoverbar-window #root {
 .hb-radar-text,
 .hb-radar-post-text,
 .hb-radar-meta,
-.hb-row-value,
-.hb-row-time {
+.hb-quota-percent,
+.hb-quota-time,
+.hb-spend-value,
+.hb-cache-value {
   user-select: text;
   -webkit-user-select: text;
   cursor: text;
@@ -380,11 +370,12 @@ html.hoverbar-window #root {
   padding: 0;
   place-items: center;
   border: 0;
-  border-radius: 11px;
+  border-radius: 999px;
   outline: 2px solid transparent;
   outline-offset: 1px;
   color: var(--q-hoverbar-ink);
-  background: transparent;
+  background: var(--q-hoverbar-empty-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 85%, transparent);
   cursor: pointer;
   transition:
     color 120ms ease-out,
@@ -435,8 +426,37 @@ html.hoverbar-window #root {
 .hb-service-scroll {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding: 0 1px 1px;
+}
+
+/* 面板底部信息条：声明 + 平台数 + 最后更新（真实 ViewModel 数据） */
+.hb-foot {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 9px;
+  padding: 0 5px;
+  color: var(--q-hoverbar-muted);
+  font-size: 10.5px;
+  font-weight: 620;
+  line-height: 14px;
+  user-select: none;
+}
+
+.hb-foot > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hb-foot .hb-foot-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 平台卡 */
@@ -459,9 +479,13 @@ html.hoverbar-window #root {
   border-color: color-mix(in srgb, var(--q-hoverbar-success) 32%, var(--q-hoverbar-card-border));
 }
 
-.hb-service-card[data-status="partial"],
-.hb-service-card[data-freshness="stale"] {
+.hb-service-card[data-status="partial"] {
   border-color: color-mix(in srgb, var(--q-hoverbar-warning) 42%, var(--q-hoverbar-card-border));
+}
+
+/* stale / 缓存提示：低饱和蓝灰，不占用橙色（橙色只留给真实部分可用或凭据异常） */
+.hb-service-card[data-freshness="stale"] {
+  border-color: color-mix(in srgb, var(--q-hoverbar-muted) 40%, var(--q-hoverbar-card-border));
 }
 
 .hb-service-card[data-status="error"] {
@@ -594,6 +618,15 @@ html.hoverbar-window #root {
   background: var(--q-surface-solid);
 }
 
+/* 侧栏监控状态卡：Token 驱动，深浅主题各自成材质 */
+.sidebar-status-card {
+  background: var(--q-status-card-bg);
+}
+
+.sidebar-status-bar {
+  background: linear-gradient(to top, var(--q-status-bar-a), var(--q-status-bar-b));
+}
+
 /* 主窗口版套餐徽章（平台中心账户标题旁）：与悬浮球同一套语义配色。 */
 .plan-chip {
   display: inline-flex;
@@ -631,22 +664,25 @@ html.hoverbar-window #root {
 }
 
 /* 账户分组 */
-.hb-groups {
+.hb-sections {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 9px;
+}
+
+.hb-section-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .hb-group {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 7px;
-}
-
-.hb-group + .hb-group {
-  gap: 9px;
+  gap: 8px;
   padding-top: 9px;
   border-top: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
 }
@@ -656,6 +692,18 @@ html.hoverbar-window #root {
   min-width: 0;
   align-items: center;
   gap: 7px;
+}
+
+.hb-card-account {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--q-hoverbar-ink);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 17px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .hb-group-name {
@@ -669,87 +717,194 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-/* 同一组里的额度/余额/消费数字共用中间列，左边缘对齐。 */
-.hb-rows {
-  display: grid;
+/* 统一额度行（V2 认可稿）：窗口名称 → 细进度条 → 剩余百分比 → 重置时间 */
+.hb-quota-line {
+  display: flex;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
-  align-items: baseline;
-  column-gap: 10px;
-  row-gap: 7px;
+  align-items: center;
+  gap: 8px;
 }
 
-.hb-row {
-  display: contents;
-}
-
-.hb-row-label {
-  justify-self: start;
+.hb-quota-label {
+  flex: none;
+  width: 64px;
+  overflow: hidden;
   color: var(--q-hoverbar-ink);
   font-size: 12px;
-  font-weight: 720;
+  font-weight: 680;
   line-height: 17px;
   white-space: nowrap;
 }
 
-.hb-row-end {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  justify-self: end;
-  justify-content: flex-end;
-  gap: 8px;
+.hb-quota-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 36px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--q-quota-track);
+  overflow: hidden;
 }
 
-.hb-row-value {
-  justify-self: start;
-  color: var(--q-hoverbar-primary);
-  font-size: 17px;
-  font-weight: 780;
-  line-height: 21px;
+.hb-quota-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  transition: width 300ms ease;
+}
+
+.hb-quota-percent {
+  flex: none;
+  min-width: 42px;
+  overflow: hidden;
+  text-align: right;
+  color: var(--q-hoverbar-ink);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 17px;
   font-variant-numeric: tabular-nums;
-  text-align: left;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.hb-row-value[data-id="balance"],
-.hb-row-value[data-id="today_spend"],
-.hb-row-value[data-id="month_spend"],
-.hb-row-value[data-id="cache_hit_rate"] {
-  font-size: 16px;
+.hb-quota-percent[data-missing] {
+  color: var(--q-hoverbar-muted);
+  font-size: 11px;
+  font-weight: 650;
 }
 
-.hb-row-time {
+.hb-quota-time {
+  flex: none;
+  color: var(--q-hoverbar-muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 统一余额财务条：钱包线性图标 + 「个人余额」，金额严格右对齐、tabular 等宽 */
+.hb-balance-bar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  background: var(--q-hoverbar-empty-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
+}
+
+.hb-balance-bar > svg {
+  flex: none;
+  color: var(--q-hoverbar-ink);
+  opacity: 0.85;
+}
+
+.hb-balance-label {
   flex: none;
   color: var(--q-hoverbar-ink);
   font-size: 12px;
   font-weight: 680;
   line-height: 17px;
+  white-space: nowrap;
+}
+
+.hb-balance-amount {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  color: var(--q-hoverbar-money);
+  font-size: 15px;
+  font-weight: 780;
+  line-height: 19px;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.hb-row-stale {
+.hb-balance-amount[data-missing] {
+  color: var(--q-hoverbar-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* DeepSeek 次级消费双列：等宽单元，层级低于余额主值 */
+.hb-spend-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.hb-spend-cell {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--q-hoverbar-empty-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+}
+
+.hb-spend-name {
   flex: none;
-  padding: 1px 7px;
-  border-radius: 999px;
-  color: var(--q-hoverbar-warning);
-  background: var(--q-warning-soft);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 14px;
+  color: var(--q-hoverbar-muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 15px;
   white-space: nowrap;
 }
 
-.hb-row-value[data-missing] {
-  color: var(--q-hoverbar-muted-strong);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 18px;
+.hb-spend-value {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  color: var(--q-hoverbar-primary);
+  font-size: 12.5px;
+  font-weight: 720;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.hb-row-value[data-freshness="stale"] {
-  color: var(--q-hoverbar-warning);
+.hb-spend-value[data-missing] {
+  color: var(--q-hoverbar-muted);
+  font-weight: 600;
+}
+
+/* 缓存命中率进度行：非剩余额度语义，固定主色填充，不套三段色阶 */
+.hb-cache-value {
+  flex: none;
+  min-width: 42px;
+  overflow: hidden;
+  text-align: right;
+  color: var(--q-hoverbar-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-cache-value[data-missing] {
+  color: var(--q-hoverbar-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+/* 卡内缓存提示行：低饱和蓝灰小字 */
+.hb-stale-note {
+  margin: 1px 0 0;
+  color: var(--q-hoverbar-muted);
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 15px;
 }
 
 .hb-primary-missing {
@@ -1113,11 +1268,11 @@ html.hoverbar-window #root {
 }
 
 .hb-radar-card-title {
-  margin: 0 0 6px;
+  margin: 0 0 7px;
   color: var(--q-hoverbar-ink);
-  font-size: 12px;
-  font-weight: 740;
-  line-height: 16px;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 18px;
 }
 
 .hb-radar-text {
@@ -1454,10 +1609,17 @@ html.hoverbar-window #root {
 
 .hb-timeline-label {
   min-width: 0;
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 15px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  overflow: hidden;
   color: var(--q-hoverbar-ink);
+  background: var(--q-hoverbar-empty-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .hb-timeline-time {
@@ -1664,32 +1826,33 @@ html.hoverbar-window #root {
   border-radius: 10px;
 }
 
-.hb-detail-root[data-edge="left"] .hb-rows,
-.hb-detail-root[data-edge="right"] .hb-rows {
-  column-gap: 8px;
-}
-
-.hb-detail-root[data-edge="left"] .hb-row-end,
-.hb-detail-root[data-edge="right"] .hb-row-end {
+/* 左右侧 300px 停靠：额度行四段（名称/轨道/百分比/时间）压缩间距但全保留，零横向溢出 */
+.hb-detail-root[data-edge="left"] .hb-quota-line,
+.hb-detail-root[data-edge="right"] .hb-quota-line {
   gap: 6px;
 }
 
-.hb-detail-root[data-edge="left"] .hb-row-value,
-.hb-detail-root[data-edge="right"] .hb-row-value {
-  font-size: 16px;
-  line-height: 20px;
+.hb-detail-root[data-edge="left"] .hb-quota-label,
+.hb-detail-root[data-edge="right"] .hb-quota-label {
+  width: 58px;
+  font-size: 11px;
 }
 
-.hb-detail-root[data-edge="left"] .hb-row-value[data-id="balance"],
-.hb-detail-root[data-edge="right"] .hb-row-value[data-id="balance"],
-.hb-detail-root[data-edge="left"] .hb-row-value[data-id="today_spend"],
-.hb-detail-root[data-edge="right"] .hb-row-value[data-id="today_spend"],
-.hb-detail-root[data-edge="left"] .hb-row-value[data-id="month_spend"],
-.hb-detail-root[data-edge="right"] .hb-row-value[data-id="month_spend"],
-.hb-detail-root[data-edge="left"] .hb-row-value[data-id="cache_hit_rate"],
-.hb-detail-root[data-edge="right"] .hb-row-value[data-id="cache_hit_rate"] {
+.hb-detail-root[data-edge="left"] .hb-quota-percent,
+.hb-detail-root[data-edge="right"] .hb-quota-percent {
+  min-width: 36px;
+  font-size: 12.5px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-quota-time,
+.hb-detail-root[data-edge="right"] .hb-quota-time {
+  font-size: 10.5px;
+  line-height: 16px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-balance-amount,
+.hb-detail-root[data-edge="right"] .hb-balance-amount {
   font-size: 14px;
-  line-height: 18px;
 }
 
 @media (prefers-reduced-motion: reduce) {

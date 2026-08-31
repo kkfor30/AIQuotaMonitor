@@ -1,33 +1,39 @@
 /*
- * AIQuotaMonitor 设计 Token — Apple Glass V6（2026-08-29 设计稿）
- * 视觉方向：冷白到淡蓝画布、半透明白玻璃卡、细冷色描边、克制阴影；
- * 主色 #0A66FF、成功色 #00A67D；正文高对比深海军蓝。
- * 所有颜色同时以文字/图标辅助表达状态，禁止仅靠颜色传达信息。
+ * AIQuotaMonitor 设计 Token — Aurora Acrylic V2（2026-08-31 已认可稿）
+ * 视觉方向：
+ * - 浅色：低饱和冰蓝银白渐变画布（#EAF2F7 → #F7FAFC）+ 珠光冰晶亚克力卡片；
+ *   主文字深墨蓝 #142536；金额清晰深蓝，禁止黄色/暖金。
+ * - 深色：深蓝灰亚克力基底（#0C2B3A 参考系），卡片略亮深蓝灰层次、低对比细边；
+ *   主文字近白，辅助文字浅蓝灰 #B8CBD6；禁止纯黑、墨绿、高饱和青。
+ * - 额度三段色（#00A67D/#0A66FF/#E5484D）主题间保持同一组色值；
+ *   状态同时以文字/图标辅助表达，禁止仅靠颜色传达信息。
  */
 
 /* 原始调色板：可被主题层覆盖的语义变量 */
 :root {
   /* 表面与背景 */
-  --q-bg: #f3f7fd;
-  --q-bg-glow-a: rgba(10, 102, 255, 0.07);
-  --q-bg-glow-b: rgba(0, 166, 125, 0.05);
-  --q-bg-glow-c: rgba(120, 170, 255, 0.1);
-  --q-surface: rgba(255, 255, 255, 0.64);
-  --q-surface-strong: rgba(255, 255, 255, 0.92);
+  --q-bg: #eef4f8;
+  --q-canvas:
+    radial-gradient(1100px 520px at 6% -8%, rgba(10, 102, 255, 0.05), transparent 55%),
+    radial-gradient(900px 620px at 104% 112%, rgba(0, 166, 125, 0.04), transparent 55%),
+    radial-gradient(1400px 500px at 50% -20%, rgba(140, 180, 220, 0.1), transparent 60%),
+    linear-gradient(180deg, #eaf2f7 0%, #f2f7fa 55%, #f7fafc 100%);
+  --q-surface: rgba(255, 255, 255, 0.62);
+  --q-surface-strong: rgba(255, 255, 255, 0.9);
   --q-surface-solid: #ffffff;
-  --q-surface-muted: rgba(255, 255, 255, 0.4);
+  --q-surface-muted: rgba(255, 255, 255, 0.42);
   --q-surface-hover: rgba(255, 255, 255, 0.85);
-  --q-surface-highlight: rgba(255, 255, 255, 0.6);
+  --q-surface-highlight: rgba(255, 255, 255, 0.72);
 
-  /* 描边 */
-  --q-border: rgba(13, 27, 54, 0.08);
-  --q-border-strong: rgba(13, 27, 54, 0.14);
+  /* 描边：细冰蓝低对比 */
+  --q-border: rgba(96, 130, 160, 0.16);
+  --q-border-strong: rgba(96, 130, 160, 0.28);
   --q-border-selected: rgba(10, 102, 255, 0.45);
 
-  /* 文字：深海军蓝体系，辅助文字保持可读对比 */
-  --q-text-primary: #16233b;
-  --q-text-secondary: #3d4b66;
-  --q-text-muted: #566583;
+  /* 文字：深墨蓝体系，辅助文字保持可读对比 */
+  --q-text-primary: #142536;
+  --q-text-secondary: #3a4c63;
+  --q-text-muted: #5b6d85;
   --q-text-inverse: #ffffff;
 
   /* 主操作（蓝） */
@@ -36,12 +42,15 @@
   --q-primary-soft: rgba(10, 102, 255, 0.09);
   --q-primary-softer: rgba(10, 102, 255, 0.05);
 
+  /* 金额：清晰深蓝（禁止黄色/暖金） */
+  --q-money: #0a66ff;
+
   /* 状态：成功（绿） */
   --q-success: #009c76;
   --q-success-strong: #008061;
   --q-success-soft: rgba(0, 166, 125, 0.1);
 
-  /* 状态：部分可用 / 缓存（橙） */
+  /* 状态：部分可用 / 缓存（橙；stale 普通提示改用蓝灰，不轻易动用） */
   --q-warning: #b45309;
   --q-warning-soft: rgba(217, 119, 6, 0.11);
 
@@ -53,33 +62,44 @@
   --q-neutral: #64748b;
   --q-neutral-soft: rgba(100, 116, 139, 0.1);
 
-  /* 额度剩余三段色阶（V7 固定阈值：80 归绿、20 归蓝；主题间保持同一组色值） */
+  /* 额度剩余三段色阶（V2 固定阈值：80 归绿、20 归蓝；主题间同一组色值） */
   --q-quota-good: #00a67d;
   --q-quota-mid: #0a66ff;
   --q-quota-low: #e5484d;
+  --q-quota-track: rgba(20, 37, 54, 0.08);
 
-  /* 悬浮球：独立透明窗口内的玻璃表面与状态色 */
+  /* 图表辅助 */
+  --q-grid-line: rgba(13, 27, 54, 0.07);
+  --q-tooltip-bg: rgba(255, 255, 255, 0.96);
+
+  /* 侧栏监控状态卡 */
+  --q-status-card-bg: linear-gradient(135deg, rgba(233, 242, 254, 0.9), rgba(244, 249, 255, 0.9));
+  --q-status-bar-a: #9fc3f7;
+  --q-status-bar-b: #3b82f6;
+
+  /* 悬浮球：独立透明窗口内的冰晶亚克力表面与状态色 */
   --q-hoverbar-panel-bg:
-    radial-gradient(110% 74% at 50% -22%, rgba(178, 226, 246, 0.9), transparent 59%),
-    linear-gradient(142deg, rgba(249, 253, 255, 0.98), rgba(218, 238, 247, 0.98));
-  --q-hoverbar-panel-border: rgba(174, 211, 229, 0.76);
-  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.72);
+    radial-gradient(110% 74% at 50% -22%, rgba(190, 228, 246, 0.85), transparent 58%),
+    linear-gradient(142deg, rgba(248, 252, 255, 0.98), rgba(223, 240, 248, 0.98));
+  --q-hoverbar-panel-border: rgba(150, 195, 215, 0.7);
+  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.75);
   --q-hoverbar-panel-shadow: rgba(72, 118, 143, 0.16);
   --q-hoverbar-card-bg:
-    linear-gradient(112deg, rgba(255, 255, 255, 0.92), rgba(238, 248, 253, 0.8));
-  --q-hoverbar-card-border: rgba(107, 158, 185, 0.3);
-  --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.88);
-  --q-hoverbar-ink: #0e2a3f;
-  --q-hoverbar-muted: #3a5870;
-  --q-hoverbar-muted-strong: #1f415a;
-  --q-hoverbar-primary: #1760d6;
+    linear-gradient(112deg, rgba(255, 255, 255, 0.93), rgba(241, 249, 253, 0.84));
+  --q-hoverbar-card-border: rgba(110, 160, 188, 0.28);
+  --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.9);
+  --q-hoverbar-ink: #122a3d;
+  --q-hoverbar-muted: #45637a;
+  --q-hoverbar-muted-strong: #1e4157;
+  --q-hoverbar-money: #0a66ff;
+  --q-hoverbar-primary: #1467d6;
   --q-hoverbar-success: #07875d;
   --q-hoverbar-warning: #a46318;
   --q-hoverbar-danger: #c74732;
   --q-hoverbar-action-hover: rgba(33, 103, 143, 0.1);
   --q-hoverbar-focus: rgba(7, 86, 238, 0.88);
   --q-hoverbar-orb-ring: rgba(7, 86, 238, 0.3);
-  --q-hoverbar-empty-bg: rgba(255, 255, 255, 0.46);
+  --q-hoverbar-empty-bg: rgba(255, 255, 255, 0.5);
   --q-hoverbar-plan-pro: #7c3aed;
   --q-hoverbar-plan-pro-bg: rgba(124, 58, 237, 0.12);
   --q-hoverbar-plan-lite: #0e7490;
@@ -108,26 +128,28 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --q-bg: #101722;
-    --q-bg-glow-a: rgba(59, 130, 247, 0.14);
-    --q-bg-glow-b: rgba(36, 224, 182, 0.08);
-    --q-bg-glow-c: rgba(70, 110, 200, 0.1);
-    --q-surface: rgba(24, 32, 46, 0.86);
-    --q-surface-strong: rgba(30, 40, 56, 0.94);
-    --q-surface-solid: #1b2433;
+    --q-bg: #0c2b3a;
+    --q-canvas:
+      radial-gradient(1100px 520px at 6% -8%, rgba(64, 140, 190, 0.1), transparent 55%),
+      radial-gradient(900px 620px at 104% 112%, rgba(0, 166, 125, 0.05), transparent 55%),
+      linear-gradient(180deg, #0e3040 0%, #0c2b3a 55%, #0a2534 100%);
+    --q-surface: rgba(32, 68, 88, 0.6);
+    --q-surface-strong: rgba(36, 74, 95, 0.9);
+    --q-surface-solid: #14384b;
     --q-surface-muted: rgba(255, 255, 255, 0.05);
     --q-surface-hover: rgba(255, 255, 255, 0.08);
-    --q-surface-highlight: rgba(255, 255, 255, 0.06);
-    --q-border: rgba(255, 255, 255, 0.08);
-    --q-border-strong: rgba(255, 255, 255, 0.14);
+    --q-surface-highlight: rgba(255, 255, 255, 0.07);
+    --q-border: rgba(184, 203, 214, 0.14);
+    --q-border-strong: rgba(184, 203, 214, 0.24);
     --q-border-selected: rgba(117, 165, 255, 0.55);
-    --q-text-primary: #f2f5fa;
-    --q-text-secondary: #b7c1d4;
-    --q-text-muted: #8e99af;
-    --q-primary: #5b8cff;
-    --q-primary-hover: #7aa0ff;
-    --q-primary-soft: rgba(91, 140, 255, 0.16);
-    --q-primary-softer: rgba(91, 140, 255, 0.1);
+    --q-text-primary: #f2f7fa;
+    --q-text-secondary: #b8cbd6;
+    --q-text-muted: #8fabb9;
+    --q-primary: #4f95ff;
+    --q-primary-hover: #6ca7ff;
+    --q-primary-soft: rgba(79, 149, 255, 0.16);
+    --q-primary-softer: rgba(79, 149, 255, 0.1);
+    --q-money: #58a1ff;
     --q-success: #3ecfa6;
     --q-success-strong: #58e1c7;
     --q-success-soft: rgba(62, 207, 166, 0.14);
@@ -135,27 +157,34 @@
     --q-warning-soft: rgba(255, 177, 100, 0.12);
     --q-danger: #ff8a70;
     --q-danger-soft: rgba(255, 138, 112, 0.12);
+    --q-quota-track: rgba(184, 203, 214, 0.16);
+    --q-grid-line: rgba(184, 203, 214, 0.12);
+    --q-tooltip-bg: rgba(17, 48, 64, 0.97);
+    --q-status-card-bg: linear-gradient(135deg, rgba(38, 84, 108, 0.7), rgba(24, 60, 80, 0.7));
+    --q-status-bar-a: #2f6f9b;
+    --q-status-bar-b: #6ca7ff;
     --q-hoverbar-panel-bg:
-      radial-gradient(120% 74% at 50% -24%, rgba(74, 129, 172, 0.42), transparent 58%),
-      linear-gradient(142deg, rgba(24, 36, 52, 0.98), rgba(8, 17, 28, 0.99));
-    --q-hoverbar-panel-border: rgba(202, 228, 241, 0.78);
-    --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.075);
+      radial-gradient(120% 74% at 50% -24%, rgba(70, 135, 175, 0.35), transparent 58%),
+      linear-gradient(142deg, rgba(16, 48, 65, 0.985), rgba(9, 33, 46, 0.995));
+    --q-hoverbar-panel-border: rgba(170, 205, 225, 0.42);
+    --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.08);
     --q-hoverbar-panel-shadow: rgba(0, 0, 0, 0.28);
     --q-hoverbar-card-bg:
-      linear-gradient(112deg, rgba(24, 38, 53, 0.91), rgba(13, 25, 38, 0.84));
-    --q-hoverbar-card-border: rgba(187, 215, 229, 0.48);
+      linear-gradient(112deg, rgba(26, 62, 82, 0.92), rgba(14, 40, 55, 0.88));
+    --q-hoverbar-card-border: rgba(178, 210, 228, 0.26);
     --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.07);
-    --q-hoverbar-ink: #f7fbff;
-    --q-hoverbar-muted: #d4e0ea;
-    --q-hoverbar-muted-strong: #eef5fa;
-    --q-hoverbar-primary: #75a5ff;
-    --q-hoverbar-success: #58e1c7;
-    --q-hoverbar-warning: #ffd28f;
-    --q-hoverbar-danger: #ff8a63;
+    --q-hoverbar-ink: #f1f8fc;
+    --q-hoverbar-muted: #a9c3d1;
+    --q-hoverbar-muted-strong: #d5e7f0;
+    --q-hoverbar-money: #58a1ff;
+    --q-hoverbar-primary: #6ba4ff;
+    --q-hoverbar-success: #45d6a8;
+    --q-hoverbar-warning: #ffc37f;
+    --q-hoverbar-danger: #ff8a70;
     --q-hoverbar-action-hover: rgba(214, 238, 249, 0.13);
     --q-hoverbar-focus: rgba(117, 165, 255, 0.95);
-    --q-hoverbar-orb-ring: rgba(95, 232, 209, 0.38);
-    --q-hoverbar-empty-bg: rgba(13, 25, 38, 0.52);
+    --q-hoverbar-orb-ring: rgba(69, 214, 168, 0.36);
+    --q-hoverbar-empty-bg: rgba(255, 255, 255, 0.055);
     --q-hoverbar-plan-pro: #c4b5fd;
     --q-hoverbar-plan-pro-bg: rgba(167, 139, 250, 0.22);
     --q-hoverbar-plan-lite: #67e8f9;
@@ -166,26 +195,28 @@
 }
 
 :root[data-theme="dark"] {
-  --q-bg: #101722;
-  --q-bg-glow-a: rgba(59, 130, 247, 0.14);
-  --q-bg-glow-b: rgba(36, 224, 182, 0.08);
-  --q-bg-glow-c: rgba(70, 110, 200, 0.1);
-  --q-surface: rgba(24, 32, 46, 0.86);
-  --q-surface-strong: rgba(30, 40, 56, 0.94);
-  --q-surface-solid: #1b2433;
+  --q-bg: #0c2b3a;
+  --q-canvas:
+    radial-gradient(1100px 520px at 6% -8%, rgba(64, 140, 190, 0.1), transparent 55%),
+    radial-gradient(900px 620px at 104% 112%, rgba(0, 166, 125, 0.05), transparent 55%),
+    linear-gradient(180deg, #0e3040 0%, #0c2b3a 55%, #0a2534 100%);
+  --q-surface: rgba(32, 68, 88, 0.6);
+  --q-surface-strong: rgba(36, 74, 95, 0.9);
+  --q-surface-solid: #14384b;
   --q-surface-muted: rgba(255, 255, 255, 0.05);
   --q-surface-hover: rgba(255, 255, 255, 0.08);
-  --q-surface-highlight: rgba(255, 255, 255, 0.06);
-  --q-border: rgba(255, 255, 255, 0.08);
-  --q-border-strong: rgba(255, 255, 255, 0.14);
+  --q-surface-highlight: rgba(255, 255, 255, 0.07);
+  --q-border: rgba(184, 203, 214, 0.14);
+  --q-border-strong: rgba(184, 203, 214, 0.24);
   --q-border-selected: rgba(117, 165, 255, 0.55);
-  --q-text-primary: #f2f5fa;
-  --q-text-secondary: #a8b2c3;
-  --q-text-muted: #7b8699;
-  --q-primary: #5b8cff;
-  --q-primary-hover: #7aa0ff;
-  --q-primary-soft: rgba(91, 140, 255, 0.16);
-  --q-primary-softer: rgba(91, 140, 255, 0.1);
+  --q-text-primary: #f2f7fa;
+  --q-text-secondary: #b8cbd6;
+  --q-text-muted: #8fabb9;
+  --q-primary: #4f95ff;
+  --q-primary-hover: #6ca7ff;
+  --q-primary-soft: rgba(79, 149, 255, 0.16);
+  --q-primary-softer: rgba(79, 149, 255, 0.1);
+  --q-money: #58a1ff;
   --q-success: #3ecfa6;
   --q-success-strong: #58e1c7;
   --q-success-soft: rgba(62, 207, 166, 0.14);
@@ -193,31 +224,38 @@
   --q-warning-soft: rgba(255, 177, 100, 0.12);
   --q-danger: #ff8a70;
   --q-danger-soft: rgba(255, 138, 112, 0.12);
+  --q-quota-track: rgba(184, 203, 214, 0.16);
+  --q-grid-line: rgba(184, 203, 214, 0.12);
+  --q-tooltip-bg: rgba(17, 48, 64, 0.97);
+  --q-status-card-bg: linear-gradient(135deg, rgba(38, 84, 108, 0.7), rgba(24, 60, 80, 0.7));
+  --q-status-bar-a: #2f6f9b;
+  --q-status-bar-b: #6ca7ff;
 }
 
 /* 悬浮详情手动主题优先于系统偏好；只覆盖 hoverbar 语义 Token。 */
 :root[data-hoverbar-theme="light"] {
   --q-hoverbar-panel-bg:
-    radial-gradient(110% 74% at 50% -22%, rgba(178, 226, 246, 0.9), transparent 59%),
-    linear-gradient(142deg, rgba(249, 253, 255, 0.98), rgba(218, 238, 247, 0.98));
-  --q-hoverbar-panel-border: rgba(174, 211, 229, 0.76);
-  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.72);
+    radial-gradient(110% 74% at 50% -22%, rgba(190, 228, 246, 0.85), transparent 58%),
+    linear-gradient(142deg, rgba(248, 252, 255, 0.98), rgba(223, 240, 248, 0.98));
+  --q-hoverbar-panel-border: rgba(150, 195, 215, 0.7);
+  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.75);
   --q-hoverbar-panel-shadow: rgba(72, 118, 143, 0.16);
   --q-hoverbar-card-bg:
-    linear-gradient(112deg, rgba(255, 255, 255, 0.92), rgba(238, 248, 253, 0.8));
-  --q-hoverbar-card-border: rgba(107, 158, 185, 0.3);
-  --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.88);
-  --q-hoverbar-ink: #0e2a3f;
-  --q-hoverbar-muted: #3a5870;
-  --q-hoverbar-muted-strong: #1f415a;
-  --q-hoverbar-primary: #1760d6;
+    linear-gradient(112deg, rgba(255, 255, 255, 0.93), rgba(241, 249, 253, 0.84));
+  --q-hoverbar-card-border: rgba(110, 160, 188, 0.28);
+  --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.9);
+  --q-hoverbar-ink: #122a3d;
+  --q-hoverbar-muted: #45637a;
+  --q-hoverbar-muted-strong: #1e4157;
+  --q-hoverbar-money: #0a66ff;
+  --q-hoverbar-primary: #1467d6;
   --q-hoverbar-success: #07875d;
   --q-hoverbar-warning: #a46318;
   --q-hoverbar-danger: #c74732;
   --q-hoverbar-action-hover: rgba(33, 103, 143, 0.1);
   --q-hoverbar-focus: rgba(7, 86, 238, 0.88);
   --q-hoverbar-orb-ring: rgba(7, 86, 238, 0.3);
-  --q-hoverbar-empty-bg: rgba(255, 255, 255, 0.46);
+  --q-hoverbar-empty-bg: rgba(255, 255, 255, 0.5);
   --q-hoverbar-plan-pro: #7c3aed;
   --q-hoverbar-plan-pro-bg: rgba(124, 58, 237, 0.12);
   --q-hoverbar-plan-lite: #0e7490;
@@ -228,26 +266,27 @@
 
 :root[data-hoverbar-theme="dark"] {
   --q-hoverbar-panel-bg:
-    radial-gradient(120% 74% at 50% -24%, rgba(74, 129, 172, 0.42), transparent 58%),
-    linear-gradient(142deg, rgba(24, 36, 52, 0.98), rgba(8, 17, 28, 0.99));
-  --q-hoverbar-panel-border: rgba(202, 228, 241, 0.78);
-  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.075);
+    radial-gradient(120% 74% at 50% -24%, rgba(70, 135, 175, 0.35), transparent 58%),
+    linear-gradient(142deg, rgba(16, 48, 65, 0.985), rgba(9, 33, 46, 0.995));
+  --q-hoverbar-panel-border: rgba(170, 205, 225, 0.42);
+  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.08);
   --q-hoverbar-panel-shadow: rgba(0, 0, 0, 0.28);
   --q-hoverbar-card-bg:
-    linear-gradient(112deg, rgba(24, 38, 53, 0.91), rgba(13, 25, 38, 0.84));
-  --q-hoverbar-card-border: rgba(187, 215, 229, 0.48);
+    linear-gradient(112deg, rgba(26, 62, 82, 0.92), rgba(14, 40, 55, 0.88));
+  --q-hoverbar-card-border: rgba(178, 210, 228, 0.26);
   --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.07);
-  --q-hoverbar-ink: #f7fbff;
-  --q-hoverbar-muted: #d4e0ea;
-  --q-hoverbar-muted-strong: #eef5fa;
-  --q-hoverbar-primary: #75a5ff;
-  --q-hoverbar-success: #58e1c7;
-  --q-hoverbar-warning: #ffd28f;
-  --q-hoverbar-danger: #ff8a63;
+  --q-hoverbar-ink: #f1f8fc;
+  --q-hoverbar-muted: #a9c3d1;
+  --q-hoverbar-muted-strong: #d5e7f0;
+  --q-hoverbar-money: #58a1ff;
+  --q-hoverbar-primary: #6ba4ff;
+  --q-hoverbar-success: #45d6a8;
+  --q-hoverbar-warning: #ffc37f;
+  --q-hoverbar-danger: #ff8a70;
   --q-hoverbar-action-hover: rgba(214, 238, 249, 0.13);
   --q-hoverbar-focus: rgba(117, 165, 255, 0.95);
-  --q-hoverbar-orb-ring: rgba(95, 232, 209, 0.38);
-  --q-hoverbar-empty-bg: rgba(13, 25, 38, 0.52);
+  --q-hoverbar-orb-ring: rgba(69, 214, 168, 0.36);
+  --q-hoverbar-empty-bg: rgba(255, 255, 255, 0.055);
   --q-hoverbar-plan-pro: #c4b5fd;
   --q-hoverbar-plan-pro-bg: rgba(167, 139, 250, 0.22);
   --q-hoverbar-plan-lite: #67e8f9;

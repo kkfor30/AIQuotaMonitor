@@ -152,7 +152,7 @@ export function OverviewPage({
             type="button"
             onClick={() => refreshMutation.mutate()}
             disabled={refreshMutation.isPending}
-            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-q-pill border border-q-border bg-white/80 px-3 text-[12px] font-medium text-q-primary shadow-q-sm backdrop-blur transition-colors duration-150 hover:border-q-border-selected disabled:opacity-60"
+            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-q-pill border border-q-border bg-q-surface-strong px-3 text-[12px] font-medium text-q-primary shadow-q-sm backdrop-blur transition-colors duration-150 hover:border-q-border-selected disabled:opacity-60"
           >
             <RefreshCw
               size={13}
