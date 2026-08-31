@@ -73,8 +73,7 @@ fn select_access_token(root: &serde_json::Map<String, Value>) -> Option<String> 
 /// 读取 Windows 系统代理（Clash/V2Ray 等写入注册表的 ProxyServer）。
 /// GUI 启动的应用环境里通常没有 HTTP_PROXY/HTTPS_PROXY，第三方 CLI 子进程
 /// 也不会读注册表——需要显式注入，否则 grok login 的 auth.x.ai 请求会超时。
-fn windows_system_proxy() -> Option<String> {
-    const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+pub(crate) fn windows_system_proxy() -> Option<String> {    const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
     const NO_WINDOW: u32 = 0x0800_0000;
     let query = |name: &str| -> Option<String> {
         let output = std::process::Command::new("reg")
@@ -120,7 +119,7 @@ fn resolve_grok_program() -> Result<std::path::PathBuf, String> {
         }
     }
     let names: &[&str] = if cfg!(windows) {
-        &["grok.cmd", "grok.exe", "grok.bat"]
+        &["grok.exe", "grok.cmd", "grok.bat"]
     } else {
         &["grok"]
     };
@@ -143,7 +142,15 @@ fn resolve_grok_program() -> Result<std::path::PathBuf, String> {
 pub async fn login_via_cli() -> Result<(), String> {
     let program = resolve_grok_program().map_err(|message| message)?;
     let baseline_token = read_access_token();
-    let mut command = tokio::process::Command::new(program);
+    // .cmd/.bat shim 不能直接 CreateProcess（WinError 2），经 cmd /c 包装运行
+    let is_exe = program.extension().and_then(|ext| ext.to_str()) == Some("exe");
+    let mut command = if is_exe {
+        tokio::process::Command::new(&program)
+    } else {
+        let mut cmd = tokio::process::Command::new("cmd");
+        cmd.arg("/c").arg(&program);
+        cmd
+    };
     command.arg("login").kill_on_drop(false);
     command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     #[cfg(windows)]
@@ -258,7 +265,7 @@ fn network_failure_hint(recent: &std::collections::VecDeque<String>) -> String {
 }
 
 /// 从 CLI 输出行里提取第一个 http(s) 链接（授权页/设备码页）。
-fn extract_http_url(line: &str) -> Option<&str> {
+pub(crate) fn extract_http_url(line: &str) -> Option<&str> {
     let start = line.find("http://").or_else(|| line.find("https://"))?;
     let rest = &line[start..];
     let end = rest

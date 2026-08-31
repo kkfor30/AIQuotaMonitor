@@ -379,8 +379,26 @@ pub async fn start_source_login(
         }
         // Grok 本机账号：token 失效后允许在应用内重新登录（新终端跑 grok login，完成后校验 auth）
         id if id == crate::providers::grok::SOURCE_ID => crate::providers::grok::login_via_cli().await,
+        // Claude 本机账号：订阅 OAuth 未登录/失效时在应用内重新登录（claude auth login
+        // 浏览器授权，授权码经 submit_source_login_code 写回 CLI）
+        id if id == crate::providers::claude::SOURCE_ID => {
+            crate::providers::claude::login_via_cli(app).await
+        }
         _ => Err("此来源不支持登录".into()),
     }
+}
+
+/// Claude 浏览器授权完成后页面上只展示授权码，用户把它粘贴进应用内弹框，
+/// 这里把授权码转发给进行中的 `claude auth login` 子进程 stdin。
+#[tauri::command]
+pub async fn submit_source_login_code(source_id: String, code: String) -> Result<(), String> {
+    if source_id != crate::providers::claude::SOURCE_ID {
+        return Err("此来源不需要粘贴授权码".into());
+    }
+    if code.trim().is_empty() {
+        return Err("授权码不能为空".into());
+    }
+    crate::providers::claude::submit_login_code(&code).await
 }
 
 #[tauri::command]

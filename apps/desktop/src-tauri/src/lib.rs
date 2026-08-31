@@ -111,6 +111,7 @@ pub fn run() {
             commands::platform_commands::save_source_credential,
             commands::platform_commands::clear_source_credential,
             commands::platform_commands::start_source_login,
+            commands::platform_commands::submit_source_login_code,
             commands::platform_commands::add_codex_account,
             commands::platform_commands::rename_codex_account,
             commands::platform_commands::remove_codex_account,

@@ -114,6 +114,11 @@ export async function startSourceLogin(sourceId: string): Promise<void> {
   return invoke<void>("start_source_login", { sourceId });
 }
 
+/** Claude 浏览器授权完成后把页面展示的授权码转发给进行中的登录进程 */
+export async function submitSourceLoginCode(sourceId: string, code: string): Promise<void> {
+  return invoke<void>("submit_source_login_code", { sourceId, code });
+}
+
 export async function closeSourceLogin(sourceId: string): Promise<void> {
   return invoke<void>("close_source_login", { sourceId });
 }

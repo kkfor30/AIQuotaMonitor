@@ -502,7 +502,9 @@ fn real_platform(
                 .collect(),
             credential_input: credential_input(&source.adapter_id, &source.source_type),
             supports_interactive_login: is_web_login_source(&source.adapter_id),
-            supports_cli_login: source.adapter_id == codex::SOURCE_ID,
+            // 本机 Codex 只允许检测（应用内触发会覆盖本机登录态）；Claude 订阅 OAuth 支持应用内重登
+            supports_cli_login: source.adapter_id == codex::SOURCE_ID
+                || source.adapter_id == claude::SOURCE_ID,
             access_mode: access_mode(&source.adapter_id, &source.source_type),
         });
     }

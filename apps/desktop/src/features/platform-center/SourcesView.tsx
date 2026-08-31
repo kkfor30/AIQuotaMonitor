@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
 import { ExternalLink, Globe, KeyRound, Pencil, ShieldCheck, Terminal } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -13,6 +14,7 @@ import {
   removePlatformAccount,
   renamePlatformAccount,
   startSourceLogin,
+  submitSourceLoginCode,
 } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import { cn } from "@/lib/cn";
@@ -101,6 +103,34 @@ export function SourcesView({
       queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, platforms);
     },
   });
+  // Claude 浏览器授权的授权码回填：后端抓到授权页时发 source-login-code-prompt，这里弹框收集
+  const [codePromptSource, setCodePromptSource] = useState<string | null>(null);
+  const [loginCode, setLoginCode] = useState("");
+  const loginCodeMutation = useMutation({
+    mutationFn: ({ sourceId, code }: { sourceId: string; code: string }) =>
+      submitSourceLoginCode(sourceId, code),
+    onSuccess: () => {
+      // 授权码已写入 CLI：关框，界面继续显示「等待登录…」直到 token 校验完成自动刷新
+      setCodePromptSource(null);
+      setLoginCode("");
+    },
+  });
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<string>("source-login-code-prompt", (event) => {
+      if (disposed) return;
+      setLoginCode("");
+      setCodePromptSource(event.payload);
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
   const renameMutation = useMutation({
     mutationFn: ({ accountId, displayName }: { accountId: string; displayName: string }) =>
       renamePlatformAccount(accountId, displayName),
@@ -333,6 +363,45 @@ export function SourcesView({
         </div>
       )}
 
+      {codePromptSource && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" role="presentation" onMouseDown={() => setCodePromptSource(null)}>
+          <div
+            className="w-full max-w-sm rounded-[18px] border border-q-border bg-q-surface-solid p-5 shadow-q-lg"
+            role="dialog"
+            aria-modal="true"
+            aria-label="粘贴 Claude 授权码"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <p className="text-sm font-semibold text-q-text-primary">粘贴 Claude 授权码</p>
+            <p className="mt-2 text-xs leading-relaxed text-q-text-secondary">
+              浏览器已打开 Claude 授权页。完成登录授权后，页面会显示一串授权码——复制并粘贴到这里。
+            </p>
+            <input
+              value={loginCode}
+              onChange={(event) => setLoginCode(event.target.value)}
+              placeholder="粘贴授权码"
+              autoFocus
+              className="mt-3 h-10 w-full rounded-q-control border border-q-border bg-q-surface px-3 text-sm text-q-text-primary placeholder:text-q-text-muted focus:border-q-border-selected focus:outline-none"
+            />
+            {loginCodeMutation.error && (
+              <p className="mt-2 text-xs text-q-danger">{ipcErrorMessage(loginCodeMutation.error, "授权码提交失败。")}</p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setCodePromptSource(null)}>
+                取消
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => loginCodeMutation.mutate({ sourceId: codePromptSource, code: loginCode })}
+                disabled={!loginCode.trim() || loginCodeMutation.isPending}
+              >
+                {loginCodeMutation.isPending ? "提交中…" : "提交授权码"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <SourceEditorDrawer
         source={editingSource}
         platformId={platform.providerId}
@@ -482,13 +551,15 @@ function SourceRow({
   }, [focused]);
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const action = sourceAction(source);
-  // 可重触发官方登录的范围：额外 Codex 账号、本机 Grok（token 失效后平台内重登 =
-  // 新终端 grok login，完成后自动校验并刷新）；本机 Codex 只检测，避免覆盖本机 CLI 登录。
-  // 口径与来源行动作一致：CLI 检测看 supportsCliLogin 或 local_cli 类型（Grok 的
-  // supportsCliLogin 为 false，只靠 local_cli 进入「检测并刷新」）。
+  // 可重触发官方登录的范围：额外 Codex 账号、本机 Grok 与本机 Claude（token 失效后
+  // 平台内重登 = 后台跑官方 CLI 登录，完成后自动校验并刷新）；本机 Codex 只检测，
+  // 避免覆盖本机 CLI 登录。口径与来源行动作一致：CLI 检测看 supportsCliLogin 或
+  // local_cli 类型（Grok 的 supportsCliLogin 为 false，只靠 local_cli 进入「检测并刷新」）。
   const canRelogin =
     (source.supportsCliLogin || source.sourceType === "local_cli")
-    && (source.accountKind !== "local" || source.adapterId === "grok-cli-local");
+    && (source.accountKind !== "local"
+        || source.adapterId === "grok-cli-local"
+        || source.adapterId === "claude-code-local");
 
   return (
     <div
