@@ -29,12 +29,25 @@ pub const FEED_URL: &str = "https://codexradar.com/";
 pub struct RadarControl {
     pub(crate) generation: AtomicU64,
     notify: Notify,
+    /// 全局「检查进行中」标志：跨窗口共享 loading 态；同时拒绝并发检查。
+    running: std::sync::atomic::AtomicBool,
 }
 
 impl RadarControl {
     pub fn cancel(&self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
         self.notify.notify_waiters();
+    }
+
+    /// 尝试占用运行槽：已在检查中返回 false（拒绝并发）。
+    pub(crate) fn try_begin(&self) -> bool {
+        self.running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    pub(crate) fn finish(&self) {
+        self.running.store(false, Ordering::Release);
     }
 
     /// 等待本代检查被取消；代号已变立即返回（覆盖取消发生在注册前的竞态）。
@@ -792,8 +805,10 @@ fn chat_target(source_id: &str) -> Option<(&'static str, &'static str)> {
         "deepseek-balance-api" => Some(("DeepSeek", "deepseek-chat")),
         "glm-coding-plan" => Some(("GLM 国内", "glm-4.5-flash")),
         "glm-intl-coding-plan" => Some(("GLM 国际", "glm-4.5-flash")),
-        "kimi-balance-api" => Some(("Kimi 开放平台", "kimi-latest")),
-        "kimi-coding-plan" => Some(("Kimi Coding", "kimi-latest")),
+        // Kimi：moonshot.cn 域上 kimi-latest/kimi-k2-turbo-preview 均不存在（404），
+        // 平台模型名变动频繁，默认不进模型列表，需要时用自定义模型填账户实际可用的名字。
+        "kimi-balance-api" => None,
+        "kimi-coding-plan" => None,
         "minimax-coding-plan" => Some(("MiniMax", "MiniMax-M2.5")),
         "minimax-intl-coding-plan" => Some(("MiniMax 国际", "MiniMax-M2.5")),
         _ => None,

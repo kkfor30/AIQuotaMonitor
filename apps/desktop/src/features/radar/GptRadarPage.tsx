@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BrainCircuit,
@@ -52,6 +53,22 @@ export function GptRadarPage() {
     queryKey: RADAR_SNAPSHOT_QUERY_KEY,
     queryFn: fetchRadarSnapshot,
   });
+  // 跨窗口检查状态：悬浮窗触发检查时主窗口按钮同步 loading。
+  const [externalChecking, setExternalChecking] = useState(false);
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+    let disposed = false;
+    void listen("radar-check-started", () => setExternalChecking(true)).then((unlisten) =>
+      disposed ? unlisten() : unlisteners.push(unlisten),
+    );
+    void listen("radar-check-finished", () => setExternalChecking(false)).then((unlisten) =>
+      disposed ? unlisten() : unlisteners.push(unlisten),
+    );
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
+  }, []);
   const prefsReady = useRef(false);
 
   useEffect(() => {
@@ -99,6 +116,7 @@ export function GptRadarPage() {
     },
   });
 
+  const radarChecking = checkMutation.isPending || externalChecking;
   const checkCancelled = checkMutation.error
     ? ipcErrorMessage(checkMutation.error, "检查失败").includes("已终止")
     : false;
@@ -133,7 +151,7 @@ export function GptRadarPage() {
             </p>
           </div>
         </div>
-        {checkMutation.isPending ? (
+        {radarChecking ? (
           <Button variant="ghost" onClick={() => void cancelRadarCheck()}>
             <RefreshCw size={15} aria-hidden className="animate-spin" />
             终止检查
@@ -253,6 +271,7 @@ function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "pri
 
 function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined }) {
   const queryClient = useQueryClient();
+  const latest = data?.latest;
   const event = data?.event ?? null;
   const phase = radarPhaseLabel(event?.phase);
   const source = data?.sourceAssessment;
@@ -260,11 +279,12 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
   const verifications = data?.quotaVerifications ?? [];
   const timeline = event?.timeline ?? [];
   const aiState = !ai ? "not_analyzed" : ai.enabled ? ai.state : "disabled";
+  const sourceHeadline =
+    source?.headline ?? data?.notice?.headline ?? latest?.summary ?? latest?.translatedText ?? latest?.text ?? "暂未同步来源内容";
   const confirmMutation = useMutation({
     mutationFn: confirmRadarQuotaChange,
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
   });
-  const sourceHeadline = source?.headline ?? data?.notice?.headline ?? "暂无站点公告（同步正常）";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">

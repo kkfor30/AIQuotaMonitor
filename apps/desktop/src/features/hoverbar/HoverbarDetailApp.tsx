@@ -114,20 +114,37 @@ export function HoverbarDetailApp() {
   const cancelRadar = useCallback(() => {
     void cancelRadarCheck();
   }, []);
-  // 展开详情时自动检查重置雷达（设置开关 + 距上次检查 ≥10 分钟节流）。
-  // 与手动刷新同一路径：含 AI 偏好；进行中摘要条按钮显示 loading 并可终止。
-  const AUTO_RADAR_CHECK_MIN_INTERVAL_MS = 10 * 60 * 1000;
-  const autoCheckedRef = useRef(false);
+  // 跨窗口检查状态：任一窗口触发检查，本窗口按钮同步 loading（后端事件广播）。
+  const [externalChecking, setExternalChecking] = useState(false);
   useEffect(() => {
-    if (!settings?.hoverbarAutoRadarCheck || autoCheckedRef.current) return;
-    if (radarCheck.isPending) return;
+    const unlisteners: Array<() => void> = [];
+    let disposed = false;
+    void listen("radar-check-started", () => setExternalChecking(true)).then((unlisten) =>
+      disposed ? unlisten() : unlisteners.push(unlisten),
+    );
+    void listen("radar-check-finished", () => setExternalChecking(false)).then((unlisten) =>
+      disposed ? unlisten() : unlisteners.push(unlisten),
+    );
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
+  }, []);
+  const radarChecking = radarCheck.isPending || externalChecking;
+  // 展开详情（详情窗口可见）时自动检查重置雷达：设置开关 + 距上次检查 ≥5 分钟节流。
+  // 悬浮详情窗口常驻（隐藏/显示不重新挂载），必须由 motionPhase 驱动而非仅 mount。
+  const AUTO_RADAR_CHECK_MIN_INTERVAL_MS = 5 * 60 * 1000;
+  const motionPhaseRefForAuto = useRef(motionPhase);
+  motionPhaseRefForAuto.current = motionPhase;
+  useEffect(() => {
+    if (motionPhase !== "visible") return;
+    if (!settings?.hoverbarAutoRadarCheck) return;
+    if (radarCheck.isPending || externalChecking) return;
     const lastCheckAt = radar?.checks[0]?.startedAt ?? 0;
     if (Date.now() - lastCheckAt < AUTO_RADAR_CHECK_MIN_INTERVAL_MS) return;
-    autoCheckedRef.current = true;
     radarCheck.mutate();
-    // settings/radar 为触发依赖；radarCheck.mutate 引用稳定（useMutation）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings?.hoverbarAutoRadarCheck, radar?.checks]);
+  }, [motionPhase, settings?.hoverbarAutoRadarCheck, radar?.checks]);
 
   // 本机额度重试：只刷新 GPT 平台额度，不重跑雷达 AI。
   const quotaRetry = useMutation({
@@ -289,7 +306,7 @@ export function HoverbarDetailApp() {
                 radar={radar}
                 onBack={() => setView("quota")}
                 onRefresh={refreshRadar}
-                refreshing={radarCheck.isPending}
+                refreshing={radarChecking}
                 refreshError={radarCheckCancelled ? null : radarRefreshError}
                 onCancel={cancelRadar}
                 onRetryQuota={() => quotaRetry.mutate()}
@@ -309,7 +326,7 @@ export function HoverbarDetailApp() {
                   onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
                   onRefreshRadar={platform.providerId === "openai" ? refreshRadar : undefined}
                   onCancelRadar={platform.providerId === "openai" ? cancelRadar : undefined}
-                  radarRefreshing={platform.providerId === "openai" ? radarCheck.isPending : false}
+                  radarRefreshing={platform.providerId === "openai" ? radarChecking : false}
                   radarRefreshError={platform.providerId === "openai" ? (radarCheckCancelled ? null : radarRefreshError) : null}
                 />
               ))

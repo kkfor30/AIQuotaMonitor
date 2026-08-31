@@ -24,8 +24,12 @@ pub async fn run_radar_check(
     control: State<'_, RadarControl>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
+    if !control.try_begin() {
+        return Err("已有检查正在进行".into());
+    }
     let my_generation = control.generation.load(Ordering::Relaxed);
     // select 在 await 点（CodexRadar 抓取 / 模型请求）打断；被丢弃的检查不落任何记录。
+    let _ = app.emit("radar-check-started", ());
     let run = radar::run_check(
         &database,
         &coordinator,
@@ -35,13 +39,16 @@ pub async fn run_radar_check(
         model.as_deref(),
         user_prompt.as_deref(),
     );
-    tokio::select! {
+    let result = tokio::select! {
         snapshot = run => {
             let _ = app.emit("radar-data-changed", ());
             snapshot
         }
         _ = control.wait_cancelled(my_generation) => Err("已终止本次检查".into()),
-    }
+    };
+    control.finish();
+    let _ = app.emit("radar-check-finished", ());
+    result
 }
 
 /// 终止当前进行中的雷达检查：使代号 +1，运行中的检查在下一个 await 点被打断。
