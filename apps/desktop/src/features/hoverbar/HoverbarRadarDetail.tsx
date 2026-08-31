@@ -16,7 +16,11 @@ import {
   type RadarSnapshot,
 } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
-import { formatHoverbarClock, quotaStatusText, radarPhaseLabel } from "./hoverbar-state";
+import {
+  formatHoverbarClock,
+  quotaStatusLabel,
+  radarPhaseLabel,
+} from "./hoverbar-state";
 
 const POST_BADGE_LABEL: Record<string, string> = {
   RESET: "重置相关",
@@ -272,7 +276,7 @@ function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
       <div className="hb-quota-row-head">
         <b>{item.accountName}</b>
         <span className="hb-quota-window">{item.windowLabel ?? "套餐窗口"}</span>
-        <span className="hb-quota-status">{quotaStatusText(item.status)}</span>
+        <span className="hb-quota-status">{quotaStatusLabel(item.status, item.attribution)}</span>
       </div>
       {item.status === "unavailable" ? (
         <p className="hb-radar-meta">网络无法获取额度，不影响来源与 AI 判断。</p>

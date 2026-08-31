@@ -261,10 +261,11 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         freshness: source_status.to_string(),
     };
     let event_record = database.active_radar_event()?;
-    let event_view_data = event_record.as_ref().map(|record| event_view(database, record));
-    let ai_assessment = build_ai_assessment(database, event_record.as_ref(), analysis.as_ref(), &checks);
     let quota_verifications =
         quota_watch::assess_quota_verifications(database, event_record.as_ref().map(|item| item.first_signal_at))?;
+    let event_record = advance_event_on_quota_evidence(database, event_record, &quota_verifications)?;
+    let event_view_data = event_record.as_ref().map(|record| event_view(database, record));
+    let ai_assessment = build_ai_assessment(database, event_record.as_ref(), analysis.as_ref(), &checks);
     Ok(RadarSnapshot {
         source_status: source_status.into(),
         last_synced_at,
@@ -280,6 +281,36 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         ai_assessment,
         quota_verifications,
     })
+}
+
+/// 本机额度证据自动推进事件：非计划刷新且归因 radar_correlated（事件时间落在
+/// 前后快照区间内）时，事件进入 landed_observed 并记录本机观察时间。
+/// 全确定性逻辑，不依赖 AI；阶段只向前，landed_observed 后条件不再成立，不会重复写库。
+fn advance_event_on_quota_evidence(
+    database: &Database,
+    event: Option<RadarEventRecord>,
+    verifications: &[QuotaVerificationView],
+) -> Result<Option<RadarEventRecord>, String> {
+    let Some(record) = event else {
+        return Ok(None);
+    };
+    if !matches!(record.phase.as_str(), "watching" | "upcoming" | "landed_claimed") {
+        return Ok(Some(record));
+    }
+    let hit = verifications.iter().find(|item| {
+        item.status == "unscheduled_reset"
+            && item.attribution == "radar_correlated"
+            && item.current.is_some()
+    });
+    let Some(verification) = hit else {
+        return Ok(Some(record));
+    };
+    let mut advanced = record;
+    advanced.phase = "landed_observed".into();
+    advanced.observed_reset_at = verification.current.as_ref().map(|point| point.captured_at);
+    advanced.latest_evidence_at = epoch_ms();
+    database.update_radar_event(&advanced)?;
+    Ok(Some(advanced))
 }
 
 /// 事件视图：从事件记录推导时间线节点，并挂上事件关联原帖。
@@ -1689,6 +1720,58 @@ mod tests {
         assert!(urls.iter().any(|(url, _)| url == "https://open.bigmodel.cn/api/paas/v4/chat/completions"));
         let intl = glm_chat_candidates(Some("https://api.z.ai"), true);
         assert_eq!(intl[0].0, "https://api.z.ai/api/coding/paas/v4/chat/completions");
+    }
+
+    #[test]
+    fn quota_evidence_advances_event_once() {
+        let path = std::env::temp_dir().join(format!(
+            "ai-quota-monitor-advance-{}-{}.db",
+            std::process::id(),
+            epoch_ms()
+        ));
+        let database = Database::initialize_at(path.clone()).expect("db");
+        let event = RadarEventRecord {
+            id: "event-test".into(),
+            phase: "upcoming".into(),
+            title: "测试事件".into(),
+            summary: None,
+            first_signal_at: 1000,
+            latest_evidence_at: 1000,
+            claimed_landed_at: None,
+            observed_reset_at: None,
+            closed_at: None,
+            close_reason: None,
+        };
+        database.insert_radar_event(&event).expect("insert");
+        let verification = QuotaVerificationView {
+            account_id: "a".into(),
+            account_name: "本机".into(),
+            source_id: "s".into(),
+            status: "unscheduled_reset".into(),
+            attribution: "radar_correlated".into(),
+            window_id: None,
+            window_label: None,
+            window_seconds: None,
+            previous: None,
+            current: Some(quota_watch::QuotaWindowPointView {
+                captured_at: 5000,
+                remaining: Some(0.9),
+                reset_at: None,
+            }),
+            last_success_at: None,
+            note: None,
+        };
+        let advanced = advance_event_on_quota_evidence(&database, Some(event), &[verification])
+            .expect("advance")
+            .expect("event");
+        assert_eq!(advanced.phase, "landed_observed");
+        assert_eq!(advanced.observed_reset_at, Some(5000));
+        // 阶段只向前：landed_observed 后同样的评估不再改写
+        let again = advance_event_on_quota_evidence(&database, Some(advanced), &[])
+            .expect("advance")
+            .expect("event");
+        assert_eq!(again.phase, "landed_observed");
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

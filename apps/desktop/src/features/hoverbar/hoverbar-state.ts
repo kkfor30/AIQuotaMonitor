@@ -215,7 +215,16 @@ export function quotaStatusText(status: string): string {
   }
 }
 
-export const QUOTA_STATUS_PRIORITY: string[] = [
+export /** 本机额度状态 + 归因的最终文案：时间与事件吻合或用户确认时，明确说「已重置」。 */
+export function quotaStatusLabel(status: string, attribution: string): string {
+  if (status === "unscheduled_reset") {
+    if (attribution === "radar_correlated") return "已重置 · 本机已观察到";
+    if (attribution === "user_confirmed") return "已重置 · 你已确认";
+  }
+  return quotaStatusText(status);
+}
+
+const QUOTA_STATUS_PRIORITY: string[] = [
   "unscheduled_reset",
   "possible_reset",
   "scheduled",
