@@ -3,20 +3,34 @@
 //! GET https://platform.xiaomimimo.com/api/v1/balance，鉴权为浏览器 Cookie
 //!（serviceToken / api-platform_serviceToken，常为 httpOnly）。
 //! 金额按 JSON 原文转 Decimal。查询字段参考 DeepSeekMonitorWindows `providers/mimo.rs`。
+//! 仅 HTTP 401/403 或响应体明确表示会话/登录无效时视为鉴权失败；普通非零业务码不标成过期。
 
 use super::money::{cookie_named, format_cny, pick_decimal, WEB_UA};
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
-use reqwest::{Client, StatusCode};
+use reqwest::{header::SET_COOKIE, Client, StatusCode};
 use serde_json::Value;
 use std::time::Duration;
 
 pub const SOURCE_ID: &str = "mimo-web-session";
 const BALANCE_URL: &str = "https://platform.xiaomimimo.com/api/v1/balance";
+const MIMO_HOST_SUFFIX: &str = "xiaomimimo.com";
 
-pub async fn fetch(client: &Client, cookie: &str) -> SourceRefreshOutput {
+pub struct MimoFetchResult {
+    pub output: SourceRefreshOutput,
+    /// 仅在余额查询成功后给出的同域 Cookie 合并结果，失败响应不得回写。
+    pub updated_cookie: Option<String>,
+}
+
+pub async fn fetch_session(client: &Client, cookie: &str) -> MimoFetchResult {
     match fetch_inner(client, cookie).await {
-        Ok(capabilities) => SourceRefreshOutput::success(capabilities),
-        Err(error) => SourceRefreshOutput::failure(error),
+        Ok((capabilities, updated_cookie)) => MimoFetchResult {
+            output: SourceRefreshOutput::success(capabilities),
+            updated_cookie,
+        },
+        Err(error) => MimoFetchResult {
+            output: SourceRefreshOutput::failure(error),
+            updated_cookie: None,
+        },
     }
 }
 
@@ -25,7 +39,16 @@ pub fn cookie_looks_logged_in(cookie: &str) -> bool {
     trimmed.len() >= 40 && cookie_named(trimmed, "serviceToken")
 }
 
-async fn fetch_inner(client: &Client, cookie: &str) -> Result<Vec<CapabilityData>, RefreshError> {
+pub fn needs_silent_restore(output: &SourceRefreshOutput) -> bool {
+    output.error.as_ref().is_some_and(|error| {
+        error.auth_required && matches!(error.code.as_str(), "session_expired" | "credential_expired")
+    })
+}
+
+async fn fetch_inner(
+    client: &Client,
+    cookie: &str,
+) -> Result<(Vec<CapabilityData>, Option<String>), RefreshError> {
     let cookie = cookie.trim();
     if cookie.is_empty() {
         return Err(RefreshError::new(
@@ -56,11 +79,24 @@ async fn fetch_inner(client: &Client, cookie: &str) -> Result<Vec<CapabilityData
                 break;
             }
         };
-        match response.status() {
+        let status = response.status();
+        let final_host = response
+            .url()
+            .host_str()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let set_cookies = response
+            .headers()
+            .get_all(SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        match status {
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
                 return Err(RefreshError::new(
                     "session_expired",
-                    "MiMo 登录已过期，请重新登录",
+                    "MiMo 登录已过期，请从来源行重新登录",
                     true,
                     false,
                 ));
@@ -87,7 +123,7 @@ async fn fetch_inner(client: &Client, cookie: &str) -> Result<Vec<CapabilityData
             }
             _ => {}
         }
-        let body: Value = response.json().await.map_err(|_| {
+        let body_text = response.text().await.map_err(|_| {
             RefreshError::new(
                 "response_shape_changed",
                 "MiMo 余额返回格式发生变化",
@@ -95,7 +131,22 @@ async fn fetch_inner(client: &Client, cookie: &str) -> Result<Vec<CapabilityData
                 false,
             )
         })?;
-        return parse(&body);
+        let body: Value = serde_json::from_str(&body_text).map_err(|_| {
+            RefreshError::new(
+                "response_shape_changed",
+                "MiMo 余额返回格式发生变化",
+                false,
+                false,
+            )
+        })?;
+        let capabilities = parse(&body)?;
+        let updated_cookie = if final_host.ends_with(MIMO_HOST_SUFFIX) {
+            merge_set_cookies(cookie, &set_cookies)
+                .filter(|merged| merged != cookie && cookie_looks_logged_in(merged))
+        } else {
+            None
+        };
+        return Ok((capabilities, updated_cookie));
     }
     Err(RefreshError::new(
         "network_error",
@@ -107,25 +158,100 @@ async fn fetch_inner(client: &Client, cookie: &str) -> Result<Vec<CapabilityData
     ))
 }
 
+fn json_code(body: &Value) -> Option<i64> {
+    let value = body.get("code")?;
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().map(|code| code as i64))
+        .or_else(|| value.as_str().and_then(|code| code.trim().parse().ok()))
+}
+
+fn json_message(body: &Value) -> String {
+    body.get("message")
+        .or_else(|| body.get("msg"))
+        .or_else(|| body.get("error"))
+        .or_else(|| body.get("errorMessage"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn is_auth_code(code: i64) -> bool {
+    matches!(code, 401 | 403)
+}
+
+fn is_explicit_auth_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    const MARKS: &[&str] = &[
+        "unauthorized",
+        "unauthenticated",
+        "not login",
+        "not logged",
+        "please login",
+        "login expired",
+        "token expired",
+        "token invalid",
+        "invalid token",
+        "session expired",
+        "session invalid",
+        "invalid session",
+        "auth fail",
+        "authentication failed",
+        "未登录",
+        "登录过期",
+        "登录失效",
+        "登录已过期",
+        "登录已失效",
+        "请重新登录",
+        "重新登录",
+        "token无效",
+        "token 无效",
+        "token过期",
+        "token 过期",
+        "会话过期",
+        "会话失效",
+        "会话无效",
+        "鉴权失败",
+        "凭证失效",
+        "凭证无效",
+        "身份验证失败",
+    ];
+    MARKS.iter().any(|mark| lower.contains(mark) || message.contains(mark))
+}
+
 fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
-    if let Some(code) = body.get("code").and_then(Value::as_i64) {
-        if code != 0 {
-            let message = body
-                .get("message")
-                .or_else(|| body.get("msg"))
-                .and_then(Value::as_str)
-                .unwrap_or("登录态无效");
+    let Some(code) = json_code(body) else {
+        return Err(RefreshError::new(
+            "response_shape_changed",
+            "MiMo 余额返回缺少 code 字段",
+            false,
+            false,
+        ));
+    };
+    if code != 0 {
+        let message = json_message(body);
+        if is_auth_code(code) || is_explicit_auth_message(&message) {
+            let detail = if message.is_empty() {
+                "登录已过期".to_string()
+            } else {
+                message
+            };
             return Err(RefreshError::new(
                 "session_expired",
-                format!("MiMo 登录状态验证失败：{message}（请重新登录后再试）"),
+                format!("MiMo 登录已过期：{detail}。请从来源行重新登录"),
                 true,
                 false,
             ));
         }
-    } else {
+        let detail = if message.is_empty() {
+            format!("业务错误 {code}")
+        } else {
+            message
+        };
         return Err(RefreshError::new(
-            "response_shape_changed",
-            "MiMo 余额返回缺少 code 字段",
+            "api_error",
+            format!("MiMo 余额查询失败：{detail}"),
             false,
             false,
         ));
@@ -173,6 +299,92 @@ fn parse(body: &Value) -> Result<Vec<CapabilityData>, RefreshError> {
     }])
 }
 
+fn cookie_pairs(header: &str) -> Vec<(String, String)> {
+    header
+        .split(';')
+        .filter_map(|part| {
+            let (name, value) = part.trim().split_once('=')?;
+            let name = name.trim();
+            let value = value.trim();
+            (!name.is_empty()).then(|| (name.to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+fn set_cookie_is_foreign(header: &str) -> bool {
+    header.split(';').skip(1).any(|part| {
+        let (name, value) = match part.trim().split_once('=') {
+            Some(pair) => pair,
+            None => return false,
+        };
+        name.eq_ignore_ascii_case("domain")
+            && !value.trim().trim_start_matches('.').to_ascii_lowercase().ends_with(MIMO_HOST_SUFFIX)
+    })
+}
+
+fn set_cookie_deleted(header: &str) -> bool {
+    let first = header.split(';').next().unwrap_or_default();
+    let value = first.split_once('=').map(|(_, value)| value.trim()).unwrap_or("");
+    if value.is_empty() {
+        return true;
+    }
+    header.split(';').skip(1).any(|part| {
+        let part = part.trim();
+        let (name, value) = match part.split_once('=') {
+            Some(pair) => pair,
+            None => return part.eq_ignore_ascii_case("expired"),
+        };
+        (name.eq_ignore_ascii_case("max-age") && value.trim().trim_start_matches('-') == "0")
+            || (name.eq_ignore_ascii_case("max-age") && value.trim().starts_with('-'))
+    })
+}
+
+fn merge_set_cookies(existing: &str, set_cookies: &[String]) -> Option<String> {
+    if set_cookies.is_empty() {
+        return None;
+    }
+    let mut pairs = cookie_pairs(existing);
+    let mut changed = false;
+    for header in set_cookies {
+        if set_cookie_is_foreign(header) {
+            continue;
+        }
+        let Some(first) = header.split(';').next() else {
+            continue;
+        };
+        let Some((name, value)) = first.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        let value = value.trim();
+        if name.is_empty() {
+            continue;
+        }
+        if set_cookie_deleted(header) {
+            let before = pairs.len();
+            pairs.retain(|(existing_name, _)| existing_name != name);
+            changed |= pairs.len() != before;
+            continue;
+        }
+        if let Some(existing) = pairs.iter_mut().find(|(existing_name, _)| existing_name == name) {
+            if existing.1 != value {
+                existing.1 = value.to_string();
+                changed = true;
+            }
+        } else {
+            pairs.push((name.to_string(), value.to_string()));
+            changed = true;
+        }
+    }
+    changed.then(|| {
+        pairs
+            .into_iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join("; ")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,8 +410,27 @@ mod tests {
     }
 
     #[test]
-    fn treats_nonzero_code_as_expired_session() {
+    fn treats_explicit_auth_code_as_expired_session() {
         let error = parse(&json!({"code": 401, "message": "unauthorized"})).unwrap_err();
+        assert_eq!(error.code, "session_expired");
+        assert!(error.auth_required);
+
+        let error = parse(&json!({"code": "403", "msg": "登录已过期"})).unwrap_err();
+        assert_eq!(error.code, "session_expired");
+        assert!(error.auth_required);
+    }
+
+    #[test]
+    fn treats_business_error_as_api_error_not_auth() {
+        let error = parse(&json!({"code": 50001, "message": "系统繁忙"})).unwrap_err();
+        assert_eq!(error.code, "api_error");
+        assert!(!error.auth_required);
+        assert!(error.message.contains("系统繁忙"));
+    }
+
+    #[test]
+    fn explicit_auth_message_wins_over_business_code() {
+        let error = parse(&json!({"code": 1000, "message": "token expired"})).unwrap_err();
         assert_eq!(error.code, "session_expired");
         assert!(error.auth_required);
     }
@@ -216,5 +447,50 @@ mod tests {
             "other=1; api-platform_serviceToken=abcdefghijklmnopqrstuvwxyz012345; x=2"
         ));
         assert!(!cookie_looks_logged_in("session=abc"));
+    }
+
+    #[test]
+    fn merges_same_origin_set_cookie_and_skips_deleted_or_foreign() {
+        let existing = "serviceToken=old-service-token-abcdefghijklmnopqrstuvwxyz; keep=1";
+        let merged = merge_set_cookies(
+            existing,
+            &[
+                "serviceToken=new-service-token-abcdefghijklmnopqrstuvwxyz; Path=/; HttpOnly".into(),
+                "keep=1; Path=/".into(),
+                "foreign=x; Domain=account.xiaomi.com".into(),
+                "gone=1; Max-Age=0".into(),
+            ],
+        )
+        .expect("merged");
+        assert!(merged.contains("serviceToken=new-service-token-abcdefghijklmnopqrstuvwxyz"));
+        assert!(merged.contains("keep=1"));
+        assert!(!merged.contains("foreign="));
+        assert!(!merged.contains("gone="));
+        assert!(cookie_looks_logged_in(&merged));
+    }
+
+    #[test]
+    fn silent_restore_only_for_auth_failures() {
+        let expired = SourceRefreshOutput::failure(RefreshError::new(
+            "session_expired",
+            "expired",
+            true,
+            false,
+        ));
+        assert!(needs_silent_restore(&expired));
+        let busy = SourceRefreshOutput::failure(RefreshError::new(
+            "api_error",
+            "busy",
+            false,
+            false,
+        ));
+        assert!(!needs_silent_restore(&busy));
+        let missing = SourceRefreshOutput::failure(RefreshError::new(
+            "auth_required",
+            "未配置",
+            true,
+            false,
+        ));
+        assert!(!needs_silent_restore(&missing));
     }
 }

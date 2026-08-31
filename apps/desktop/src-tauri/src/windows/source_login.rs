@@ -17,8 +17,8 @@ use std::fs;
 use std::io::Read;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -567,6 +567,164 @@ fn session_data_dir(app: &tauri::AppHandle, source_id: &str) -> Result<PathBuf, 
     Ok(dir)
 }
 
+const MIMO_RESTORE_COOLDOWN: Duration = Duration::from_secs(5 * 60);
+const MIMO_RESTORE_TIMEOUT: Duration = Duration::from_secs(25);
+
+#[derive(Debug)]
+pub enum SilentRestoreError {
+    Cooldown,
+    InteractiveLoginRequired,
+    Failed(String),
+}
+
+struct MimoRestoreGate {
+    last_attempt: HashMap<String, Instant>,
+}
+
+fn mimo_restore_lock() -> &'static tokio::sync::Mutex<MimoRestoreGate> {
+    static LOCK: OnceLock<tokio::sync::Mutex<MimoRestoreGate>> = OnceLock::new();
+    LOCK.get_or_init(|| {
+        tokio::sync::Mutex::new(MimoRestoreGate {
+            last_attempt: HashMap::new(),
+        })
+    })
+}
+
+fn mimo_silent_window_label(source_id: &str) -> String {
+    format!("mimo-silent-{source_id}")
+}
+
+pub(crate) fn mimo_url_needs_interactive_login(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let without_hash = lower.split('#').next().unwrap_or(&lower);
+    const MARKS: &[&str] = &[
+        "account.xiaomi.com",
+        "account.xiaomi.cn",
+        "passport",
+        "/login",
+        "signin",
+        "sign-in",
+        "captcha",
+        "verifycode",
+        "verify-code",
+        "challenge",
+        "/risk",
+        "2fa",
+        "sms",
+        "验证码",
+        "滑块",
+    ];
+    MARKS.iter().any(|mark| without_hash.contains(mark) || lower.contains(mark))
+}
+
+/// 鉴权失败后用隔离 profile 打开余额页，让小米 SSO 自动回写 serviceToken。
+/// 不显示窗口、不授权远程页面 IPC、不通过页面 JS 读秘密、不自动填账密。
+pub async fn try_silent_restore_mimo(
+    app: &tauri::AppHandle,
+    source_id: &str,
+) -> Result<String, SilentRestoreError> {
+    let mut gate = mimo_restore_lock().lock().await;
+    if let Some(last) = gate.last_attempt.get(source_id) {
+        if last.elapsed() < MIMO_RESTORE_COOLDOWN {
+            return Err(SilentRestoreError::Cooldown);
+        }
+    }
+    gate.last_attempt.insert(source_id.to_string(), Instant::now());
+    restore_mimo_hidden(app, source_id).await
+}
+
+fn close_labeled_window(app: &tauri::AppHandle, label: &str) {
+    if let Some(window) = app.get_webview_window(label) {
+        let _ = window.destroy().or_else(|_| window.close());
+    }
+}
+
+async fn restore_mimo_hidden(
+    app: &tauri::AppHandle,
+    source_id: &str,
+) -> Result<String, SilentRestoreError> {
+    let Some(template) = template_for(mimo::SOURCE_ID) else {
+        return Err(SilentRestoreError::Failed("MiMo 未配置网页登录".into()));
+    };
+    let visible_label = login_window_label(template, source_id);
+    if app.get_webview_window(&visible_label).is_some() {
+        return Err(SilentRestoreError::Failed(
+            "正在进行手动登录，跳过静默恢复".into(),
+        ));
+    }
+    let label = mimo_silent_window_label(source_id);
+    close_labeled_window(app, &label);
+    let url = WebviewUrl::External(template.login_url.parse().map_err(|_| {
+        SilentRestoreError::Failed("MiMo 余额页地址无效".into())
+    })?);
+    let data_dir = session_data_dir(app, source_id)
+        .map_err(SilentRestoreError::Failed)?;
+    let window = WebviewWindowBuilder::new(app, &label, url)
+        .title("MiMo")
+        .inner_size(800.0, 600.0)
+        .visible(false)
+        .focused(false)
+        .skip_taskbar(true)
+        .decorations(false)
+        .shadow(false)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .data_directory(data_dir)
+        .build()
+        .map_err(|error| SilentRestoreError::Failed(format!("无法创建静默恢复窗口：{error}")))?;
+    let _ = window.hide();
+    let deadline = Instant::now() + MIMO_RESTORE_TIMEOUT;
+    let mut saw_interactive = false;
+    let result = loop {
+        if Instant::now() >= deadline {
+            break if saw_interactive {
+                Err(SilentRestoreError::InteractiveLoginRequired)
+            } else {
+                Err(SilentRestoreError::Failed(
+                    "MiMo 静默恢复超时，请从来源行重新登录".into(),
+                ))
+            };
+        }
+        if let Ok(url) = window.url() {
+            if mimo_url_needs_interactive_login(&url.to_string()) {
+                saw_interactive = true;
+            }
+        }
+        if let Some(cookie) = collect_native_cookie_header(&window, template).await {
+            if cookie_ready(&cookie, template) {
+                break Ok(cookie);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(800)).await;
+    };
+    close_labeled_window(app, &label);
+    result
+}
+
+async fn collect_native_cookie_header(
+    window: &tauri::WebviewWindow,
+    template: &'static LoginTemplate,
+) -> Option<String> {
+    let urls = cookie_query_urls(window, template);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let _ = query_native_cookie_headers(window, urls, move |header| {
+        let _ = tx.send(header);
+    });
+    let wait = async {
+        while let Some(header) = rx.recv().await {
+            if cookie_ready(&header, template) {
+                return Some(header);
+            }
+        }
+        None
+    };
+    tokio::time::timeout(Duration::from_millis(600), wait)
+        .await
+        .ok()
+        .flatten()
+}
+
 fn is_usage_page(window: &tauri::WebviewWindow) -> bool {
     window
         .url()
@@ -1053,6 +1211,12 @@ fn cookie_query_urls(window: &tauri::WebviewWindow, template: &LoginTemplate) ->
             push(&mut urls, extra.to_string());
         }
     }
+    if template.source_id == mimo::SOURCE_ID {
+        push(
+            &mut urls,
+            "https://platform.xiaomimimo.com/api/v1/balance".to_string(),
+        );
+    }
     urls
 }
 
@@ -1075,116 +1239,122 @@ fn request_native_cookies(
     source_id: &str,
     window_label: &str,
 ) {
-    #[cfg(windows)]
-    {
-        request_native_cookies_windows(
-            app,
-            window,
-            template,
-            source_id.to_string(),
-            window_label.to_string(),
-        );
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (app, window, template, source_id, window_label);
-    }
-}
-
-#[cfg(windows)]
-fn request_native_cookies_windows(
-    app: &tauri::AppHandle,
-    window: &tauri::WebviewWindow,
-    template: &'static LoginTemplate,
-    source_id: String,
-    window_label: String,
-) {
     let urls = cookie_query_urls(window, template);
-    let app_for_webview = app.clone();
-    let adapter_id = template.source_id;
-    let result = window.with_webview(move |webview| unsafe {
-        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
-        use windows_core::Interface;
-
-        let controller = webview.controller();
-        let Ok(core) = controller.CoreWebView2() else {
-            return;
-        };
-        let Ok(core2) = core.cast::<ICoreWebView2_2>() else {
-            return;
-        };
-        let Ok(manager) = core2.CookieManager() else {
-            return;
-        };
-        for query_url in &urls {
-            let uri = windows_core::HSTRING::from(query_url.as_str());
-            let app_for_handler = app_for_webview.clone();
-            let actual_source_id = source_id.clone();
-            let actual_window_label = window_label.clone();
-            let handler = webview2_com::GetCookiesCompletedHandler::create(Box::new(
-                move |error_code: windows_core::Result<()>,
-                      list: Option<
-                    webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CookieList,
-                >| {
-                    let parse = || -> Option<String> {
-                        error_code.ok()?;
-                        let list = list?;
-                        let mut count = 0u32;
-                        list.Count(&mut count).ok()?;
-                        let mut parts = Vec::with_capacity(count as usize);
-                        for index in 0..count {
-                            let cookie = list.GetValueAtIndex(index).ok()?;
-                            let mut name = windows_core::PWSTR::null();
-                            let mut value = windows_core::PWSTR::null();
-                            if cookie.Name(&mut name).is_err() || cookie.Value(&mut value).is_err()
-                            {
-                                continue;
-                            }
-                            let name = webview2_com::take_pwstr(name);
-                            let value = webview2_com::take_pwstr(value);
-                            if !name.is_empty() && !value.is_empty() {
-                                parts.push(format!("{name}={value}"));
-                            }
-                        }
-                        (!parts.is_empty()).then_some(parts.join("; "))
-                    };
-                    if let Some(cookie) = parse() {
-                        if cookie_ready(&cookie, template) {
-                            let app = app_for_handler.clone();
-                            let source_id = actual_source_id.clone();
-                            let window_label = actual_window_label.clone();
-                            tauri::async_runtime::spawn(async move {
-                                let Some(window) = app.get_webview_window(&window_label) else {
-                                    return;
-                                };
-                                let _ =
-                                    capture_and_finish(&app, &window, &source_id, &cookie, true)
-                                        .await;
-                            });
-                        } else if adapter_id == glm::WEB_BALANCE_SOURCE_ID
-                            && cookie.split(';').count() >= 3
-                        {
-                            let _ = app_for_handler.emit(
-                                "source-login-status",
-                                format!(
-                                    "已读到 {} 个 Cookie，但仍缺少可用 Token，请停留在财务总览页。",
-                                    cookie.split(';').count()
-                                ),
-                            );
-                        }
-                    }
-                    Ok(())
-                },
-            ));
-            let _ = manager.GetCookies(&uri, &handler);
+    let app_for_error = app.clone();
+    let app = app.clone();
+    let source_id = source_id.to_string();
+    let window_label = window_label.to_string();
+    let result = query_native_cookie_headers(window, urls, move |cookie| {
+        if cookie_ready(&cookie, template) {
+            let app = app.clone();
+            let source_id = source_id.clone();
+            let window_label = window_label.clone();
+            tauri::async_runtime::spawn(async move {
+                let Some(window) = app.get_webview_window(&window_label) else {
+                    return;
+                };
+                let _ = capture_and_finish(&app, &window, &source_id, &cookie, true).await;
+            });
+        } else if template.source_id == glm::WEB_BALANCE_SOURCE_ID && cookie.split(';').count() >= 3
+        {
+            let _ = app.emit(
+                "source-login-status",
+                format!(
+                    "已读到 {} 个 Cookie，但仍缺少可用 Token，请停留在财务总览页。",
+                    cookie.split(';').count()
+                ),
+            );
         }
     });
     if result.is_err() {
-        let _ = app.emit(
+        let _ = app_for_error.emit(
             "source-login-status",
             "登录窗口暂不可读取 Cookie，正在重试…",
         );
     }
+}
+
+fn query_native_cookie_headers(
+    window: &tauri::WebviewWindow,
+    urls: Vec<String>,
+    on_header: impl Fn(String) + Send + Sync + 'static,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        query_native_cookie_headers_windows(window, urls, on_header)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, urls, on_header);
+        Err("当前平台无法读取 WebView Cookie".into())
+    }
+}
+
+#[cfg(windows)]
+fn cookie_header_from_list(
+    error_code: windows_core::Result<()>,
+    list: Option<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2CookieList>,
+) -> Option<String> {
+    error_code.ok()?;
+    let list = list?;
+    let mut count = 0u32;
+    unsafe {
+        list.Count(&mut count).ok()?;
+        let mut parts = Vec::with_capacity(count as usize);
+        for index in 0..count {
+            let cookie = list.GetValueAtIndex(index).ok()?;
+            let mut name = windows_core::PWSTR::null();
+            let mut value = windows_core::PWSTR::null();
+            if cookie.Name(&mut name).is_err() || cookie.Value(&mut value).is_err() {
+                continue;
+            }
+            let name = webview2_com::take_pwstr(name);
+            let value = webview2_com::take_pwstr(value);
+            if !name.is_empty() && !value.is_empty() {
+                parts.push(format!("{name}={value}"));
+            }
+        }
+        (!parts.is_empty()).then_some(parts.join("; "))
+    }
+}
+
+#[cfg(windows)]
+fn query_native_cookie_headers_windows(
+    window: &tauri::WebviewWindow,
+    urls: Vec<String>,
+    on_header: impl Fn(String) + Send + Sync + 'static,
+) -> Result<(), String> {
+    let on_header = Arc::new(on_header);
+    window
+        .with_webview(move |webview| unsafe {
+            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
+            use windows_core::Interface;
+
+            let controller = webview.controller();
+            let Ok(core) = controller.CoreWebView2() else {
+                return;
+            };
+            let Ok(core2) = core.cast::<ICoreWebView2_2>() else {
+                return;
+            };
+            let Ok(manager) = core2.CookieManager() else {
+                return;
+            };
+            for query_url in &urls {
+                let uri = windows_core::HSTRING::from(query_url.as_str());
+                let on_header = on_header.clone();
+                let handler = webview2_com::GetCookiesCompletedHandler::create(Box::new(
+                    move |error_code, list| {
+                        if let Some(cookie) = cookie_header_from_list(error_code, list) {
+                            on_header(cookie);
+                        }
+                        Ok(())
+                    },
+                ));
+                let _ = manager.GetCookies(&uri, &handler);
+            }
+        })
+        .map_err(|error| error.to_string())
 }
 
 fn read_shared_text(path: &Path) -> Option<String> {
@@ -1388,6 +1558,22 @@ mod tests {
         assert!(is_glm_login_flow("/user/login"));
         assert!(is_glm_login_flow("/oauth/authorize"));
         assert!(!is_glm_login_flow("/usercenter/financialoverview"));
+    }
+
+    #[test]
+    fn mimo_interactive_login_urls_are_detected() {
+        assert!(mimo_url_needs_interactive_login(
+            "https://account.xiaomi.com/pass/serviceLogin?callback=https://platform.xiaomimimo.com"
+        ));
+        assert!(mimo_url_needs_interactive_login(
+            "https://platform.xiaomimimo.com/#/login"
+        ));
+        assert!(mimo_url_needs_interactive_login(
+            "https://platform.xiaomimimo.com/captcha/slider"
+        ));
+        assert!(!mimo_url_needs_interactive_login(
+            "https://platform.xiaomimimo.com/#/console/balance"
+        ));
     }
 
     #[test]
