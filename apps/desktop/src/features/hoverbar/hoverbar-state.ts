@@ -157,6 +157,31 @@ export function radarSourceLine(radar: RadarSnapshot): string {
   return "尚未同步";
 }
 
+/** 事件时态文案：区分预告未到 / 已过期待验证 / 来源称落地 / 本机观察 / 历史。 */
+export function radarTemporalLabel(temporalStatus: string | null | undefined): string | null {
+  switch (temporalStatus) {
+    case "before_expected":
+      return "预告时间未到";
+    case "expected_time_passed":
+      return "预告时间已过，等待验证";
+    case "claimed_landed":
+      return "来源称已落地";
+    case "observed_landed":
+      return "本机已观察到刷新";
+    case "historical":
+      return "历史事件";
+    default:
+      return null;
+  }
+}
+
+/** 本机额度观察与事件的时间相关性文案。 */
+export function quotaCorrelationLabel(correlation: string | null | undefined): string | null {
+  if (correlation === "high") return "与雷达事件时间高度相关";
+  if (correlation === "partial") return "与雷达事件时间部分相关";
+  return null;
+}
+
 /** 重置事件阶段中文标签；未知阶段不臆造文案。 */
 export function radarPhaseLabel(phase: string | null | undefined): string | null {
   switch (phase) {
@@ -228,6 +253,7 @@ export function quotaStatusLabel(status: string, attribution: string): string {
   if (status === "unscheduled_reset") {
     if (attribution === "radar_correlated") return "已重置 · 本机已观察到";
     if (attribution === "user_confirmed") return "已重置 · 你已确认";
+    return "本机已观察到刷新，原因未知";
   }
   return quotaStatusText(status);
 }

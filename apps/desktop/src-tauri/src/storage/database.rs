@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 7;
+const CURRENT_SCHEMA_VERSION: i64 = 8;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -61,7 +61,8 @@ fn read_schema_version(path: &Path) -> Result<i64, String> {
     if !path.exists() {
         return Ok(0);
     }
-    let connection = Connection::open(path).map_err(|err| format!("读取 SQLite 版本失败: {err}"))?;
+    let connection =
+        Connection::open(path).map_err(|err| format!("读取 SQLite 版本失败: {err}"))?;
     let table_exists: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations')",
@@ -73,7 +74,9 @@ fn read_schema_version(path: &Path) -> Result<i64, String> {
         return Ok(0);
     }
     connection
-        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get::<_, Option<i64>>(0))
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+            row.get::<_, Option<i64>>(0)
+        })
         .optional()
         .map_err(|err| format!("读取 SQLite schema 版本失败: {err}"))
         .map(|value| value.flatten().unwrap_or(0))
@@ -119,6 +122,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 7 {
         migrate_v7(&transaction)?;
+    }
+    if previous_version < 8 {
+        migrate_v8(&transaction)?;
     }
     transaction
         .commit()
@@ -425,6 +431,72 @@ fn migrate_v7(transaction: &Transaction<'_>) -> Result<(), String> {
         .map_err(|err| format!("执行 SQLite v7 迁移失败: {err}"))
 }
 
+fn migrate_v8(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            ALTER TABLE radar_events ADD COLUMN expected_at INTEGER;
+            ALTER TABLE radar_events ADD COLUMN expires_at INTEGER;
+            ALTER TABLE radar_events ADD COLUMN state_revision INTEGER NOT NULL DEFAULT 0;
+
+            ALTER TABLE radar_analyses ADD COLUMN temporal_phase TEXT;
+            ALTER TABLE radar_analyses ADD COLUMN valid_until INTEGER;
+            ALTER TABLE radar_analyses ADD COLUMN state_revision INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE radar_analyses ADD COLUMN timezone_policy_version TEXT NOT NULL DEFAULT '';
+
+            CREATE TABLE radar_time_claims (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id TEXT NOT NULL,
+                raw_text TEXT NOT NULL,
+                clock_hour INTEGER,
+                clock_minute INTEGER,
+                date_relation TEXT,
+                timezone_kind TEXT,
+                timezone_assumed INTEGER NOT NULL DEFAULT 0,
+                parse_status TEXT NOT NULL,
+                resolved_at INTEGER,
+                precision TEXT NOT NULL,
+                parser_version TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(post_id, raw_text)
+            );
+            CREATE INDEX idx_radar_time_claims_post ON radar_time_claims(post_id, updated_at);
+
+            CREATE TABLE quota_reset_observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                capability_id TEXT NOT NULL,
+                previous_snapshot_id INTEGER NOT NULL REFERENCES capability_snapshots(id) ON DELETE CASCADE,
+                current_snapshot_id INTEGER NOT NULL REFERENCES capability_snapshots(id) ON DELETE CASCADE,
+                classification TEXT NOT NULL,
+                observed_at INTEGER NOT NULL,
+                event_id TEXT REFERENCES radar_events(id) ON DELETE SET NULL,
+                temporal_correlation TEXT NOT NULL DEFAULT 'none',
+                user_confirmed_at INTEGER,
+                created_at INTEGER NOT NULL,
+                UNIQUE(source_id, capability_id, previous_snapshot_id, current_snapshot_id)
+            );
+            CREATE INDEX idx_quota_reset_observations_event ON quota_reset_observations(event_id, observed_at DESC);
+            CREATE INDEX idx_quota_reset_observations_source ON quota_reset_observations(source_id, observed_at DESC);
+
+            UPDATE radar_events
+            SET latest_evidence_at = COALESCE(
+                (SELECT MAX(p.posted_at)
+                 FROM radar_event_evidence e
+                 JOIN tibo_posts p ON p.id = e.post_id
+                 WHERE e.event_id = radar_events.id),
+                latest_evidence_at
+            );
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (8, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v8 迁移失败: {err}"))
+}
+
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {
     let now = epoch_ms();
     let transaction = connection
@@ -520,7 +592,9 @@ mod tests {
             epoch_ms()
         ));
         let database = Database::initialize_at(path.clone()).expect("db");
-        let sources = database.openai_quota_sources().expect("query should not fail");
+        let sources = database
+            .openai_quota_sources()
+            .expect("query should not fail");
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].id, "openai-codex-local");
         assert_eq!(sources[0].platform_id, "openai");

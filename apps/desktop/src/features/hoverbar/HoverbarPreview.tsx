@@ -220,6 +220,19 @@ const previewAnalysis: RadarAnalysis = {
   deltaEffect: "reinforce",
   signalLevel: "strong",
   contextStatus: "complete",
+  temporalPhase: "observed_landed",
+  validUntil: null,
+  timeClaims: [
+    {
+      postId: "preview-3",
+      rawText: "6pm PST",
+      parseStatus: "resolved",
+      timezoneKind: "PST",
+      timezoneAssumed: false,
+      resolvedAt: Date.now() - 20 * 60 * 60 * 1000,
+      precision: "exact",
+    },
+  ],
 };
 
 /** 预览事件：来源称已落地阶段，等待本机验证。 */
@@ -238,6 +251,10 @@ const previewEvent: RadarEvent = {
     { at: Date.now() - 20 * 60 * 60 * 1000, kind: "claimed", label: "来源称已落地" },
   ],
   postIds: ["preview-3", "preview-1"],
+  expectedAt: Date.now() - 20 * 60 * 60 * 1000,
+  expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+  stateRevision: 3,
+  temporalStatus: "observed_landed",
 };
 
 /** 预览本机额度验证：本机观察到非计划刷新，额外账号未见变化。 */
@@ -248,6 +265,8 @@ const previewQuota: QuotaVerification[] = [
     sourceId: "openai-codex-local",
     status: "unscheduled_reset",
     attribution: "radar_correlated",
+    observationId: 1000 + 1,
+    temporalCorrelation: "high",
     windowId: "quota_window_7d",
     windowLabel: "7 天窗口",
     windowSeconds: 604800,
@@ -263,6 +282,8 @@ const previewQuota: QuotaVerification[] = [
     sourceId: "openai-codex-extra-2",
     status: "no_change",
     attribution: "unknown",
+    observationId: 1000 + 2,
+    temporalCorrelation: "high",
     windowId: "quota_window_30d",
     windowLabel: "30 天窗口",
     windowSeconds: 2592000,
@@ -422,6 +443,8 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             sourceId: "openai-codex-local",
             status: "unavailable",
             attribution: "unknown",
+            observationId: 1000 + 3,
+            temporalCorrelation: "high",
             windowId: "quota_window_7d",
             windowLabel: "7 天窗口",
             windowSeconds: 604800,
@@ -444,6 +467,8 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             sourceId: "openai-codex-local",
             status: "insufficient_data",
             attribution: "unknown",
+            observationId: 1000 + 4,
+            temporalCorrelation: "high",
             windowId: "quota_window_7d",
             windowLabel: "7 天窗口",
             windowSeconds: 604800,
@@ -471,6 +496,8 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             sourceId: "openai-codex-local",
             status: "scheduled",
             attribution: "scheduled",
+            observationId: 1000 + 5,
+            temporalCorrelation: "high",
             windowId: "quota_window_7d",
             windowLabel: "7 天窗口",
             windowSeconds: 604800,

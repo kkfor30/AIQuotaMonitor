@@ -5,7 +5,10 @@ use super::RadarNotice;
 use crate::storage::repository::TiboPostRecord;
 use serde_json::json;
 
-pub fn parse_page(html: &str, synced_at: i64) -> Result<(Vec<TiboPostRecord>, Option<RadarNotice>), String> {
+pub fn parse_page(
+    html: &str,
+    synced_at: i64,
+) -> Result<(Vec<TiboPostRecord>, Option<RadarNotice>), String> {
     let notice = parse_notice(html);
     let posts = parse_posts(html, synced_at)?;
     if posts.is_empty() {
@@ -17,7 +20,9 @@ pub fn parse_page(html: &str, synced_at: i64) -> Result<(Vec<TiboPostRecord>, Op
 fn parse_notice(html: &str) -> Option<RadarNotice> {
     let start = html.find(r#"class="site-announcement"#)?;
     let rest = html.get(start..)?;
-    let end = rest.find("</section>").unwrap_or_else(|| floor_char_boundary(rest, 12_000.min(rest.len())));
+    let end = rest
+        .find("</section>")
+        .unwrap_or_else(|| floor_char_boundary(rest, 12_000.min(rest.len())));
     let section = rest.get(..end)?;
     let headline = class_text(section, "site-announcement-headline")?;
     if headline.is_empty() {
@@ -25,7 +30,11 @@ fn parse_notice(html: &str) -> Option<RadarNotice> {
     }
     let lead = class_text(section, "site-announcement-lead").filter(|value| !value.is_empty());
     let items = list_items(section, "site-announcement-items");
-    Some(RadarNotice { headline, lead, items })
+    Some(RadarNotice {
+        headline,
+        lead,
+        items,
+    })
 }
 
 fn parse_posts(html: &str, synced_at: i64) -> Result<Vec<TiboPostRecord>, String> {
@@ -47,9 +56,9 @@ fn parse_posts(html: &str, synced_at: i64) -> Result<Vec<TiboPostRecord>, String
 
 fn parse_one_post(chunk: &str, synced_at: i64) -> Option<TiboPostRecord> {
     let id = attr(chunk, "data-tibo-post-id").or_else(|| status_id(chunk))?;
-    let url = attr(chunk, "href").filter(|value| value.contains("status/")).unwrap_or_else(|| {
-        format!("https://x.com/thsottiaux/status/{id}")
-    });
+    let url = attr(chunk, "href")
+        .filter(|value| value.contains("status/"))
+        .unwrap_or_else(|| format!("https://x.com/thsottiaux/status/{id}"));
     let relevance = attr(chunk, "data-reset-relevance").unwrap_or_else(|| "none".into());
     let label = class_text(chunk, "reset-tibo-post-relevance")
         .map(|value| super::display_signal_label(&value))
@@ -282,7 +291,10 @@ mod tests {
         assert!(notice.headline.contains("里程碑"));
         assert_eq!(posts.len(), 2);
         assert_eq!(posts[0].id, "2093573991965557198");
-        assert_eq!(posts[0].translated_text.as_deref(), Some("看了一下仪表盘。"));
+        assert_eq!(
+            posts[0].translated_text.as_deref(),
+            Some("看了一下仪表盘。")
+        );
         assert_eq!(posts[0].translation_source.as_deref(), Some("codexradar"));
         assert!(!posts[0].explicit_reset);
         assert_eq!(posts[1].kind, "none");

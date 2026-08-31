@@ -19,7 +19,9 @@ import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import {
   formatHoverbarClock,
   quotaBadgeLabel,
+  quotaCorrelationLabel,
   radarPhaseLabel,
+  radarTemporalLabel,
 } from "./hoverbar-state";
 
 const POST_BADGE_LABEL: Record<string, string> = {
@@ -126,6 +128,15 @@ export function HoverbarRadarDetail({
                 </p>
               </>
             ) : null}
+            {(() => {
+              const temporal = radarTemporalLabel(event.temporalStatus);
+              return temporal && temporal !== phase ? (
+                <p className="hb-radar-meta" data-temporal={event.temporalStatus}>
+                  {temporal}
+                  {event.expectedAt ? ` · 预告 ${formatHoverbarClock(event.expectedAt)}` : ""}
+                </p>
+              ) : null;
+            })()}
             <p className="hb-radar-meta">
               首帖发布 {formatHoverbarClock(event.firstSignalAt)} · 最新证据 {formatHoverbarClock(event.latestEvidenceAt)}
             </p>
@@ -292,7 +303,9 @@ function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
         {item.current?.resetAt
           ? `${item.previous?.remaining != null ? " · " : ""}重置 ${formatHoverbarClock(item.current.resetAt)}`
           : null}
-        {item.attribution === "radar_correlated" ? " · 与事件时间相关" : null}
+        {quotaCorrelationLabel(item.temporalCorrelation)
+          ? ` · ${quotaCorrelationLabel(item.temporalCorrelation)}`
+          : null}
         {item.attribution === "user_confirmed" ? " · 用户已确认" : null}
       </p>
     </div>

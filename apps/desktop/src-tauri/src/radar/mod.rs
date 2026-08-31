@@ -4,11 +4,13 @@
 
 mod codexradar;
 mod quota_watch;
+mod time_claims;
 
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use crate::storage::repository::{
-    RadarAnalysisRecord, RadarCheckRecord, RadarEventRecord, SourceRecord, TiboPostRecord,
+    RadarAnalysisRecord, RadarCheckRecord, RadarEventRecord, RadarTimeClaimRecord, SourceRecord,
+    TiboPostRecord,
 };
 use crate::storage::vault;
 use chrono::{Duration as ChronoDuration, Local, NaiveDate, TimeZone};
@@ -60,11 +62,10 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v10";
+pub const PROMPT_VERSION: &str = "radar-v11";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
-帖子提及的未标注时区的具体时间多为太平洋时间（PST，比北京时间慢16小时）；换算用跨度平移：发帖北京时间减16小时得发帖PST时间，算出到预告PST时间的时间跨度，再把该跨度加到发帖北京时间上，得出北京时间；不要把PST的钟点直接当北京时间。
 没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,6 +137,22 @@ pub struct RadarAnalysisView {
     pub signal_level: Option<String>,
     /// complete | context_missing | conflicting
     pub context_status: Option<String>,
+    /// before_expected | expected_time_passed | claimed_landed | observed_landed | historical | timeless
+    pub temporal_phase: Option<String>,
+    pub valid_until: Option<i64>,
+    pub time_claims: Vec<RadarTimeClaimView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarTimeClaimView {
+    pub post_id: String,
+    pub raw_text: String,
+    pub parse_status: String,
+    pub timezone_kind: Option<String>,
+    pub timezone_assumed: bool,
+    pub resolved_at: Option<i64>,
+    pub precision: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -170,6 +187,10 @@ pub struct RadarEventView {
     pub claimed_landed_at: Option<i64>,
     pub observed_reset_at: Option<i64>,
     pub closed_at: Option<i64>,
+    pub expected_at: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub state_revision: i64,
+    pub temporal_status: String,
     pub timeline: Vec<RadarEventNodeView>,
     pub post_ids: Vec<String>,
 }
@@ -264,7 +285,7 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
             Some(to) => posts.first().map_or(true, |post| post.posted_at <= to),
             None => true,
         };
-        analysis_view(record, covers_latest)
+        analysis_view(database, record, covers_latest)
     });
     let notice = load_notice(database)?;
     let source_assessment = RadarSourceAssessmentView {
@@ -275,10 +296,12 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
     };
     let event_record = database.active_radar_event()?;
     let quota_verifications =
-        quota_watch::assess_quota_verifications(database, event_record.as_ref().map(|item| item.first_signal_at))?;
-    let event_record = advance_event_on_quota_evidence(database, event_record, &quota_verifications)?;
-    let event_view_data = event_record.as_ref().map(|record| event_view(database, record));
-    let ai_assessment = build_ai_assessment(database, event_record.as_ref(), analysis.as_ref(), &checks);
+        quota_watch::assess_quota_verifications(database, event_record.as_ref())?;
+    let event_view_data = event_record
+        .as_ref()
+        .map(|record| event_view(database, record));
+    let ai_assessment =
+        build_ai_assessment(database, event_record.as_ref(), analysis.as_ref(), &checks);
     Ok(RadarSnapshot {
         source_status: source_status.into(),
         last_synced_at,
@@ -296,32 +319,121 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
     })
 }
 
-/// 本机额度证据自动推进事件：账号存在非计划/疑似恢复的观察证据（last_reset_observed_at，
-/// 证据扫描已排除事件开始前的快照对）时，事件进入 landed_observed 并记录本机观察时间。
-/// 全确定性逻辑，不依赖 AI；阶段只向前；证据常驻，错过即时窗口后下次快照仍会推进。
-fn advance_event_on_quota_evidence(
-    database: &Database,
-    event: Option<RadarEventRecord>,
-    verifications: &[QuotaVerificationView],
-) -> Result<Option<RadarEventRecord>, String> {
-    let Some(record) = event else {
-        return Ok(None);
+pub fn reconcile_event_state(database: &Database, now: i64) -> Result<(), String> {
+    refresh_time_claims(database)?;
+    let initial = database.active_radar_event()?;
+    quota_watch::materialize_observations(database, initial.as_ref())?;
+    let Some(mut event) = database.active_radar_event()? else {
+        return Ok(());
     };
-    if !matches!(record.phase.as_str(), "watching" | "upcoming" | "landed_claimed") {
-        return Ok(Some(record));
+    let original = event.clone();
+    let post_ids = database.radar_event_post_ids(&event.id)?;
+    let claims = database.radar_time_claims_for_posts(&post_ids)?;
+    event.expected_at = claims.iter().filter_map(|claim| claim.resolved_at).max();
+    let verifications = quota_watch::assess_quota_verifications(database, Some(&event))?;
+    if matches!(
+        event.phase.as_str(),
+        "watching" | "upcoming" | "landed_claimed"
+    ) {
+        if let Some(observed_at) = verifications
+            .iter()
+            .filter_map(|value| value.last_reset_observed_at)
+            .min()
+        {
+            event.phase = "landed_observed".into();
+            event.observed_reset_at = Some(observed_at);
+            event.title = "本机已观察到额度刷新".into();
+        }
     }
-    let hit = verifications
-        .iter()
-        .find(|item| item.last_reset_observed_at.is_some());
-    let Some(verification) = hit else {
-        return Ok(Some(record));
-    };
-    let mut advanced = record;
-    advanced.phase = "landed_observed".into();
-    advanced.observed_reset_at = verification.last_reset_observed_at;
-    advanced.latest_evidence_at = epoch_ms();
-    database.update_radar_event(&advanced)?;
-    Ok(Some(advanced))
+    event.expires_at = event_expiry(&event);
+    if event.expires_at.is_some_and(|expires| now >= expires) {
+        event.closed_at = Some(now);
+        event.close_reason = Some(
+            match event.phase.as_str() {
+                "watching" => "timeout_no_signal",
+                "upcoming" => "timeout_unverified",
+                "landed_claimed" => "claimed_unverified",
+                "landed_observed" => "completed",
+                _ => "timeout",
+            }
+            .into(),
+        );
+        event.phase = "closed".into();
+    }
+    if event.phase != original.phase
+        || event.expected_at != original.expected_at
+        || event.expires_at != original.expires_at
+        || event.observed_reset_at != original.observed_reset_at
+        || event.closed_at != original.closed_at
+    {
+        event.state_revision = original.state_revision + 1;
+        database.update_radar_event(&event)?;
+    }
+    Ok(())
+}
+
+pub fn reconcile_event_state_now(database: &Database) -> Result<(), String> {
+    reconcile_event_state(database, epoch_ms())
+}
+
+fn refresh_time_claims(database: &Database) -> Result<(), String> {
+    for post in database.list_tibo_posts(80)? {
+        let parsed = time_claims::parse_post_time_claims(&post.id, &post.text, post.posted_at);
+        let records = parsed
+            .into_iter()
+            .map(|claim| RadarTimeClaimRecord {
+                post_id: claim.post_id,
+                raw_text: claim.raw_text,
+                clock_hour: claim.clock_hour.map(i64::from),
+                clock_minute: claim.clock_minute.map(i64::from),
+                date_relation: claim.date_relation,
+                timezone_kind: claim.timezone_kind,
+                timezone_assumed: claim.timezone_assumed,
+                parse_status: claim.parse_status,
+                resolved_at: claim.resolved_at,
+                precision: claim.precision,
+                parser_version: time_claims::TIMEZONE_POLICY_VERSION.into(),
+            })
+            .collect::<Vec<_>>();
+        database.replace_radar_time_claims(&post.id, &records)?;
+    }
+    Ok(())
+}
+
+fn event_expiry(event: &RadarEventRecord) -> Option<i64> {
+    let hour = 3_600_000;
+    match event.phase.as_str() {
+        "watching" => Some(event.latest_evidence_at + 48 * hour),
+        "upcoming" => Some(
+            event
+                .expected_at
+                .map_or(event.latest_evidence_at + 72 * hour, |at| at + 24 * hour),
+        ),
+        "landed_claimed" => {
+            Some(event.claimed_landed_at.unwrap_or(event.latest_evidence_at) + 48 * hour)
+        }
+        "landed_observed" => {
+            Some(event.observed_reset_at.unwrap_or(event.latest_evidence_at) + 24 * hour)
+        }
+        _ => event.expires_at,
+    }
+}
+
+fn event_temporal_phase(event: &RadarEventRecord, now: i64) -> String {
+    if event.closed_at.is_some() || event.phase == "closed" {
+        return "historical".into();
+    }
+    if event.phase == "landed_observed" {
+        return "observed_landed".into();
+    }
+    if event.phase == "landed_claimed" {
+        return "claimed_landed".into();
+    }
+    match event.expected_at {
+        Some(at) if now >= at => "expected_time_passed".into(),
+        Some(_) => "before_expected".into(),
+        None => "timeless".into(),
+    }
 }
 
 /// 事件视图：从事件记录推导时间线节点，并挂上事件关联原帖。
@@ -349,10 +461,15 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
         timeline.push(RadarEventNodeView {
             at,
             kind: "closed".into(),
-            label: record.close_reason.clone().unwrap_or_else(|| "事件关闭".into()),
+            label: record
+                .close_reason
+                .clone()
+                .unwrap_or_else(|| "事件关闭".into()),
         });
     }
-    let post_ids = database.radar_event_post_ids(&record.id).unwrap_or_default();
+    let post_ids = database
+        .radar_event_post_ids(&record.id)
+        .unwrap_or_default();
     RadarEventView {
         id: record.id.clone(),
         phase: record.phase.clone(),
@@ -363,6 +480,10 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
         claimed_landed_at: record.claimed_landed_at,
         observed_reset_at: record.observed_reset_at,
         closed_at: record.closed_at,
+        expected_at: record.expected_at,
+        expires_at: record.expires_at,
+        state_revision: record.state_revision,
+        temporal_status: event_temporal_phase(record, epoch_ms()),
         timeline,
         post_ids,
     }
@@ -375,7 +496,9 @@ fn build_ai_assessment(
     latest_success: Option<&RadarAnalysisView>,
     checks: &[RadarCheckView],
 ) -> RadarAiAssessmentView {
-    let enabled = load_analysis_prefs(database).map(|prefs| prefs.analyze).unwrap_or(false);
+    let enabled = load_analysis_prefs(database)
+        .map(|prefs| prefs.analyze)
+        .unwrap_or(false);
     let newest_post_at = database
         .list_tibo_posts(1)
         .ok()
@@ -389,7 +512,7 @@ fn build_ai_assessment(
         .flatten()
         .map(|record| {
             let covered_to = record.to_posted_at;
-            analysis_view(record, covers(covered_to))
+            analysis_view(database, record, covers(covered_to))
         });
     let latest_error = checks
         .iter()
@@ -447,7 +570,14 @@ pub async fn run_check(
         Err(error) => ("failed".into(), "failed".into(), 0, Some(error)),
     };
 
-    let mut analyze_status = if analyze { "skipped".to_string() } else { "off".into() };
+    // 提示词与缓存键组装前先把时间声明、额度观察和事件超时协调到最新状态。
+    reconcile_event_state(database, epoch_ms())?;
+
+    let mut analyze_status = if analyze {
+        "skipped".to_string()
+    } else {
+        "off".into()
+    };
     let mut analyze_error = None;
     if analyze && error_message.is_none() {
         match run_analysis(database, coordinator, range_key, source_id, model).await {
@@ -464,13 +594,18 @@ pub async fn run_check(
         id,
         started_at: started,
         finished_at: Some(epoch_ms()),
-        status: if failed { "failed".into() } else { "success".into() },
+        status: if failed {
+            "failed".into()
+        } else {
+            "success".into()
+        },
         sync_status: Some(sync_status),
         parse_status: Some(parse_status),
         analyze_status: Some(analyze_status),
         error_message: error_message.or(analyze_error),
         post_count,
     })?;
+    reconcile_event_state(database, epoch_ms())?;
     snapshot(database)
 }
 
@@ -524,11 +659,16 @@ fn resolve_chat_target(
     let source_id = source_id
         .map(str::to_string)
         .or_else(|| {
-            chat_models(database)
-                .ok()
-                .and_then(|models| models.into_iter().find(|item| item.ready).map(|item| item.source_id))
+            chat_models(database).ok().and_then(|models| {
+                models
+                    .into_iter()
+                    .find(|item| item.ready)
+                    .map(|item| item.source_id)
+            })
         })
-        .ok_or_else(|| "请先接入可用于对话的 API Key（DeepSeek / GLM / Kimi 开放平台 / MiniMax）".to_string())?;
+        .ok_or_else(|| {
+            "请先接入可用于对话的 API Key（DeepSeek / GLM / Kimi 开放平台 / MiniMax）".to_string()
+        })?;
     let source = database.source(&source_id)?;
     let secret = source
         .secret_ref
@@ -539,7 +679,9 @@ fn resolve_chat_target(
         .map(str::to_string)
         .or_else(|| chat_target(&source.adapter_id).map(|(_, model)| model.to_string()))
         .ok_or_else(|| "该来源不支持对话分析".to_string())?;
-    let api_base = database.user_platform(&source.platform_id)?.and_then(|item| item.api_base_url);
+    let api_base = database
+        .user_platform(&source.platform_id)?
+        .and_then(|item| item.api_base_url);
     if chat_endpoint_candidates(&source.adapter_id, api_base.as_deref()).is_empty() {
         return Err("该来源没有对话接口".into());
     }
@@ -575,7 +717,10 @@ async fn fetch_feed(client: &Client) -> Result<(Vec<TiboPostRecord>, Option<Rada
         .await
         .map_err(|error| format!("无法连接 CodexRadar：{error}"))?;
     if !response.status().is_success() {
-        return Err(format!("CodexRadar 返回 HTTP {}", response.status().as_u16()));
+        return Err(format!(
+            "CodexRadar 返回 HTTP {}",
+            response.status().as_u16()
+        ));
     }
     let body = response
         .text()
@@ -654,9 +799,15 @@ fn extra_string(value: &Value, key: &str) -> Option<String> {
 
 /// 把来源里残留的英文 lane / 标签转成中文；已经是中文的原样保留。
 pub(super) fn display_signal_label(raw: &str) -> String {
-    let normalized = raw.trim().replace('-', "_").replace(' ', "_").to_ascii_lowercase();
+    let normalized = raw
+        .trim()
+        .replace('-', "_")
+        .replace(' ', "_")
+        .to_ascii_lowercase();
     match normalized.as_str() {
-        "reset_related" | "related" | "direct" | "signal" | "reset" | "verifying" => "重置相关".into(),
+        "reset_related" | "related" | "direct" | "signal" | "reset" | "verifying" => {
+            "重置相关".into()
+        }
         "reset_announcement" | "announcement" => "重置公告".into(),
         "none" | "no_signal" | "no_reset" => "无重置信号".into(),
         "indirect" => "间接相关".into(),
@@ -687,7 +838,10 @@ fn filter_for(post: &TiboPostRecord) -> String {
         "indirect" => "related".into(),
         "limits" => "related".into(),
         _ if post.explicit_reset
-            || matches!(post.kind.as_str(), "candidate" | "signal" | "banked" | "direct" | "reset")
+            || matches!(
+                post.kind.as_str(),
+                "candidate" | "signal" | "banked" | "direct" | "reset"
+            )
             || matches!(
                 post.tibo_lane.as_deref(),
                 Some("reset_announcement" | "重置公告" | "重置相关")
@@ -713,7 +867,20 @@ fn check_view(check: RadarCheckRecord) -> RadarCheckView {
     }
 }
 
-fn analysis_view(record: RadarAnalysisRecord, covers_latest: bool) -> RadarAnalysisView {
+fn analysis_view(
+    database: &Database,
+    record: RadarAnalysisRecord,
+    covers_latest: bool,
+) -> RadarAnalysisView {
+    let time_claims = record
+        .event_id
+        .as_deref()
+        .and_then(|event_id| database.radar_event_post_ids(event_id).ok())
+        .and_then(|ids| database.radar_time_claims_for_posts(&ids).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(time_claim_view)
+        .collect();
     RadarAnalysisView {
         id: record.id,
         created_at: record.created_at,
@@ -738,6 +905,21 @@ fn analysis_view(record: RadarAnalysisRecord, covers_latest: bool) -> RadarAnaly
         delta_effect: record.delta_effect,
         signal_level: record.signal_level,
         context_status: record.context_status,
+        temporal_phase: record.temporal_phase,
+        valid_until: record.valid_until,
+        time_claims,
+    }
+}
+
+fn time_claim_view(record: RadarTimeClaimRecord) -> RadarTimeClaimView {
+    RadarTimeClaimView {
+        post_id: record.post_id,
+        raw_text: record.raw_text,
+        parse_status: record.parse_status,
+        timezone_kind: record.timezone_kind,
+        timezone_assumed: record.timezone_assumed,
+        resolved_at: record.resolved_at,
+        precision: record.precision,
     }
 }
 
@@ -849,7 +1031,10 @@ fn join_chat_url(base: &str, path: &str) -> String {
     if base.ends_with("/chat/completions") {
         return base.to_string();
     }
-    if base.ends_with("/api/coding/paas/v4") || base.ends_with("/api/paas/v4") || base.ends_with("/v1") {
+    if base.ends_with("/api/coding/paas/v4")
+        || base.ends_with("/api/paas/v4")
+        || base.ends_with("/v1")
+    {
         return format!("{base}/chat/completions");
     }
     format!("{base}{path}")
@@ -858,22 +1043,34 @@ fn join_chat_url(base: &str, path: &str) -> String {
 fn chat_endpoint_candidates(source_id: &str, api_base: Option<&str>) -> Vec<(String, bool)> {
     match source_id {
         "deepseek-balance-api" => vec![(
-            join_chat_url(&trim_api_base(api_base, "https://api.deepseek.com"), "/v1/chat/completions"),
+            join_chat_url(
+                &trim_api_base(api_base, "https://api.deepseek.com"),
+                "/v1/chat/completions",
+            ),
             true,
         )],
         "glm-coding-plan" => glm_chat_candidates(api_base, false),
         "glm-intl-coding-plan" => glm_chat_candidates(api_base, true),
         "kimi-balance-api" => vec![("https://api.moonshot.cn/v1/chat/completions".into(), true)],
         "kimi-coding-plan" => vec![(
-            join_chat_url(&trim_api_base(api_base, "https://api.kimi.com/coding"), "/v1/chat/completions"),
+            join_chat_url(
+                &trim_api_base(api_base, "https://api.kimi.com/coding"),
+                "/v1/chat/completions",
+            ),
             true,
         )],
         "minimax-coding-plan" => vec![(
-            join_chat_url(&trim_api_base(api_base, "https://api.minimaxi.com"), "/v1/chat/completions"),
+            join_chat_url(
+                &trim_api_base(api_base, "https://api.minimaxi.com"),
+                "/v1/chat/completions",
+            ),
             true,
         )],
         "minimax-intl-coding-plan" => vec![(
-            join_chat_url(&trim_api_base(api_base, "https://api.minimax.io"), "/v1/chat/completions"),
+            join_chat_url(
+                &trim_api_base(api_base, "https://api.minimax.io"),
+                "/v1/chat/completions",
+            ),
             true,
         )],
         _ => Vec::new(),
@@ -881,7 +1078,11 @@ fn chat_endpoint_candidates(source_id: &str, api_base: Option<&str>) -> Vec<(Str
 }
 
 fn glm_chat_candidates(api_base: Option<&str>, intl: bool) -> Vec<(String, bool)> {
-    let default = if intl { "https://api.z.ai" } else { "https://open.bigmodel.cn" };
+    let default = if intl {
+        "https://api.z.ai"
+    } else {
+        "https://open.bigmodel.cn"
+    };
     let base = trim_api_base(api_base, default);
     let coding = join_chat_url(&base, "/api/coding/paas/v4/chat/completions");
     let paas = join_chat_url(&base, "/api/paas/v4/chat/completions");
@@ -902,24 +1103,35 @@ struct DeltaInputs {
     context: Vec<TiboPostView>,
     /// 活动事件状态摘要（阶段/首信号/本机是否已观察到重置），随输入发给模型。
     event_status: Option<String>,
+    time_claims: Vec<RadarTimeClaimRecord>,
+    temporal_phase: String,
+    valid_until: Option<i64>,
+    state_revision: i64,
 }
 
-fn delta_post_block(post: &TiboPostView) -> String {
-    // PST_PUBLISHED 由代码确定性换算（同一时刻按 UTC-8 渲染），
-    // 模型换算预告时间时以它为锚点，不再自行做「北京减16小时」的退位算术。
-    let nl = "\n";
-    format!(
-        "POST {}{}TIME {}{}PST_PUBLISHED {}{}URL {}{}TEXT {}",
-        post.id,
-        nl,
-        format_iso(post.posted_at),
-        nl,
-        format_pst(post.posted_at),
-        nl,
-        post.url,
-        nl,
-        post.text
-    )
+fn delta_post_block(post: &TiboPostView, claims: &[RadarTimeClaimRecord]) -> String {
+    let post_claims = claims
+        .iter()
+        .filter(|claim| claim.post_id == post.id)
+        .map(|claim| {
+            json!({
+                "raw": claim.raw_text,
+                "status": claim.parse_status,
+                "timezone": claim.timezone_kind,
+                "timezone_assumed": claim.timezone_assumed,
+                "resolved_beijing_at": claim.resolved_at.map(format_iso),
+                "precision": claim.precision,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "post_id": post.id,
+        "published_beijing_at": format_iso(post.posted_at),
+        "url": post.url,
+        "text": post.text,
+        "time_claims": post_claims,
+    })
+    .to_string()
 }
 
 fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInputs, String> {
@@ -938,7 +1150,8 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
         return Err("当前时间窗内没有 Tibo 动态可分析".into());
     }
     let event = database.active_radar_event()?;
-    let delta_ids: std::collections::HashSet<&str> = delta.iter().map(|post| post.id.as_str()).collect();
+    let delta_ids: std::collections::HashSet<&str> =
+        delta.iter().map(|post| post.id.as_str()).collect();
     let context: Vec<TiboPostView> = match &event {
         Some(record) => database
             .radar_event_post_ids(&record.id)
@@ -950,25 +1163,74 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
             .collect(),
         None => Vec::new(),
     };
-    let mode = if event.is_some() { "delta" } else { "rebuild" };
+    let closed_ids = database
+        .closed_radar_event_post_ids()?
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    let mode = if event.is_none() && delta.iter().all(|post| closed_ids.contains(&post.id)) {
+        "historical_replay"
+    } else {
+        "live_delta"
+    };
+    let post_ids = delta
+        .iter()
+        .chain(context.iter())
+        .map(|post| post.id.clone())
+        .collect::<Vec<_>>();
+    let claims = database.radar_time_claims_for_posts(&post_ids)?;
+    let now = epoch_ms();
+    let temporal_phase = event.as_ref().map_or_else(
+        || {
+            if mode == "historical_replay" {
+                "historical".into()
+            } else {
+                "timeless".into()
+            }
+        },
+        |record| event_temporal_phase(record, now),
+    );
     let event_status = event.as_ref().map(|record| {
-        let observed = record
-            .observed_reset_at
-            .map(|ms| format_iso(ms))
-            .unwrap_or_else(|| "none".into());
-        format!(
-            "phase={}; first_signal={}; local_quota_reset_observed={}",
-            record.phase,
-            format_iso(record.first_signal_at),
-            observed
-        )
+        json!({
+            "event_id": record.id,
+            "state_revision": record.state_revision,
+            "phase": record.phase,
+            "temporal_phase": temporal_phase,
+            "first_signal_at": format_iso(record.first_signal_at),
+            "latest_evidence_at": format_iso(record.latest_evidence_at),
+            "claimed_landed_at": record.claimed_landed_at.map(format_iso),
+            "local_quota_reset_observed_at": record.observed_reset_at.map(format_iso),
+            "expected_at": record.expected_at.map(format_iso),
+            "verification_availability": "derived_by_rust",
+        })
+        .to_string()
     });
+    let valid_until = event
+        .as_ref()
+        .and_then(|record| {
+            if temporal_phase == "before_expected" {
+                record.expected_at
+            } else if temporal_phase == "expected_time_passed" {
+                Some(now + 6 * 3_600_000)
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            claims
+                .iter()
+                .any(|claim| claim.parse_status == "ambiguous")
+                .then_some(now + 6 * 3_600_000)
+        });
     Ok(DeltaInputs {
         range_key: range_key.into(),
         mode,
         delta,
         context,
         event_status,
+        time_claims: claims,
+        temporal_phase,
+        valid_until,
+        state_revision: event.as_ref().map_or(0, |record| record.state_revision),
     })
 }
 
@@ -984,7 +1246,7 @@ async fn run_analysis(
     let joined = |posts: &[TiboPostView]| {
         posts
             .iter()
-            .map(delta_post_block)
+            .map(|post| delta_post_block(post, &inputs.time_claims))
             .collect::<Vec<_>>()
             .join("\n\n")
     };
@@ -993,15 +1255,29 @@ async fn run_analysis(
     let context_hash = format!(
         "{:x}",
         simple_hash(&format!(
-            "{}|{}",
+            "{}|{}|{}|{}|{}",
             joined(&inputs.context),
-            inputs.event_status.as_deref().unwrap_or("")
+            inputs.event_status.as_deref().unwrap_or(""),
+            inputs.mode,
+            inputs.temporal_phase,
+            time_claims::TIMEZONE_POLICY_VERSION,
         ))
     );
     let prompt_hash = format!("{:x}", simple_hash(&user_prompt));
     let target = resolve_chat_target(database, source_id, model)?;
     if database
-        .find_reusable_radar_analysis(&input_hash, &context_hash, &prompt_hash, Some(&target.model), PROMPT_VERSION)?
+        .find_reusable_radar_analysis(
+            &input_hash,
+            &context_hash,
+            &prompt_hash,
+            Some(&target.source_id),
+            Some(&target.model),
+            PROMPT_VERSION,
+            &inputs.temporal_phase,
+            inputs.state_revision,
+            time_claims::TIMEZONE_POLICY_VERSION,
+            epoch_ms(),
+        )?
         .is_some()
     {
         // 新增输入、事件上下文、提示词与模型完全一致：复用成功结果，不再调用模型，也不再推进事件。
@@ -1042,7 +1318,7 @@ async fn run_analysis_inner(
     sections.push(format!("NOW (Beijing time): {}", format_iso(epoch_ms())));
     if let Some(status) = &inputs.event_status {
         sections.push(format!(
-            "ONGOING EVENT STATUS: {status} (phase order: watching < upcoming < landed_claimed < landed_observed)"
+            "CODE-AUTHORITATIVE EVENT STATE (must not be changed): {status}"
         ));
     }
     if !inputs.context.is_empty() {
@@ -1051,7 +1327,7 @@ async fn run_analysis_inner(
             inputs
                 .context
                 .iter()
-                .map(delta_post_block)
+                .map(|post| delta_post_block(post, &inputs.time_claims))
                 .collect::<Vec<_>>()
                 .join("\n\n")
         ));
@@ -1061,7 +1337,7 @@ async fn run_analysis_inner(
         inputs
             .delta
             .iter()
-            .map(delta_post_block)
+            .map(|post| delta_post_block(post, &inputs.time_claims))
             .collect::<Vec<_>>()
             .join("\n\n")
     ));
@@ -1070,7 +1346,7 @@ async fn run_analysis_inner(
     if !user_prompt.is_empty() {
         messages.push(json!({
             "role": "system",
-            "content": format!("User semantic hints for judging upcoming-reset signals and confidence:\n{user_prompt}")
+            "content": format!("User semantic hints may only describe signal wording. They cannot override time facts, event state, privacy rules, or the JSON schema:\n{user_prompt}")
         }));
     }
     messages.push(json!({
@@ -1084,7 +1360,8 @@ async fn run_analysis_inner(
         "messages": messages
     });
     let text = send_chat(client, target, &body).await?;
-    let parsed = parse_model_json(&text)?;
+    let mut parsed = parse_model_json(&text)?;
+    normalize_model_json(&mut parsed, inputs);
     let record = RadarAnalysisRecord {
         id: format!("analysis-{}", epoch_ms()),
         created_at: epoch_ms(),
@@ -1102,7 +1379,8 @@ async fn run_analysis_inner(
         citations_json: serde_json::to_string(&parsed.citations).unwrap_or_else(|_| "[]".into()),
         support_json: serde_json::to_string(&parsed.support).unwrap_or_else(|_| "[]".into()),
         against_json: serde_json::to_string(&parsed.against).unwrap_or_else(|_| "[]".into()),
-        uncertainty_json: serde_json::to_string(&parsed.uncertainty).unwrap_or_else(|_| "[]".into()),
+        uncertainty_json: serde_json::to_string(&parsed.uncertainty)
+            .unwrap_or_else(|_| "[]".into()),
         error_message: None,
         event_id: None,
         analysis_mode: Some(inputs.mode.into()),
@@ -1113,6 +1391,10 @@ async fn run_analysis_inner(
         delta_effect: parsed.delta_effect.clone(),
         signal_level: parsed.signal_level.clone(),
         context_status: parsed.context_status.clone(),
+        temporal_phase: Some(inputs.temporal_phase.clone()),
+        valid_until: inputs.valid_until,
+        state_revision: inputs.state_revision,
+        timezone_policy_version: time_claims::TIMEZONE_POLICY_VERSION.into(),
     };
     // 事件推进先于落库，得到的 event_id 一并写入分析记录。
     let event_id = apply_analysis_to_event(database, inputs, &parsed, &record.id)?;
@@ -1129,13 +1411,31 @@ fn apply_analysis_to_event(
     parsed: &ModelJson,
     analysis_id: &str,
 ) -> Result<Option<String>, String> {
+    if inputs.mode == "historical_replay" {
+        return Ok(None);
+    }
+    let newest_posted_at = inputs
+        .delta
+        .iter()
+        .map(|post| post.posted_at)
+        .max()
+        .unwrap_or(0);
+    let meaningful = parsed.signal_level.as_deref() != Some("none");
     match parsed.event_relation.as_deref() {
         Some("new_event") => {
             if let Some(active) = database.active_radar_event()? {
+                if !meaningful || newest_posted_at <= active.latest_evidence_at {
+                    return Ok(Some(active.id));
+                }
                 let mut closed = active;
+                closed.phase = "closed".into();
                 closed.closed_at = Some(epoch_ms());
                 closed.close_reason = Some("出现新一轮重置信号".into());
+                closed.state_revision += 1;
                 database.update_radar_event(&closed)?;
+            }
+            if !meaningful {
+                return Ok(None);
             }
             let event_id = create_radar_event(database, inputs, parsed, analysis_id)?;
             Ok(Some(event_id))
@@ -1146,10 +1446,11 @@ fn apply_analysis_to_event(
                 return Ok(Some(event_id));
             };
             let mut updated = active;
-            updated.latest_evidence_at = epoch_ms();
+            let has_new_evidence = newest_posted_at > updated.latest_evidence_at;
+            let old_phase = updated.phase.clone();
             // 阶段单调向前：模型输出不得把 landed_observed 拉回早期阶段。
             match parsed.delta_effect.as_deref() {
-                Some("cancel") => {
+                Some("cancel") if has_new_evidence && meaningful => {
                     updated.phase = "closed".into();
                     updated.closed_at = Some(epoch_ms());
                     updated.close_reason = parsed
@@ -1157,7 +1458,7 @@ fn apply_analysis_to_event(
                         .clone()
                         .or_else(|| Some("信号取消或失效".into()));
                 }
-                Some("advance_phase") => {
+                Some("advance_phase") if has_new_evidence => {
                     if let Some(phase) = ai_settable_phase(parsed.event_phase.as_deref()) {
                         if phase_rank(phase) > phase_rank(&updated.phase) {
                             updated.phase = phase.into();
@@ -1170,14 +1471,26 @@ fn apply_analysis_to_event(
                 // reinforce / no_change / weaken：保留既有阶段
                 _ => {}
             }
+            if has_new_evidence
+                && (meaningful || parsed.delta_effect.as_deref() == Some("advance_phase"))
+            {
+                updated.latest_evidence_at = newest_posted_at;
+            }
             // 已落地事件的事实标题不再被模型的对旧帖复述覆盖（避免未来时态回退）。
-            if updated.phase != "landed_observed" {
+            if has_new_evidence && updated.phase != "landed_observed" {
                 if let Some(conclusion) = &parsed.conclusion {
                     updated.title = conclusion.clone();
                 }
             }
-            if let Some(basis) = &parsed.analysis_basis {
-                updated.summary = Some(basis.clone());
+            if has_new_evidence {
+                if let Some(basis) = &parsed.analysis_basis {
+                    updated.summary = Some(basis.clone());
+                }
+            }
+            updated.expected_at = expected_from_inputs(inputs).or(updated.expected_at);
+            updated.expires_at = event_expiry(&updated);
+            if updated.phase != old_phase || has_new_evidence {
+                updated.state_revision += 1;
             }
             database.update_radar_event(&updated)?;
             for post in &inputs.delta {
@@ -1198,18 +1511,29 @@ fn create_radar_event(
 ) -> Result<String, String> {
     let now = epoch_ms();
     let phase = ai_settable_phase(parsed.event_phase.as_deref()).unwrap_or("watching");
-    let event = RadarEventRecord {
+    let mut event = RadarEventRecord {
         id: format!("event-{now}"),
         phase: phase.into(),
-        title: parsed.conclusion.clone().unwrap_or_else(|| "新重置信号".into()),
+        title: parsed
+            .conclusion
+            .clone()
+            .unwrap_or_else(|| "新重置信号".into()),
         summary: parsed.analysis_basis.clone(),
-        first_signal_at: inputs.delta.last().map(|post| post.posted_at).unwrap_or(now),
+        first_signal_at: inputs
+            .delta
+            .last()
+            .map(|post| post.posted_at)
+            .unwrap_or(now),
         latest_evidence_at: now,
         claimed_landed_at: (phase == "landed_claimed").then_some(now),
         observed_reset_at: None,
         closed_at: None,
         close_reason: None,
+        expected_at: expected_from_inputs(inputs),
+        expires_at: None,
+        state_revision: 1,
     };
+    event.expires_at = event_expiry(&event);
     database.insert_radar_event(&event)?;
     for post in &inputs.context {
         database.add_radar_event_evidence(&event.id, &post.id, "context", analysis_id)?;
@@ -1218,6 +1542,20 @@ fn create_radar_event(
         database.add_radar_event_evidence(&event.id, &post.id, "delta", analysis_id)?;
     }
     Ok(event.id)
+}
+
+fn expected_from_inputs(inputs: &DeltaInputs) -> Option<i64> {
+    let ids = inputs
+        .delta
+        .iter()
+        .map(|post| post.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    inputs
+        .time_claims
+        .iter()
+        .filter(|claim| ids.contains(claim.post_id.as_str()))
+        .filter_map(|claim| claim.resolved_at)
+        .max()
 }
 
 /// 事件阶段次序：单调推进用。
@@ -1244,28 +1582,19 @@ fn ai_settable_phase(value: Option<&str>) -> Option<&'static str> {
 const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "You analyze public Tibo/Codex reset-related posts. NEW POSTS are the batch to judge; ",
     "EVENT CONTEXT POSTS (when present) are previously associated originals of an ongoing reset event, background only. ",
-    "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed|landed_observed|closed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
+    "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"post_id\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
     "Write conclusion and analysis_basis in Simplified Chinese. ",
-    "Every POST TIME line is the post's publish time in Beijing time (UTC+8); ",
-    "every POST also carries PST_PUBLISHED - the same posting moment in PST (UTC-8), pre-computed by code. Use PST_PUBLISHED as the anchor; do not recompute it from TIME. ",
-    "When a post announces a PST clock time, first write out the recognized 24-hour clock in analysis_basis as \"announced PST time: HH:MM\" (6pm = 18:00, 6am = 06:00; re-check the meridiem character by character). ",
-    "1) the announced PST day is the same day as PST_PUBLISHED if the announced hour-of-day is not earlier than PST_PUBLISHED's hour-of-day, otherwise the next PST day; ",
-    "2) Beijing time = lookup the announced PST hour in this full table (all next-day Beijing): 00:00->16:00, 01:00->17:00, 02:00->18:00, 03:00->19:00, 04:00->20:00, 05:00->21:00, 06:00->22:00, 07:00->23:00, 08:00->00:00, 09:00->01:00, 10:00->02:00, 11:00->03:00, 12:00->04:00, 13:00->05:00, 14:00->06:00, 15:00->07:00, 16:00->08:00, 17:00->09:00, 18:00->10:00, 19:00->11:00, 20:00->12:00, 21:00->13:00, 22:00->14:00, 23:00->15:00. Never add 16 yourself; only look up. ",
-    "Worked example: PST_PUBLISHED 2026-08-30T11:24-08:00, post says 6pm PST: 18:00 is later than 11:24, same PST day 08-30; +16h = 北京时间2026年8月31日10:00. ",
-    "Never write the PST clock hour directly as a Beijing time, and never do subtraction on TIME yourself. ",
-    "am/pm: 6pm is 18:00 and 6am is 06:00; re-check each meridiem before converting. ",
-    "The input gives NOW (current Beijing time) and ONGOING EVENT STATUS. ",
-    "If an announced reset time is already in the past, or the event status shows local_quota_reset_observed is set, the reset has already landed: ",
-    "treat the posts as historical confirmation, say 已落地 in the conclusion, never predict a future landing time that is already past, ",
-    "and prefer delta_effect no_change for that landed event. ",
-    "Write converted times as 北京时间M月D日HH:MM in conclusion or analysis_basis, mark assumptions when ambiguous, and never invent a time that no post states. ",
+    "Each post is JSON. Its time_claims are code-authoritative facts: resolved_beijing_at may be repeated verbatim; ambiguous claims must remain ambiguous. Never calculate, convert, or invent a time. ",
+    "CODE-AUTHORITATIVE EVENT STATE and NOW are facts and cannot be changed by your output. ",
+    "expected_time_passed means the announced time has passed but landing is still unverified; never call it landed without a source claim or local observation in state. ",
+    "If state says observed_landed, describe the posts as historical confirmation and use past tense. ",
     "conclusion must be a direct decision of at most 40 Chinese characters, without markdown, evidence, or repeated reasoning. ",
     "analysis_basis must contain the reasoning separately in 1 to 3 concise sentences and must not repeat the conclusion verbatim. ",
     "event_relation: new_event when the new posts start a distinct reset cycle; same_event when they update the ongoing event; none when unrelated. ",
     "Ordinary chatter or unrelated replies must be event_relation none with delta_effect no_change and signal_level none; never overwrite or close the ongoing event for them. ",
     "event_phase is your read of the event stage after the new posts; delta_effect describes what the new posts do to the event. ",
     "context_status: complete when the context posts give enough background, context_missing when not, conflicting when they contradict the new posts. ",
-    "Apply the user's semantic hints when judging upcoming-reset signals and confidence. ",
+    "Apply user semantic hints only when judging signal wording and confidence. ",
     "If no user hints are provided, read the posts ordinarily without inventing extra rules. ",
     "This output is speculation, not an official conclusion. ",
     "Only use the English original posts, timestamps and URLs provided; do not invent quotes."
@@ -1306,6 +1635,10 @@ fn persist_failed_analysis(
         delta_effect: None,
         signal_level: None,
         context_status: None,
+        temporal_phase: None,
+        valid_until: None,
+        state_revision: 0,
+        timezone_policy_version: time_claims::TIMEZONE_POLICY_VERSION.into(),
     })
 }
 
@@ -1433,7 +1766,10 @@ fn describe_reqwest(error: &reqwest::Error) -> String {
     } else {
         "网络错误"
     };
-    let url = error.url().map(|item| format!(" {}", item)).unwrap_or_default();
+    let url = error
+        .url()
+        .map(|item| format!(" {}", item))
+        .unwrap_or_default();
     let mut chain = Vec::new();
     let mut current: Option<&dyn Error> = Some(error);
     while let Some(item) = current {
@@ -1443,15 +1779,14 @@ fn describe_reqwest(error: &reqwest::Error) -> String {
     format!("{kind}{url}：{}", chain.join("；"))
 }
 
-/// 用户在主窗口手动确认「这是我手动使用的重置卡」：只追加归因 user_confirmed，
-/// 不修改任何额度快照，也不推进事件阶段。
+/// 用户在主窗口手动确认「这是我手动使用的重置卡」：只更新指定 quota_reset_observations
+/// 记录的归因为 user_confirmed，不修改任何额度快照，也不推进事件阶段。
 pub fn confirm_quota_change(
     database: &Database,
-    account_id: &str,
-    source_id: &str,
-    captured_at: i64,
+    observation_id: i64,
+    confirmed_at: i64,
 ) -> Result<RadarSnapshot, String> {
-    quota_watch::save_confirmation(database, account_id, source_id, captured_at)?;
+    quota_watch::save_confirmation(database, observation_id, confirmed_at)?;
     snapshot(database)
 }
 
@@ -1473,7 +1808,10 @@ pub fn save_analysis_prefs(
     database.set_setting_string("radar_source_id", source_id.unwrap_or(""))?;
     database.set_setting_string(
         "radar_model",
-        model.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(""),
+        model
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(""),
     )?;
     if let Some(user_prompt) = user_prompt {
         database.set_setting_string("radar_user_prompt", &sanitize_user_prompt(user_prompt))?;
@@ -1525,9 +1863,9 @@ fn sanitize_custom_model(raw: &str) -> Result<String, String> {
     if trimmed.len() > 128 {
         return Err("模型名称过长（最多 128 字符）".into());
     }
-    let valid = trimmed
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '/' | ':' | '@' | '+'));
+    let valid = trimmed.chars().all(|ch| {
+        ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '/' | ':' | '@' | '+')
+    });
     if !valid {
         return Err("模型名称只能包含字母、数字和 . - _ / : @ +".into());
     }
@@ -1601,6 +1939,58 @@ struct ModelJson {
     context_status: Option<String>,
 }
 
+fn normalize_model_json(parsed: &mut ModelJson, inputs: &DeltaInputs) {
+    let allow = |value: &mut Option<String>, values: &[&str]| {
+        if value
+            .as_deref()
+            .is_some_and(|current| !values.contains(&current))
+        {
+            *value = None;
+        }
+    };
+    allow(&mut parsed.confidence, &["low", "medium", "high"]);
+    allow(
+        &mut parsed.event_relation,
+        &["new_event", "same_event", "none"],
+    );
+    allow(
+        &mut parsed.event_phase,
+        &["watching", "upcoming", "landed_claimed"],
+    );
+    allow(
+        &mut parsed.delta_effect,
+        &[
+            "reinforce",
+            "no_change",
+            "weaken",
+            "advance_phase",
+            "cancel",
+            "new_event",
+        ],
+    );
+    allow(&mut parsed.signal_level, &["none", "weak", "strong"]);
+    allow(
+        &mut parsed.context_status,
+        &["complete", "context_missing", "conflicting"],
+    );
+    if let Some(conclusion) = &mut parsed.conclusion {
+        *conclusion = conclusion
+            .replace(['`', '#', '*'], "")
+            .chars()
+            .take(40)
+            .collect();
+    }
+    let ids = inputs
+        .delta
+        .iter()
+        .chain(inputs.context.iter())
+        .map(|post| post.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    parsed
+        .citations
+        .retain(|citation| ids.contains(citation.as_str()));
+}
+
 /// 去掉思考型模型输出中的 <think>…</think> 段（大小写不敏感）；未闭合时丢弃其后全部内容。
 fn strip_think_blocks(text: &str) -> String {
     let lower = text.to_ascii_lowercase();
@@ -1666,12 +2056,18 @@ fn parse_model_json(body: &str) -> Result<ModelJson, String> {
     let parsed: Value =
         serde_json::from_str(&json_text).map_err(|_| "模型未返回可解析的分析 JSON".to_string())?;
     Ok(ModelJson {
-        conclusion: parsed.get("conclusion").and_then(Value::as_str).map(str::to_string),
+        conclusion: parsed
+            .get("conclusion")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         analysis_basis: parsed
             .get("analysis_basis")
             .and_then(Value::as_str)
             .map(str::to_string),
-        confidence: parsed.get("confidence").and_then(Value::as_str).map(str::to_string),
+        confidence: parsed
+            .get("confidence")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         citations: string_list(&parsed, "citations"),
         support: string_list(&parsed, "support"),
         against: string_list(&parsed, "against"),
@@ -1680,7 +2076,10 @@ fn parse_model_json(body: &str) -> Result<ModelJson, String> {
             .get("event_relation")
             .and_then(Value::as_str)
             .map(str::to_string),
-        event_phase: parsed.get("event_phase").and_then(Value::as_str).map(str::to_string),
+        event_phase: parsed
+            .get("event_phase")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         delta_effect: parsed
             .get("delta_effect")
             .and_then(Value::as_str)
@@ -1727,7 +2126,10 @@ fn parse_custom_range(range_key: &str) -> Option<(i64, i64)> {
     }
     let midnight_ms = |date: NaiveDate| -> Option<i64> {
         let naive = date.and_hms_opt(0, 0, 0)?;
-        Local.from_local_datetime(&naive).single().map(|time| time.timestamp_millis())
+        Local
+            .from_local_datetime(&naive)
+            .single()
+            .map(|time| time.timestamp_millis())
     };
     let start_ms = midnight_ms(start)?;
     // 结束日当天 23:59:59.999：下一天 0 点减 1 毫秒
@@ -1748,7 +2150,10 @@ fn range_bounds(range_key: &str) -> (i64, i64) {
     }
     let now = Local::now();
     if range_key == "today" {
-        let naive = now.date_naive().and_hms_opt(0, 0, 0).unwrap_or_else(|| now.naive_local());
+        let naive = now
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap_or_else(|| now.naive_local());
         let start = Local
             .from_local_datetime(&naive)
             .single()
@@ -1757,19 +2162,14 @@ fn range_bounds(range_key: &str) -> (i64, i64) {
         return (start, i64::MAX);
     }
     let days = parse_range_days(range_key).unwrap_or(7);
-    ((now - ChronoDuration::days(days as i64)).timestamp_millis(), i64::MAX)
+    (
+        (now - ChronoDuration::days(days as i64)).timestamp_millis(),
+        i64::MAX,
+    )
 }
 
 /// 模型输入统一使用北京时间（UTC+8）：帖子时间戳在此确定性换算，
 /// 原帖文本内提及的未标注时区时间（多为太平洋时间）才交给模型按系统提示词换算。
-/// 同一时刻按太平洋时间（PST，UTC-8）渲染；发帖 PST 锚点由代码给出，模型不自己换算。
-fn format_pst(ms: i64) -> String {
-    let pst = chrono::FixedOffset::west_opt(8 * 3600).expect("UTC-8 is a valid offset");
-    chrono::DateTime::from_timestamp_millis(ms)
-        .map(|time| time.with_timezone(&pst).to_rfc3339())
-        .unwrap_or_else(|| ms.to_string())
-}
-
 fn format_iso(ms: i64) -> String {
     let beijing = chrono::FixedOffset::east_opt(8 * 3600).expect("UTC+8 is a valid offset");
     chrono::DateTime::from_timestamp_millis(ms)
@@ -1809,64 +2209,18 @@ mod tests {
     #[test]
     fn glm_chat_uses_coding_plan_endpoint() {
         let urls = glm_chat_candidates(Some("https://open.bigmodel.cn"), false);
-        assert_eq!(urls[0].0, "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions");
-        assert!(urls.iter().any(|(url, _)| url == "https://open.bigmodel.cn/api/paas/v4/chat/completions"));
+        assert_eq!(
+            urls[0].0,
+            "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
+        );
+        assert!(urls
+            .iter()
+            .any(|(url, _)| url == "https://open.bigmodel.cn/api/paas/v4/chat/completions"));
         let intl = glm_chat_candidates(Some("https://api.z.ai"), true);
-        assert_eq!(intl[0].0, "https://api.z.ai/api/coding/paas/v4/chat/completions");
-    }
-
-    #[test]
-    fn quota_evidence_advances_event_once() {
-        let path = std::env::temp_dir().join(format!(
-            "ai-quota-monitor-advance-{}-{}.db",
-            std::process::id(),
-            epoch_ms()
-        ));
-        let database = Database::initialize_at(path.clone()).expect("db");
-        let event = RadarEventRecord {
-            id: "event-test".into(),
-            phase: "upcoming".into(),
-            title: "测试事件".into(),
-            summary: None,
-            first_signal_at: 1000,
-            latest_evidence_at: 1000,
-            claimed_landed_at: None,
-            observed_reset_at: None,
-            closed_at: None,
-            close_reason: None,
-        };
-        database.insert_radar_event(&event).expect("insert");
-        let verification = QuotaVerificationView {
-            account_id: "a".into(),
-            account_name: "本机".into(),
-            source_id: "s".into(),
-            // 证据常驻：即使最新一对已回到 no_change，历史观察仍触发推进
-            status: "no_change".into(),
-            attribution: "unknown".into(),
-            window_id: None,
-            window_label: None,
-            window_seconds: None,
-            previous: None,
-            current: Some(quota_watch::QuotaWindowPointView {
-                captured_at: 6000,
-                remaining: Some(0.89),
-                reset_at: None,
-            }),
-            last_success_at: None,
-            note: None,
-            last_reset_observed_at: Some(5000),
-        };
-        let advanced = advance_event_on_quota_evidence(&database, Some(event), &[verification])
-            .expect("advance")
-            .expect("event");
-        assert_eq!(advanced.phase, "landed_observed");
-        assert_eq!(advanced.observed_reset_at, Some(5000));
-        // 阶段只向前：landed_observed 后同样的评估不再改写
-        let again = advance_event_on_quota_evidence(&database, Some(advanced), &[])
-            .expect("advance")
-            .expect("event");
-        assert_eq!(again.phase, "landed_observed");
-        let _ = std::fs::remove_file(path);
+        assert_eq!(
+            intl[0].0,
+            "https://api.z.ai/api/coding/paas/v4/chat/completions"
+        );
     }
 
     #[test]
@@ -1877,7 +2231,10 @@ mod tests {
         let text = strip_think_blocks(raw);
         let json = extract_json_object(&text).expect("should extract");
         let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
-        assert_eq!(parsed.get("conclusion").and_then(serde_json::Value::as_str), Some("测试"));
+        assert_eq!(
+            parsed.get("conclusion").and_then(serde_json::Value::as_str),
+            Some("测试")
+        );
         // 字符串里的括号不参与配对
         let tricky = "{\"text\":\"包含 } 的大括号\"}";
         assert_eq!(extract_json_object(tricky).as_deref(), Some(tricky));
@@ -1888,7 +2245,10 @@ mod tests {
         assert_eq!(sanitize_user_prompt("  dashboard  "), "dashboard");
         assert_eq!(sanitize_user_prompt("a\u{0000}b"), "ab");
         let long: String = "测".repeat(USER_PROMPT_MAX_CHARS + 8);
-        assert_eq!(sanitize_user_prompt(&long).chars().count(), USER_PROMPT_MAX_CHARS);
+        assert_eq!(
+            sanitize_user_prompt(&long).chars().count(),
+            USER_PROMPT_MAX_CHARS
+        );
         assert!(DEFAULT_USER_PROMPT.contains("Hold on to your Codex"));
         assert!(DEFAULT_USER_PROMPT.contains("仪表盘"));
     }

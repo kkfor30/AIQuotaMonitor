@@ -246,6 +246,23 @@ export type RadarAnalysis = {
   deltaEffect: string | null;
   signalLevel: string | null;
   contextStatus: string | null;
+  /** before_expected | expected_time_passed | claimed_landed | observed_landed | historical | timeless */
+  temporalPhase: string | null;
+  validUntil: number | null;
+  timeClaims: RadarTimeClaim[];
+};
+
+/** 帖内时间声明的确定性解析结果（time-v1）。 */
+export type RadarTimeClaim = {
+  postId: string;
+  rawText: string;
+  /** resolved | ambiguous */
+  parseStatus: string;
+  timezoneKind: string | null;
+  timezoneAssumed: boolean;
+  resolvedAt: number | null;
+  /** exact | assumed | ambiguous */
+  precision: string;
 };
 
 export type RadarSourceAssessment = {
@@ -271,6 +288,10 @@ export type RadarEvent = {
   claimedLandedAt: number | null;
   observedResetAt: number | null;
   closedAt: number | null;
+  expectedAt: number | null;
+  expiresAt: number | null;
+  stateRevision: number;
+  temporalStatus: string;
   timeline: RadarEventNode[];
   postIds: string[];
 };
@@ -298,6 +319,8 @@ export type QuotaVerification = {
   status: string;
   /** unknown | scheduled | user_confirmed | radar_correlated */
   attribution: string;
+  observationId: number | null;
+  temporalCorrelation: string;
   windowId: string | null;
   windowLabel: string | null;
   windowSeconds: number | null;
@@ -328,14 +351,12 @@ export async function cancelRadarCheck(): Promise<void> {
 }
 
 export async function confirmRadarQuotaChange(input: {
-  accountId: string;
-  sourceId: string;
-  capturedAt: number;
+  observationId: number;
+  confirmedAt: number;
 }): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("confirm_radar_quota_change", {
-    accountId: input.accountId,
-    sourceId: input.sourceId,
-    capturedAt: input.capturedAt,
+    observationId: input.observationId,
+    confirmedAt: input.confirmedAt,
   });
 }
 

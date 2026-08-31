@@ -90,6 +90,7 @@ fn start_auto_refresh(app: tauri::AppHandle) {
             last = now;
             if let Some(coordinator) = app.try_state::<refresh::RefreshCoordinator>() {
                 if coordinator.refresh_all(&database).await.is_ok() {
+                    let _ = radar::reconcile_event_state_now(&database);
                     let _ = app.emit("platform-data-changed", ());
                 }
             }
@@ -165,6 +166,7 @@ pub fn run() {
         .setup(|app| {
             let database = storage::database::Database::initialize(app.handle())
                 .map_err(std::io::Error::other)?;
+            radar::reconcile_event_state_now(&database).map_err(std::io::Error::other)?;
             app.manage(database);
             let refresh = refresh::RefreshCoordinator::new().map_err(std::io::Error::other)?;
             app.manage(refresh);

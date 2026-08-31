@@ -1,13 +1,12 @@
-//! 本机 Codex 额度窗口观察器：确定性比较同账号同来源同窗口的相邻成功快照。
-//! 网络不可达只表示无法验证（unavailable），不能推导「没有重置」，也不改变雷达事件阶段。
-//! 只读结构化 window_seconds / reset_at / progress 字段，禁止反解析 secondary_value 中文文本。
+//! 本机 Codex 额度观察：相邻快照先固化为 observation，后续 no_change 不覆盖历史重置事实。
 
 use crate::storage::database::Database;
+use crate::storage::repository::{
+    QuotaResetObservationRecord, RadarEventRecord, WindowSampleRecord,
+};
 use serde::Serialize;
 
-/// 剩余比例回升达到该幅度（0..1，即 10 个百分点）视为「窗口恢复」。
 const RECOVER_MIN: f64 = 0.10;
-/// 周期刷新的 reset_at 允许偏差：取 30 分钟与窗口 10% 的较大值。
 const SCHEDULE_TOLERANCE_MS: i64 = 30 * 60_000;
 
 #[derive(Debug, Clone, Serialize)]
@@ -16,10 +15,10 @@ pub struct QuotaVerificationView {
     pub account_id: String,
     pub account_name: String,
     pub source_id: String,
-    /// unavailable | insufficient_data | pending | scheduled | possible_reset | unscheduled_reset | no_change
     pub status: String,
-    /// unknown | scheduled | user_confirmed | radar_correlated
     pub attribution: String,
+    pub observation_id: Option<i64>,
+    pub temporal_correlation: String,
     pub window_id: Option<String>,
     pub window_label: Option<String>,
     pub window_seconds: Option<i64>,
@@ -27,7 +26,6 @@ pub struct QuotaVerificationView {
     pub current: Option<QuotaWindowPointView>,
     pub last_success_at: Option<i64>,
     pub note: Option<String>,
-    /// 最近一次观察到非计划/疑似窗口恢复的时间（历史证据常驻，不随后续刷新被覆盖）。
     pub last_reset_observed_at: Option<i64>,
 }
 
@@ -35,43 +33,142 @@ pub struct QuotaVerificationView {
 #[serde(rename_all = "camelCase")]
 pub struct QuotaWindowPointView {
     pub captured_at: i64,
-    /// 剩余比例 0..1；缺失表示该快照没有真实值。
     pub remaining: Option<f64>,
     pub reset_at: Option<i64>,
 }
 
-/// 事件首次信号时间用于 pending 判定与 radar_correlated 归因；无活动事件传 None。
-pub fn assess_quota_verifications(
+pub fn materialize_observations(
     database: &Database,
-    event_first_signal_at: Option<i64>,
-) -> Result<Vec<QuotaVerificationView>, String> {
-    let sources = database.openai_quota_sources()?;
-    let confirmations = load_confirmations(database)?;
-    let mut out = Vec::new();
-    for source in sources {
-        let mut verification = assess_source(database, &source, event_first_signal_at)?;
-        if confirmations
-            .iter()
-            .any(|item| item.account_id == source.account_id && item.source_id == source.id)
-        {
-            verification.attribution = "user_confirmed".into();
+    event: Option<&RadarEventRecord>,
+) -> Result<(), String> {
+    for source in database.openai_quota_sources()? {
+        let samples = database.recent_window_samples(&source.id)?;
+        for (previous, current) in all_pairs(&samples) {
+            let classification = classify(previous, current);
+            if !matches!(
+                classification,
+                "scheduled" | "possible_reset" | "unscheduled_reset"
+            ) {
+                continue;
+            }
+            let linked = event.filter(|value| value.first_signal_at <= current.captured_at);
+            let correlation = linked
+                .map(|value| correlation(value, current.captured_at))
+                .unwrap_or("none");
+            database.insert_quota_reset_observation(&QuotaResetObservationRecord {
+                id: 0,
+                account_id: source.account_id.clone(),
+                source_id: source.id.clone(),
+                capability_id: current.capability_id.clone(),
+                previous_snapshot_id: previous.id,
+                current_snapshot_id: current.id,
+                classification: classification.into(),
+                observed_at: current.captured_at,
+                event_id: linked.map(|value| value.id.clone()),
+                temporal_correlation: correlation.into(),
+                user_confirmed_at: None,
+            })?;
         }
-        out.push(verification);
     }
-    Ok(out)
+    Ok(())
 }
 
-fn assess_source(
+pub fn assess_quota_verifications(
     database: &Database,
-    source: &crate::storage::repository::SourceRecord,
-    event_first_signal_at: Option<i64>,
-) -> Result<QuotaVerificationView, String> {
-    let base = QuotaVerificationView {
+    event: Option<&RadarEventRecord>,
+) -> Result<Vec<QuotaVerificationView>, String> {
+    let mut result = Vec::new();
+    for source in database.openai_quota_sources()? {
+        let mut view = empty_view(&source);
+        if source.state == "error" || source.state == "auth_required" {
+            view.status = "unavailable".into();
+            view.note = source
+                .error_message
+                .clone()
+                .or_else(|| Some("额度来源暂不可用".into()));
+            result.push(view);
+            continue;
+        }
+        let samples = database.recent_window_samples(&source.id)?;
+        let pairs = latest_pairs(&samples);
+        if let Some((previous, current)) = pairs
+            .iter()
+            .max_by_key(|(_, current)| current.window_seconds.unwrap_or(0))
+        {
+            view.window_id = Some(current.capability_id.clone());
+            view.window_label = Some(current.display_name.clone());
+            view.window_seconds = current.window_seconds;
+            view.previous = Some(point(previous));
+            view.current = Some(point(current));
+            view.status = if event.is_some_and(|value| value.first_signal_at > current.captured_at)
+            {
+                "pending".into()
+            } else {
+                classify(previous, current).into()
+            };
+            view.note = Some(status_note(&view.status).into());
+            if view.status == "scheduled" {
+                view.attribution = "scheduled".into();
+            }
+        } else {
+            view.status = "insufficient_data".into();
+            view.note = Some("缺少额度基线快照，成功刷新两次后可观察".into());
+        }
+        let observations = database
+            .quota_reset_observations(Some(&source.id), event.map(|value| value.id.as_str()))?;
+        if let Some(observation) = observations.iter().find(|value| {
+            matches!(
+                value.classification.as_str(),
+                "unscheduled_reset" | "possible_reset"
+            )
+        }) {
+            view.observation_id = Some(observation.id);
+            view.last_reset_observed_at = Some(observation.observed_at);
+            view.temporal_correlation = observation.temporal_correlation.clone();
+            if observation.user_confirmed_at.is_some() {
+                view.attribution = "user_confirmed".into();
+            }
+            if view.status == "no_change" {
+                view.note = Some("本次刷新未见进一步变化；之前已观察到窗口重置".into());
+            }
+        }
+        result.push(view);
+    }
+    // 两个账号在 60 分钟内同时观察到，相关等级提升为 high。
+    for index in 0..result.len() {
+        let Some(at) = result[index].last_reset_observed_at else {
+            continue;
+        };
+        if result.iter().enumerate().any(|(other, value)| {
+            other != index
+                && value.account_id != result[index].account_id
+                && value
+                    .last_reset_observed_at
+                    .is_some_and(|peer| (peer - at).abs() <= 60 * 60_000)
+        }) {
+            result[index].temporal_correlation = "high".into();
+        }
+    }
+    Ok(result)
+}
+
+pub fn save_confirmation(
+    database: &Database,
+    observation_id: i64,
+    confirmed_at: i64,
+) -> Result<(), String> {
+    database.confirm_quota_reset_observation(observation_id, confirmed_at)
+}
+
+fn empty_view(source: &crate::storage::repository::SourceRecord) -> QuotaVerificationView {
+    QuotaVerificationView {
         account_id: source.account_id.clone(),
         account_name: source.account_name.clone(),
         source_id: source.id.clone(),
         status: "no_change".into(),
         attribution: "unknown".into(),
+        observation_id: None,
+        temporal_correlation: "none".into(),
         window_id: None,
         window_label: None,
         window_seconds: None,
@@ -80,171 +177,131 @@ fn assess_source(
         last_success_at: source.last_success_at,
         note: None,
         last_reset_observed_at: None,
-    };
-    // 凭据或网络失败：只代表无法验证，不代表没有重置。
-    if source.state == "error" || source.state == "auth_required" {
-        return Ok(QuotaVerificationView {
-            status: "unavailable".into(),
-            note: source.error_message.clone().or_else(|| Some("额度来源暂不可用".into())),
-            ..base
-        });
     }
-    let samples = database.recent_window_samples(&source.id)?;
-    let pairs = adjacent_window_pairs(&samples);
-    if pairs.is_empty() {
-        return Ok(QuotaVerificationView {
-            status: "insufficient_data".into(),
-            note: Some("缺少额度基线快照，成功刷新两次后可观察".into()),
-            ..base
-        });
-    }
-    // 主判定窗口取最长窗口（Plus 7 天 / Free 30 天）：重置事件观察的是套餐级周期窗口，
-    // 5 小时窗口的常规滚动不能冒充套餐窗口的刷新结论。
-    let mut candidates: Vec<&(&SnapshotPairInput, &SnapshotPairInput)> = pairs.iter().collect();
-    candidates.sort_by_key(|pair| std::cmp::Reverse(pair.0.window_seconds.unwrap_or(0)));
-    let primary_pair = candidates[0];
-    let mut verification = assess_pair(&base, primary_pair, event_first_signal_at);
-    verification.window_id = Some(primary_pair.0.capability_id.clone());
-    verification.window_label = Some(primary_pair.0.display_name.clone());
-    verification.window_seconds = primary_pair.0.window_seconds;
-    // 历史证据：扫描全部窗口对，记录最近一次非计划/疑似恢复的观察时间，
-    // 让「已重置」的证据在后续常规刷新（未见变化）中仍然常驻可见。
-    for pair in &pairs {
-        let probe = assess_pair(&base, pair, event_first_signal_at);
-        if matches!(probe.status.as_str(), "unscheduled_reset" | "possible_reset") {
-            if let Some(current) = &probe.current {
-                if verification
-                    .last_reset_observed_at
-                    .map_or(true, |seen| current.captured_at > seen)
-                {
-                    verification.last_reset_observed_at = Some(current.captured_at);
-                }
-            }
-        }
-    }
-    if verification.status == "no_change" && verification.last_reset_observed_at.is_some() {
-        verification.note = Some("本次刷新未见进一步变化；窗口重置已在之前的刷新中观察到".into());
-    }
-    Ok(verification)
 }
 
-/// 相邻成功快照对的输入。为避免引入中间结构，直接复用 SnapshotRecord 的克隆切片。
-type SnapshotPairInput = crate::storage::repository::SnapshotRecord;
+fn point(value: &WindowSampleRecord) -> QuotaWindowPointView {
+    QuotaWindowPointView {
+        captured_at: value.captured_at,
+        remaining: value.progress,
+        reset_at: value.reset_at,
+    }
+}
 
-fn adjacent_window_pairs(samples: &[SnapshotPairInput]) -> Vec<(&SnapshotPairInput, &SnapshotPairInput)> {
-    let mut pairs = Vec::new();
-    let mut index = 0;
-    while index < samples.len() {
-        let capability = &samples[index].capability_id;
-        let mut end = index;
-        while end < samples.len() && samples[end].capability_id == *capability {
+fn all_pairs(samples: &[WindowSampleRecord]) -> Vec<(&WindowSampleRecord, &WindowSampleRecord)> {
+    let mut result = Vec::new();
+    for group in grouped(samples) {
+        for pair in group.windows(2) {
+            result.push((&pair[0], &pair[1]));
+        }
+    }
+    result
+}
+
+fn latest_pairs(samples: &[WindowSampleRecord]) -> Vec<(&WindowSampleRecord, &WindowSampleRecord)> {
+    grouped(samples)
+        .into_iter()
+        .filter_map(|group| {
+            (group.len() >= 2).then(|| (&group[group.len() - 2], &group[group.len() - 1]))
+        })
+        .collect()
+}
+
+fn grouped(samples: &[WindowSampleRecord]) -> Vec<&[WindowSampleRecord]> {
+    let mut groups = Vec::new();
+    let mut start = 0;
+    while start < samples.len() {
+        let mut end = start + 1;
+        while end < samples.len() && samples[end].capability_id == samples[start].capability_id {
             end += 1;
         }
-        let group = &samples[index..end];
-        if group.len() >= 2 {
-            pairs.push((&group[0], &group[1]));
-        }
-        index = end;
+        groups.push(&samples[start..end]);
+        start = end;
     }
-    pairs
+    groups
 }
 
-fn assess_pair(
-    base: &QuotaVerificationView,
-    pair: &(&SnapshotPairInput, &SnapshotPairInput),
-    event_first_signal_at: Option<i64>,
-) -> QuotaVerificationView {
-    let (current, previous) = pair;
-    let point = |record: &SnapshotPairInput| QuotaWindowPointView {
-        captured_at: record.captured_at,
-        remaining: record.progress,
-        reset_at: record.reset_at,
+fn classify(previous: &WindowSampleRecord, current: &WindowSampleRecord) -> &'static str {
+    let (Some(prev_remaining), Some(curr_remaining), Some(prev_reset), Some(curr_reset)) = (
+        previous.progress,
+        current.progress,
+        previous.reset_at,
+        current.reset_at,
+    ) else {
+        return "insufficient_data";
     };
-    let mut verification = QuotaVerificationView {
-        previous: Some(point(previous)),
-        current: Some(point(current)),
-        ..base.clone()
-    };
-    // 事件发生在最近一次成功快照之后：等待下一次成功刷新再判断。
-    if let Some(signal_at) = event_first_signal_at {
-        if signal_at > current.captured_at {
-            verification.status = "pending".into();
-            verification.note = Some("等待事件后的下一次成功额度刷新".into());
-            return verification;
-        }
-    }
-    let (Some(prev_remaining), Some(curr_remaining)) = (previous.progress, current.progress) else {
-        verification.status = "insufficient_data".into();
-        verification.note = Some("快照缺少真实剩余值".into());
-        return verification;
-    };
-    let (Some(prev_reset), Some(curr_reset)) = (previous.reset_at, current.reset_at) else {
-        verification.status = "insufficient_data".into();
-        verification.note = Some("快照缺少结构化重置时间".into());
-        return verification;
-    };
-    let recovered = curr_remaining - prev_remaining >= RECOVER_MIN;
-    if !recovered {
-        verification.status = "no_change".into();
-        verification.note = Some("已成功刷新，本次未观察到窗口恢复".into());
-        return verification;
+    if curr_remaining - prev_remaining < RECOVER_MIN {
+        return "no_change";
     }
     let window_ms = current.window_seconds.unwrap_or(0) * 1000;
-    let reset_shift = curr_reset - prev_reset;
     let tolerance = SCHEDULE_TOLERANCE_MS.max(window_ms / 10);
-    if (reset_shift - window_ms).abs() <= tolerance {
-        verification.status = "scheduled".into();
-        verification.attribution = "scheduled".into();
-        verification.note = Some("到达原定时间后的正常周期刷新".into());
-        return verification;
+    let shift = curr_reset - prev_reset;
+    if current.captured_at >= prev_reset - SCHEDULE_TOLERANCE_MS
+        && (shift - window_ms).abs() <= tolerance
+    {
+        "scheduled"
+    } else if shift > tolerance && current.captured_at < prev_reset {
+        "unscheduled_reset"
+    } else {
+        "possible_reset"
     }
-    if curr_reset - prev_reset > tolerance && current.captured_at <= prev_reset {
-        verification.status = "unscheduled_reset".into();
-        verification.note = Some("未到原定时间窗口已恢复，重置时间明显后移".into());
-        if let Some(signal_at) = event_first_signal_at {
-            // 事件在恢复被观察到之前已开始即视为时间相关：真实重置常滞后预告数日，
-            // 事件首信号几乎总是早于恢复前的最后一次快照，区间内条件会导致永不相关。
-            if signal_at <= current.captured_at {
-                verification.attribution = "radar_correlated".into();
-            }
-        }
-        return verification;
+}
+
+fn correlation(event: &RadarEventRecord, observed_at: i64) -> &'static str {
+    if event
+        .expected_at
+        .is_some_and(|value| (observed_at - value).abs() <= 2 * 3_600_000)
+    {
+        "high"
+    } else if event
+        .claimed_landed_at
+        .is_some_and(|value| observed_at >= value && observed_at - value <= 12 * 3_600_000)
+    {
+        "medium"
+    } else if observed_at >= event.first_signal_at
+        && observed_at - event.first_signal_at <= 24 * 3_600_000
+    {
+        "medium"
+    } else {
+        "low"
     }
-    verification.status = "possible_reset".into();
-    verification.note = Some("窗口比例恢复，但结构化证据不足".into());
-    verification
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct QuotaConfirmation {
-    account_id: String,
-    source_id: String,
-    #[serde(default)]
-    captured_at: i64,
+fn status_note(status: &str) -> &'static str {
+    match status {
+        "pending" => "等待事件后的下一次成功额度刷新",
+        "scheduled" => "到达原定时间后的正常周期刷新",
+        "unscheduled_reset" => "未到原定时间窗口已恢复，重置时间明显后移",
+        "possible_reset" => "窗口比例恢复，但结构化证据不足",
+        "insufficient_data" => "快照缺少真实窗口字段",
+        _ => "已成功刷新，本次未观察到窗口恢复",
+    }
 }
 
-/// 用户手动确认的重置归因（主窗口触发），持久化在 settings，最多保留 20 条。
-fn load_confirmations(database: &Database) -> Result<Vec<QuotaConfirmation>, String> {
-    let Some(raw) = database.setting_string("radar_quota_confirm")? else {
-        return Ok(Vec::new());
-    };
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-pub fn save_confirmation(
-    database: &Database,
-    account_id: &str,
-    source_id: &str,
-    captured_at: i64,
-) -> Result<(), String> {
-    let mut items = load_confirmations(database)?;
-    items.push(QuotaConfirmation {
-        account_id: account_id.to_string(),
-        source_id: source_id.to_string(),
-        captured_at,
-    });
-    let keep_from = items.len().saturating_sub(20);
-    let trimmed = &items[keep_from..];
-    let payload = serde_json::to_string(trimmed).unwrap_or_else(|_| "[]".into());
-    database.set_setting_string("radar_quota_confirm", &payload)
+    #[test]
+    fn keeps_the_reset_pair_when_a_later_pair_has_no_change() {
+        let sample = |id, remaining, reset, at| WindowSampleRecord {
+            id,
+            capability_id: "quota_window_7d".into(),
+            display_name: "7 天窗口".into(),
+            progress: Some(remaining),
+            captured_at: at,
+            window_seconds: Some(604_800),
+            reset_at: Some(reset),
+        };
+        // reset_at 用真实毫秒尺度：原定 10e9，恢复后后移一个窗口（+604_800_000）。
+        let values = vec![
+            sample(1, 0.12, 10_000_000_000, 100),
+            sample(2, 0.94, 10_000_000_000 + 604_800_000, 200),
+            sample(3, 0.92, 10_000_000_000 + 604_800_000, 300),
+        ];
+        let pairs = all_pairs(&values);
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(classify(pairs[0].0, pairs[0].1), "unscheduled_reset");
+        assert_eq!(classify(pairs[1].0, pairs[1].1), "no_change");
+    }
 }

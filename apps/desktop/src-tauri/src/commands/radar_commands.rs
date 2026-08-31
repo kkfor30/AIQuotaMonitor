@@ -1,8 +1,8 @@
 use crate::commands::require_label;
 use crate::radar::{self, RadarControl, RadarSnapshot};
-use std::sync::atomic::Ordering;
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
+use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
 #[tauri::command]
@@ -53,7 +53,10 @@ pub async fn run_radar_check(
 
 /// 终止当前进行中的雷达检查：使代号 +1，运行中的检查在下一个 await 点被打断。
 #[tauri::command]
-pub fn cancel_radar_check(control: State<'_, RadarControl>, window: WebviewWindow) -> Result<(), String> {
+pub fn cancel_radar_check(
+    control: State<'_, RadarControl>,
+    window: WebviewWindow,
+) -> Result<(), String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
     control.cancel();
     Ok(())
@@ -70,7 +73,8 @@ pub async fn translate_radar_post(
     coordinator: State<'_, RefreshCoordinator>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
-    let snapshot = radar::translate_post(&database, &coordinator, &post_id, source_id.as_deref()).await?;
+    let snapshot =
+        radar::translate_post(&database, &coordinator, &post_id, source_id.as_deref()).await?;
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
 }
@@ -143,18 +147,18 @@ pub fn delete_radar_custom_model(
     Ok(snapshot)
 }
 
-/// 用户在主窗口手动确认重置卡：只追加归因 user_confirmed，不篡改快照、不推进事件。
+/// 用户在主窗口手动确认重置卡：只更新指定观察记录的归因 user_confirmed，
+/// 不篡改快照、不推进事件。
 #[tauri::command]
 pub fn confirm_radar_quota_change(
-    account_id: String,
-    source_id: String,
-    captured_at: i64,
+    observation_id: i64,
+    confirmed_at: i64,
     window: WebviewWindow,
     app: AppHandle,
     database: State<'_, Database>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main"])?;
-    let snapshot = radar::confirm_quota_change(&database, &account_id, &source_id, captured_at)?;
+    let snapshot = radar::confirm_quota_change(&database, observation_id, confirmed_at)?;
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
 }

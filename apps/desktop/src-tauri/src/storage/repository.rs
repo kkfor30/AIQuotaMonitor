@@ -137,6 +137,10 @@ pub struct RadarAnalysisRecord {
     pub signal_level: Option<String>,
     /// complete | context_missing | conflicting
     pub context_status: Option<String>,
+    pub temporal_phase: Option<String>,
+    pub valid_until: Option<i64>,
+    pub state_revision: i64,
+    pub timezone_policy_version: String,
 }
 
 #[derive(Debug, Clone)]
@@ -152,6 +156,50 @@ pub struct RadarEventRecord {
     pub observed_reset_at: Option<i64>,
     pub closed_at: Option<i64>,
     pub close_reason: Option<String>,
+    pub expected_at: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub state_revision: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RadarTimeClaimRecord {
+    pub post_id: String,
+    pub raw_text: String,
+    pub clock_hour: Option<i64>,
+    pub clock_minute: Option<i64>,
+    pub date_relation: Option<String>,
+    pub timezone_kind: Option<String>,
+    pub timezone_assumed: bool,
+    pub parse_status: String,
+    pub resolved_at: Option<i64>,
+    pub precision: String,
+    pub parser_version: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WindowSampleRecord {
+    pub id: i64,
+    pub capability_id: String,
+    pub display_name: String,
+    pub progress: Option<f64>,
+    pub captured_at: i64,
+    pub window_seconds: Option<i64>,
+    pub reset_at: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct QuotaResetObservationRecord {
+    pub id: i64,
+    pub account_id: String,
+    pub source_id: String,
+    pub capability_id: String,
+    pub previous_snapshot_id: i64,
+    pub current_snapshot_id: i64,
+    pub classification: String,
+    pub observed_at: i64,
+    pub event_id: Option<String>,
+    pub temporal_correlation: String,
+    pub user_confirmed_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -294,7 +342,11 @@ impl Database {
                 params![account_id, display_name, epoch_ms()],
             )
             .map_err(|err| format!("重命名账户失败: {err}"))?;
-        if changed == 0 { Err("未找到该账户".into()) } else { Ok(()) }
+        if changed == 0 {
+            Err("未找到该账户".into())
+        } else {
+            Ok(())
+        }
     }
 
     pub fn rename_source(&self, source_id: &str, display_name: &str) -> Result<(), String> {
@@ -357,7 +409,10 @@ impl Database {
                     params![source.id],
                 )
                 .map_err(|err| format!("清除平台快照失败: {err}"))?;
-            if matches!(source.account_id.as_str(), "openai-codex-local" | "deepseek-default") {
+            if matches!(
+                source.account_id.as_str(),
+                "openai-codex-local" | "deepseek-default"
+            ) {
                 transaction
                     .execute(
                         "UPDATE sources SET secret_ref = NULL, state = 'auth_required', generation = generation + 1,
@@ -389,11 +444,20 @@ impl Database {
         Ok(sources)
     }
 
-    pub fn add_user_platform(&self, platform_id: &str, display_name: &str, api_base_url: Option<&str>) -> Result<(), String> {
+    pub fn add_user_platform(
+        &self,
+        platform_id: &str,
+        display_name: &str,
+        api_base_url: Option<&str>,
+    ) -> Result<(), String> {
         let connection = self.connect()?;
         let now = epoch_ms();
         let next_index: i64 = connection
-            .query_row("SELECT COALESCE(MAX(sort_index), -1) + 1 FROM user_platforms", [], |row| row.get(0))
+            .query_row(
+                "SELECT COALESCE(MAX(sort_index), -1) + 1 FROM user_platforms",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or(0);
         connection
             .execute(
@@ -429,7 +493,11 @@ impl Database {
         }
     }
 
-    pub fn save_user_platform_api_base(&self, platform_id: &str, api_base_url: Option<&str>) -> Result<(), String> {
+    pub fn save_user_platform_api_base(
+        &self,
+        platform_id: &str,
+        api_base_url: Option<&str>,
+    ) -> Result<(), String> {
         let connection = self.connect()?;
         let changed = connection
             .execute(
@@ -500,13 +568,20 @@ impl Database {
             .ok_or_else(|| "未找到数据来源".to_string())
     }
 
-    pub fn begin_refresh_run(&self, platform_id: &str, source_ids: &[String]) -> Result<String, String> {
+    pub fn begin_refresh_run(
+        &self,
+        platform_id: &str,
+        source_ids: &[String],
+    ) -> Result<String, String> {
         let mut connection = self.connect()?;
         let transaction = connection
             .transaction()
             .map_err(|err| format!("开始刷新流水失败: {err}"))?;
         let now = epoch_ms();
-        let run_id = format!("{platform_id}-{now}-{}", RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed));
+        let run_id = format!(
+            "{platform_id}-{now}-{}",
+            RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        );
         transaction
             .execute(
                 "INSERT INTO refresh_runs(id, platform_id, started_at, status) VALUES (?1, ?2, ?3, 'running')",
@@ -562,10 +637,18 @@ impl Database {
         let (state, error_code, error_message, result_status) = match &output.error {
             None => ("ready", None, None, "success"),
             Some(error) => (
-                if error.auth_required { "auth_required" } else { "error" },
+                if error.auth_required {
+                    "auth_required"
+                } else {
+                    "error"
+                },
                 Some(error.code.as_str()),
                 Some(error.message.as_str()),
-                if output.capabilities.is_empty() { "failed" } else { "partial" },
+                if output.capabilities.is_empty() {
+                    "failed"
+                } else {
+                    "partial"
+                },
             ),
         };
         let changed = transaction
@@ -650,7 +733,11 @@ impl Database {
                 |row| Ok((row.get::<_, Option<i64>>(0)?.unwrap_or(0), row.get::<_, Option<i64>>(1)?.unwrap_or(0))),
             )
             .map_err(|err| format!("汇总刷新流水失败: {err}"))?;
-        let status = if failed > 0 || partial > 0 { "partial" } else { "success" };
+        let status = if failed > 0 || partial > 0 {
+            "partial"
+        } else {
+            "success"
+        };
         connection
             .execute(
                 "UPDATE refresh_runs SET finished_at = ?2, status = ?3 WHERE id = ?1",
@@ -668,7 +755,11 @@ impl Database {
                 params![source_id, secret_ref, epoch_ms()],
             )
             .map_err(|err| format!("保存凭据引用失败: {err}"))?;
-        if changed == 0 { Err("未找到数据来源".into()) } else { Ok(()) }
+        if changed == 0 {
+            Err("未找到数据来源".into())
+        } else {
+            Ok(())
+        }
     }
 
     pub fn clear_secret_ref(&self, source_id: &str) -> Result<(), String> {
@@ -680,10 +771,18 @@ impl Database {
                 params![source_id, epoch_ms()],
             )
             .map_err(|err| format!("清除凭据引用失败: {err}"))?;
-        if changed == 0 { Err("未找到数据来源".into()) } else { Ok(()) }
+        if changed == 0 {
+            Err("未找到数据来源".into())
+        } else {
+            Ok(())
+        }
     }
 
-    pub fn latest_snapshot(&self, source_id: &str, capability_id: &str) -> Result<Option<SnapshotRecord>, String> {
+    pub fn latest_snapshot(
+        &self,
+        source_id: &str,
+        capability_id: &str,
+    ) -> Result<Option<SnapshotRecord>, String> {
         let connection = self.connect()?;
         connection
             .query_row(
@@ -759,14 +858,19 @@ impl Database {
             .map_err(|err| format!("准备每日趋势查询失败: {err}"))?;
         let rows = statement
             .query_map(params![source_id, capability_id, since], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })
             .map_err(|err| format!("读取每日趋势失败: {err}"))?;
         // 同一本地自然日取最大 id（最后一次写入），缺失日自然缺席
         let mut by_day: std::collections::BTreeMap<chrono::NaiveDate, (i64, f64)> =
             std::collections::BTreeMap::new();
         for row in rows {
-            let (id, captured_at, primary) = row.map_err(|err| format!("读取每日趋势失败: {err}"))?;
+            let (id, captured_at, primary) =
+                row.map_err(|err| format!("读取每日趋势失败: {err}"))?;
             let Some(value) = parse(&primary) else {
                 continue;
             };
@@ -786,7 +890,11 @@ impl Database {
             .collect())
     }
 
-    pub fn refresh_history(&self, platform_id: &str, limit: usize) -> Result<Vec<RefreshHistoryRecord>, String> {
+    pub fn refresh_history(
+        &self,
+        platform_id: &str,
+        limit: usize,
+    ) -> Result<Vec<RefreshHistoryRecord>, String> {
         let connection = self.connect()?;
         let mut statement = connection
             .prepare(
@@ -798,9 +906,14 @@ impl Database {
         let rows = statement
             .query_map(params![platform_id, limit as i64], |row| {
                 Ok(RefreshHistoryRecord {
-                    id: row.get(0)?, source_id: row.get(1)?, source_name: row.get(2)?,
-                    account_id: row.get(3)?, account_name: row.get(4)?, status: row.get(5)?,
-                    finished_at: row.get(6)?, error_message: row.get(7)?,
+                    id: row.get(0)?,
+                    source_id: row.get(1)?,
+                    source_name: row.get(2)?,
+                    account_id: row.get(3)?,
+                    account_name: row.get(4)?,
+                    status: row.get(5)?,
+                    finished_at: row.get(6)?,
+                    error_message: row.get(7)?,
                 })
             })
             .map_err(|err| format!("查询刷新历史失败: {err}"))?;
@@ -862,7 +975,11 @@ impl Database {
             .map_err(|err| format!("清除本地缓存失败: {err}"))
     }
 
-    pub fn replace_tibo_posts(&self, posts: &[TiboPostRecord], synced_at: i64) -> Result<(), String> {
+    pub fn replace_tibo_posts(
+        &self,
+        posts: &[TiboPostRecord],
+        synced_at: i64,
+    ) -> Result<(), String> {
         let mut connection = self.connect()?;
         let transaction = connection
             .transaction()
@@ -1017,7 +1134,13 @@ impl Database {
     pub fn latest_radar_analysis(&self) -> Result<Option<RadarAnalysisRecord>, String> {
         let connection = self.connect()?;
         connection
-            .query_row(&radar_analysis_select("WHERE error_message IS NULL ORDER BY created_at DESC LIMIT 1"), [], map_radar_analysis)
+            .query_row(
+                &radar_analysis_select(
+                    "WHERE error_message IS NULL ORDER BY created_at DESC LIMIT 1",
+                ),
+                [],
+                map_radar_analysis,
+            )
             .optional()
             .map_err(|err| format!("读取雷达分析失败: {err}"))
     }
@@ -1028,17 +1151,28 @@ impl Database {
         input_hash: &str,
         context_hash: &str,
         prompt_hash: &str,
+        source_id: Option<&str>,
         model: Option<&str>,
         prompt_version: &str,
+        temporal_phase: &str,
+        state_revision: i64,
+        timezone_policy_version: &str,
+        now: i64,
     ) -> Result<Option<RadarAnalysisRecord>, String> {
         let connection = self.connect()?;
         connection
             .query_row(
                 &radar_analysis_select(
                     "WHERE error_message IS NULL AND input_hash = ?1 AND context_hash = ?2 AND prompt_hash = ?3
-                     AND model IS ?4 AND prompt_version = ?5 ORDER BY created_at DESC LIMIT 1",
+                     AND source_id IS ?4 AND model IS ?5 AND prompt_version = ?6 AND temporal_phase = ?7
+                     AND state_revision = ?8 AND timezone_policy_version = ?9
+                     AND (valid_until IS NULL OR valid_until > ?10)
+                     ORDER BY created_at DESC LIMIT 1",
                 ),
-                params![input_hash, context_hash, prompt_hash, model, prompt_version],
+                params![
+                    input_hash, context_hash, prompt_hash, source_id, model, prompt_version,
+                    temporal_phase, state_revision, timezone_policy_version, now,
+                ],
                 map_radar_analysis,
             )
             .optional()
@@ -1046,7 +1180,10 @@ impl Database {
     }
 
     /// 当前事件匹配分析：活动事件下最新一次成功分析。
-    pub fn latest_event_radar_analysis(&self, event_id: &str) -> Result<Option<RadarAnalysisRecord>, String> {
+    pub fn latest_event_radar_analysis(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<RadarAnalysisRecord>, String> {
         let connection = self.connect()?;
         connection
             .query_row(
@@ -1064,8 +1201,8 @@ impl Database {
         let connection = self.connect()?;
         connection
             .execute(
-                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
                 params![
                     analysis.id, analysis.created_at, analysis.range_key, analysis.cut_post_id,
                     analysis.from_posted_at, analysis.to_posted_at, analysis.source_id, analysis.model,
@@ -1075,6 +1212,8 @@ impl Database {
                     analysis.event_id, analysis.analysis_mode, analysis.context_hash, analysis.prompt_hash,
                     analysis.event_relation, analysis.event_phase, analysis.delta_effect,
                     analysis.signal_level, analysis.context_status,
+                    analysis.temporal_phase, analysis.valid_until, analysis.state_revision,
+                    analysis.timezone_policy_version,
                 ],
             )
             .map(|_| ())
@@ -1085,7 +1224,7 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason
+                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision
                  FROM radar_events WHERE closed_at IS NULL ORDER BY updated_at DESC LIMIT 1",
                 [],
                 map_radar_event,
@@ -1098,7 +1237,7 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason
+                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision
                  FROM radar_events WHERE id = ?1",
                 params![event_id],
                 map_radar_event,
@@ -1111,12 +1250,13 @@ impl Database {
         let connection = self.connect()?;
         connection
             .execute(
-                "INSERT INTO radar_events(id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT INTO radar_events(id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     event.id, event.phase, event.title, event.summary, event.first_signal_at,
                     event.latest_evidence_at, event.claimed_landed_at, event.observed_reset_at,
-                    event.closed_at, event.close_reason, epoch_ms(), epoch_ms(),
+                    event.closed_at, event.close_reason, event.expected_at, event.expires_at,
+                    event.state_revision, epoch_ms(), epoch_ms(),
                 ],
             )
             .map(|_| ())
@@ -1128,12 +1268,13 @@ impl Database {
         connection
             .execute(
                 "UPDATE radar_events SET phase = ?2, title = ?3, summary = ?4, latest_evidence_at = ?5,
-                 claimed_landed_at = ?6, observed_reset_at = ?7, closed_at = ?8, close_reason = ?9, updated_at = ?10
+                 claimed_landed_at = ?6, observed_reset_at = ?7, closed_at = ?8, close_reason = ?9,
+                 expected_at = ?10, expires_at = ?11, state_revision = ?12, updated_at = ?13
                  WHERE id = ?1",
                 params![
                     event.id, event.phase, event.title, event.summary, event.latest_evidence_at,
                     event.claimed_landed_at, event.observed_reset_at, event.closed_at, event.close_reason,
-                    epoch_ms(),
+                    event.expected_at, event.expires_at, event.state_revision, epoch_ms(),
                 ],
             )
             .map(|_| ())
@@ -1174,6 +1315,98 @@ impl Database {
             .map_err(|err| format!("读取事件证据失败: {err}"))
     }
 
+    pub fn closed_radar_event_post_ids(&self) -> Result<Vec<String>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT DISTINCT e.post_id FROM radar_event_evidence e
+                 JOIN radar_events r ON r.id = e.event_id WHERE r.closed_at IS NOT NULL",
+            )
+            .map_err(|err| format!("准备历史事件证据查询失败: {err}"))?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|err| format!("读取历史事件证据失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取历史事件证据失败: {err}"))
+    }
+
+    pub fn replace_radar_time_claims(
+        &self,
+        post_id: &str,
+        claims: &[RadarTimeClaimRecord],
+    ) -> Result<(), String> {
+        let mut connection = self.connect()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|err| format!("开始时间声明事务失败: {err}"))?;
+        transaction
+            .execute(
+                "DELETE FROM radar_time_claims WHERE post_id = ?1",
+                params![post_id],
+            )
+            .map_err(|err| format!("清理时间声明失败: {err}"))?;
+        let now = epoch_ms();
+        for claim in claims {
+            transaction
+                .execute(
+                    "INSERT INTO radar_time_claims(post_id, raw_text, clock_hour, clock_minute, date_relation,
+                     timezone_kind, timezone_assumed, parse_status, resolved_at, precision, parser_version, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+                    params![
+                        claim.post_id, claim.raw_text, claim.clock_hour, claim.clock_minute,
+                        claim.date_relation, claim.timezone_kind, i64::from(claim.timezone_assumed),
+                        claim.parse_status, claim.resolved_at, claim.precision, claim.parser_version, now,
+                    ],
+                )
+                .map_err(|err| format!("写入时间声明失败: {err}"))?;
+        }
+        transaction
+            .commit()
+            .map_err(|err| format!("提交时间声明失败: {err}"))
+    }
+
+    pub fn radar_time_claims_for_posts(
+        &self,
+        post_ids: &[String],
+    ) -> Result<Vec<RadarTimeClaimRecord>, String> {
+        if post_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let connection = self.connect()?;
+        let mut out = Vec::new();
+        let mut statement = connection
+            .prepare(
+                "SELECT post_id, raw_text, clock_hour, clock_minute, date_relation, timezone_kind,
+                        timezone_assumed, parse_status, resolved_at, precision, parser_version
+                 FROM radar_time_claims WHERE post_id = ?1 ORDER BY id",
+            )
+            .map_err(|err| format!("准备时间声明查询失败: {err}"))?;
+        for post_id in post_ids {
+            let rows = statement
+                .query_map(params![post_id], |row| {
+                    Ok(RadarTimeClaimRecord {
+                        post_id: row.get(0)?,
+                        raw_text: row.get(1)?,
+                        clock_hour: row.get(2)?,
+                        clock_minute: row.get(3)?,
+                        date_relation: row.get(4)?,
+                        timezone_kind: row.get(5)?,
+                        timezone_assumed: row.get::<_, i64>(6)? != 0,
+                        parse_status: row.get(7)?,
+                        resolved_at: row.get(8)?,
+                        precision: row.get(9)?,
+                        parser_version: row.get(10)?,
+                    })
+                })
+                .map_err(|err| format!("读取时间声明失败: {err}"))?;
+            out.extend(
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(|err| format!("读取时间声明失败: {err}"))?,
+            );
+        }
+        Ok(out)
+    }
+
     /// GPT 平台的额度来源（含账号信息），按账号创建顺序返回。
     pub fn openai_quota_sources(&self) -> Result<Vec<SourceRecord>, String> {
         let connection = self.connect()?;
@@ -1198,28 +1431,113 @@ impl Database {
     pub fn recent_window_samples(
         &self,
         source_id: &str,
-    ) -> Result<Vec<SnapshotRecord>, String> {
+    ) -> Result<Vec<WindowSampleRecord>, String> {
         let connection = self.connect()?;
         let mut statement = connection
             .prepare(
-                "SELECT capability_id, display_name, value_kind, primary_value, secondary_value, progress, trend_json, captured_at, window_seconds, reset_at
+                "SELECT id, capability_id, display_name, progress, captured_at, window_seconds, reset_at
                  FROM capability_snapshots
                  WHERE source_id = ?1 AND capability_id LIKE 'quota_window_%' AND window_seconds IS NOT NULL
-                 ORDER BY capability_id, captured_at DESC, id DESC LIMIT 120",
+                   AND captured_at >= ?2
+                 ORDER BY capability_id, captured_at ASC, id ASC",
             )
             .map_err(|err| format!("准备额度窗口样本查询失败: {err}"))?;
+        let since = epoch_ms().saturating_sub(30 * 86_400_000);
         let rows = statement
-            .query_map(params![source_id], map_snapshot_record)
+            .query_map(params![source_id, since], |row| {
+                Ok(WindowSampleRecord {
+                    id: row.get(0)?,
+                    capability_id: row.get(1)?,
+                    display_name: row.get(2)?,
+                    progress: row.get(3)?,
+                    captured_at: row.get(4)?,
+                    window_seconds: row.get(5)?,
+                    reset_at: row.get(6)?,
+                })
+            })
             .map_err(|err| format!("读取额度窗口样本失败: {err}"))?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|err| format!("读取额度窗口样本失败: {err}"))
+    }
+
+    pub fn insert_quota_reset_observation(
+        &self,
+        observation: &QuotaResetObservationRecord,
+    ) -> Result<i64, String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO quota_reset_observations(account_id, source_id, capability_id,
+                 previous_snapshot_id, current_snapshot_id, classification, observed_at, event_id,
+                 temporal_correlation, user_confirmed_at, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    observation.account_id, observation.source_id, observation.capability_id,
+                    observation.previous_snapshot_id, observation.current_snapshot_id,
+                    observation.classification, observation.observed_at, observation.event_id,
+                    observation.temporal_correlation, observation.user_confirmed_at, epoch_ms(),
+                ],
+            )
+            .map_err(|err| format!("保存额度重置观察失败: {err}"))?;
+        connection
+            .query_row(
+                "SELECT id FROM quota_reset_observations WHERE source_id = ?1 AND capability_id = ?2
+                 AND previous_snapshot_id = ?3 AND current_snapshot_id = ?4",
+                params![
+                    observation.source_id, observation.capability_id,
+                    observation.previous_snapshot_id, observation.current_snapshot_id,
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|err| format!("读取额度重置观察失败: {err}"))
+    }
+
+    pub fn quota_reset_observations(
+        &self,
+        source_id: Option<&str>,
+        event_id: Option<&str>,
+    ) -> Result<Vec<QuotaResetObservationRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, account_id, source_id, capability_id, previous_snapshot_id, current_snapshot_id,
+                        classification, observed_at, event_id, temporal_correlation, user_confirmed_at
+                 FROM quota_reset_observations
+                 WHERE (?1 IS NULL OR source_id = ?1) AND (?2 IS NULL OR event_id = ?2)
+                 ORDER BY observed_at DESC, id DESC",
+            )
+            .map_err(|err| format!("准备额度观察查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![source_id, event_id], map_quota_reset_observation)
+            .map_err(|err| format!("读取额度观察失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取额度观察失败: {err}"))
+    }
+
+    pub fn confirm_quota_reset_observation(
+        &self,
+        observation_id: i64,
+        confirmed_at: i64,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        let changed = connection
+            .execute(
+                "UPDATE quota_reset_observations SET user_confirmed_at = ?2 WHERE id = ?1",
+                params![observation_id, confirmed_at],
+            )
+            .map_err(|err| format!("确认额度重置观察失败: {err}"))?;
+        if changed == 0 {
+            Err("未找到额度重置观察".into())
+        } else {
+            Ok(())
+        }
     }
 }
 
 /// radar_analyses 全列 SELECT；各查询只差异 WHERE/ORDER 子句。
 fn radar_analysis_select(suffix: &str) -> String {
     format!(
-        "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status
+        "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version
          FROM radar_analyses {suffix}"
     )
 }
@@ -1229,7 +1547,10 @@ fn map_snapshot_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotReco
     let trend = serde_json::from_str::<Vec<StoredTrendPointDto>>(&trend_json)
         .unwrap_or_default()
         .into_iter()
-        .map(|point| StoredTrendPoint { label: point.label, value: point.value })
+        .map(|point| StoredTrendPoint {
+            label: point.label,
+            value: point.value,
+        })
         .collect();
     Ok(SnapshotRecord {
         capability_id: row.get(0)?,
@@ -1296,6 +1617,10 @@ fn map_radar_analysis(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarAnalysis
         delta_effect: row.get(24)?,
         signal_level: row.get(25)?,
         context_status: row.get(26)?,
+        temporal_phase: row.get(27)?,
+        valid_until: row.get(28)?,
+        state_revision: row.get(29)?,
+        timezone_policy_version: row.get(30)?,
     })
 }
 
@@ -1311,15 +1636,46 @@ fn map_radar_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarEventRecord
         observed_reset_at: row.get(7)?,
         closed_at: row.get(8)?,
         close_reason: row.get(9)?,
+        expected_at: row.get(10)?,
+        expires_at: row.get(11)?,
+        state_revision: row.get(12)?,
+    })
+}
+
+fn map_quota_reset_observation(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<QuotaResetObservationRecord> {
+    Ok(QuotaResetObservationRecord {
+        id: row.get(0)?,
+        account_id: row.get(1)?,
+        source_id: row.get(2)?,
+        capability_id: row.get(3)?,
+        previous_snapshot_id: row.get(4)?,
+        current_snapshot_id: row.get(5)?,
+        classification: row.get(6)?,
+        observed_at: row.get(7)?,
+        event_id: row.get(8)?,
+        temporal_correlation: row.get(9)?,
+        user_confirmed_at: row.get(10)?,
     })
 }
 
 fn map_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceRecord> {
     Ok(SourceRecord {
-        id: row.get(0)?, account_id: row.get(1)?, account_name: row.get(2)?, account_kind: row.get(3)?,
-        platform_id: row.get(4)?, adapter_id: row.get(5)?, source_type: row.get(6)?,
-        display_name: row.get(7)?, secret_ref: row.get(8)?, state: row.get(9)?,
-        last_validated_at: row.get(10)?, last_success_at: row.get(11)?, error_code: row.get(12)?, error_message: row.get(13)?,
+        id: row.get(0)?,
+        account_id: row.get(1)?,
+        account_name: row.get(2)?,
+        account_kind: row.get(3)?,
+        platform_id: row.get(4)?,
+        adapter_id: row.get(5)?,
+        source_type: row.get(6)?,
+        display_name: row.get(7)?,
+        secret_ref: row.get(8)?,
+        state: row.get(9)?,
+        last_validated_at: row.get(10)?,
+        last_success_at: row.get(11)?,
+        error_code: row.get(12)?,
+        error_message: row.get(13)?,
     })
 }
 
@@ -1344,7 +1700,9 @@ fn parse_money_value(primary: &str) -> Option<f64> {
         .chars()
         .filter(|ch| ch.is_ascii_digit() || *ch == '.')
         .collect();
-    text.parse::<f64>().ok().filter(|value| value.is_finite() && *value >= 0.0)
+    text.parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite() && *value >= 0.0)
 }
 
 #[cfg(test)]
@@ -1361,7 +1719,14 @@ mod tests {
         ));
         let database = Database::initialize_at(path.clone()).expect("db");
         database
-            .ensure_account_source("glm-default", "glm", "glm-coding-plan", "api_key", "Coding Plan", "默认账户")
+            .ensure_account_source(
+                "glm-default",
+                "glm",
+                "glm-coding-plan",
+                "api_key",
+                "Coding Plan",
+                "默认账户",
+            )
             .expect("source");
         database
             .add_user_platform("glm", "GLM 国内", Some("https://open.bigmodel.cn"))

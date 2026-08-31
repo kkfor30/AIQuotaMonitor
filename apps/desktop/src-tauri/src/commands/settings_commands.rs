@@ -1,4 +1,5 @@
 use crate::commands::require_label;
+use crate::radar;
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use serde::Serialize;
@@ -19,7 +20,9 @@ pub struct AppSettingsView {
 #[tauri::command]
 pub fn get_app_settings(database: State<'_, Database>) -> Result<AppSettingsView, String> {
     Ok(AppSettingsView {
-        theme: database.setting_string("theme")?.unwrap_or_else(|| "system".into()),
+        theme: database
+            .setting_string("theme")?
+            .unwrap_or_else(|| "system".into()),
         autostart: database.setting_bool("autostart")?,
         refresh_interval_minutes: database
             .setting_string("refresh_interval_minutes")?
@@ -142,6 +145,7 @@ pub async fn refresh_all_platforms(
 ) -> Result<(), String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
     coordinator.refresh_all(&database).await?;
+    radar::reconcile_event_state_now(&database)?;
     let _ = app.emit("platform-data-changed", ());
     Ok(())
 }

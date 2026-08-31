@@ -34,7 +34,12 @@ import {
 } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
 import type { RadarModelOption, RadarPost } from "@/lib/ipc";
-import { quotaBadgeLabel, radarPhaseLabel } from "@/features/hoverbar/hoverbar-state";
+import {
+  quotaBadgeLabel,
+  quotaCorrelationLabel,
+  radarPhaseLabel,
+  radarTemporalLabel,
+} from "@/features/hoverbar/hoverbar-state";
 import { useContainerWidth, TIBO_SPLIT_MIN_PX } from "@/lib/use-container-width";
 import { ArrowLeft } from "lucide-react";
 
@@ -409,6 +414,12 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             {phase ? (
               <span className="rounded-q-pill bg-q-primary-soft px-2.5 py-1 text-[11px] text-q-primary">{phase}</span>
             ) : null}
+            {(() => {
+              const temporal = radarTemporalLabel(event?.temporalStatus);
+              return temporal && temporal !== phase ? (
+                <span className="rounded-q-pill bg-q-warning-soft px-2.5 py-1 text-[11px] text-q-warning">{temporal}</span>
+              ) : null;
+            })()}
           </div>
           {event ? (
             <div className="flex min-h-0 flex-col gap-2">
@@ -478,8 +489,10 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                     {item.attribution === "user_confirmed" ? (
                       <span className="text-[11px] text-q-text-muted">用户已确认</span>
                     ) : null}
-                    {item.attribution === "radar_correlated" ? (
-                      <span className="text-[11px] text-q-text-muted">与事件时间相关</span>
+                    {quotaCorrelationLabel(item.temporalCorrelation) ? (
+                      <span className="text-[11px] text-q-text-muted">
+                        {quotaCorrelationLabel(item.temporalCorrelation)}
+                      </span>
                     ) : null}
                   </div>
                   {item.status === "unavailable" && (
@@ -488,6 +501,11 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                     </p>
                   )}
                   {item.note && <p className="text-[11px] text-q-text-muted">{item.note}</p>}
+                  {["unscheduled_reset", "possible_reset"].includes(item.status) &&
+                    item.observationId == null &&
+                    item.attribution !== "user_confirmed" && (
+                      <p className="text-[11px] text-q-text-muted">缺少固化的观察记录，暂无法手动确认归因。</p>
+                    )}
                   <p className="text-[11px] text-q-text-muted">
                     {item.windowLabel ? `${item.windowLabel} · ` : ""}
                     {item.lastSuccessAt ? `上次成功 ${formatTime(item.lastSuccessAt)}` : "尚无成功快照"}
@@ -497,7 +515,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                     {item.current?.resetAt ? ` · 原定重置 ${formatTime(item.current.resetAt)}` : ""}
                   </p>
                   {["unscheduled_reset", "possible_reset"].includes(item.status) &&
-                    item.current &&
+                    item.observationId != null &&
                     item.attribution !== "user_confirmed" && (
                       <Button
                         variant="ghost"
@@ -506,9 +524,8 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                         disabled={confirmMutation.isPending}
                         onClick={() =>
                           confirmMutation.mutate({
-                            accountId: item.accountId,
-                            sourceId: item.sourceId,
-                            capturedAt: item.current?.capturedAt ?? 0,
+                            observationId: item.observationId ?? 0,
+                            confirmedAt: Date.now(),
                           })
                         }
                       >

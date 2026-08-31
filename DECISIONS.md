@@ -39,3 +39,7 @@ V1 不直接访问 X，使用独立的 `CodexRadarSource` 从 `https://codexrada
 ## D010：用户从注册表添加平台；默认 API Key，网页登录只补官方缺口
 
 平台目录只显示用户已添加的平台。可添加项来自产品维护的注册表（优先覆盖 cc-switch 已能查询余额/Token Plan 的平台），不开放注册表以外的供应商。接入表单必须展示官网链接和官方 API 请求地址（预填完整 URL），让用户看见额度查询打到哪里。默认动作是填写 API Key 并验证。GPT 默认检测本机 Codex 登录，不必先开网页；额外 ChatGPT 账号用独立 Codex 目录登录，不覆盖 `~/.codex`。Claude Code 检测本机 CLI。仅当目标字段没有官方接口时才用隔离登录窗，例如 DeepSeek 网页用量与缓存、GLM 个人余额、MiMo 网页会话。不复制 cc-switch 的 Provider 路由、测速代理或 MCP。
+
+## D011：时间解析与事件状态确定性优先
+
+帖内时间声明（6pm PST 等）由 Rust `time_claims`（time-v1）规则解析为北京时间，AI 只做语义判断不做算术；无法确定日期/时区/am pm 时降级 ambiguous，禁止输出精确北京时间。事件状态推进与关闭由确定性代码完成（`reconcile_event_state`：额度观察推进 landed_observed、expected 过期仅改文案、超时关闭、historical_replay 不改事件）；分析结论带 temporal_phase/valid_until 时效字段，事件状态变更使缓存键失效。额度重置观察固化为 `quota_reset_observations` 记录，用户确认按 observation 归因 user_confirmed，不修改快照。
