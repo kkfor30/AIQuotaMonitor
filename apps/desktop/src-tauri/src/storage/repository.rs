@@ -1179,24 +1179,6 @@ impl Database {
             .map_err(|err| format!("查找可复用雷达分析失败: {err}"))
     }
 
-    /// 当前事件匹配分析：活动事件下最新一次成功分析。
-    pub fn latest_event_radar_analysis(
-        &self,
-        event_id: &str,
-    ) -> Result<Option<RadarAnalysisRecord>, String> {
-        let connection = self.connect()?;
-        connection
-            .query_row(
-                &radar_analysis_select(
-                    "WHERE error_message IS NULL AND event_id = ?1 ORDER BY created_at DESC LIMIT 1",
-                ),
-                params![event_id],
-                map_radar_analysis,
-            )
-            .optional()
-            .map_err(|err| format!("读取事件分析失败: {err}"))
-    }
-
     pub fn insert_radar_analysis(&self, analysis: &RadarAnalysisRecord) -> Result<(), String> {
         let connection = self.connect()?;
         connection

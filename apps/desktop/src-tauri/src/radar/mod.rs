@@ -201,7 +201,7 @@ pub struct RadarAiAssessmentView {
     pub enabled: bool,
     /// current | disabled | pending | failed | not_analyzed
     pub state: String,
-    /// 当前事件匹配的最新成功分析。
+    /// 最近一次成功的增量分析；无关新帖也属于已分析结果。
     pub current: Option<RadarAnalysisView>,
     /// 最近一次成功分析（历史）。
     pub history: Option<RadarAnalysisView>,
@@ -300,8 +300,7 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
     let event_view_data = event_record
         .as_ref()
         .map(|record| event_view(database, record));
-    let ai_assessment =
-        build_ai_assessment(database, event_record.as_ref(), analysis.as_ref(), &checks);
+    let ai_assessment = build_ai_assessment(database, analysis.as_ref(), &checks);
     Ok(RadarSnapshot {
         source_status: source_status.into(),
         last_synced_at,
@@ -489,47 +488,26 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
     }
 }
 
-/// AI 评估：当前事件匹配分析 / 历史成功分析 / 最近失败，派生 UI 状态。
+/// AI 评估：按最近一次成功的增量分析是否覆盖最新帖子派生 UI 状态。
 fn build_ai_assessment(
     database: &Database,
-    event: Option<&RadarEventRecord>,
     latest_success: Option<&RadarAnalysisView>,
     checks: &[RadarCheckView],
 ) -> RadarAiAssessmentView {
     let enabled = load_analysis_prefs(database)
         .map(|prefs| prefs.analyze)
         .unwrap_or(false);
-    let newest_post_at = database
-        .list_tibo_posts(1)
-        .ok()
-        .and_then(|posts| posts.first().map(|post| post.posted_at));
-    let covers = |to_posted_at: Option<i64>| match (to_posted_at, newest_post_at) {
-        (Some(covered_to), Some(newest)) => newest <= covered_to,
-        _ => true,
-    };
-    let current = event
-        .and_then(|record| database.latest_event_radar_analysis(&record.id).ok())
-        .flatten()
-        .map(|record| {
-            let covered_to = record.to_posted_at;
-            analysis_view(database, record, covers(covered_to))
-        });
+    let current = latest_success.cloned();
     let latest_error = checks
         .iter()
         .find(|check| check.analyze_status.as_deref() == Some("failed"))
         .and_then(|check| check.error_message.clone());
     let state = if !enabled {
         "disabled"
+    } else if current.as_ref().is_some_and(|analysis| analysis.covers_latest) {
+        "current"
     } else if current.is_some() {
-        let covered_to = database
-            .latest_event_radar_analysis(event.expect("current implies event").id.as_str())
-            .ok()
-            .flatten()
-            .and_then(|record| record.to_posted_at);
-        match newest_post_at {
-            Some(posted_at) if posted_at > covered_to.unwrap_or(0) => "pending",
-            _ => "current",
-        }
+        "pending"
     } else if latest_error.is_some() {
         "failed"
     } else {
