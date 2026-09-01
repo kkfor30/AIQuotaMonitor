@@ -62,7 +62,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v12";
+pub const PROMPT_VERSION: &str = "radar-v13";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -1359,15 +1359,16 @@ async fn run_analysis_inner(
     prompt_hash: &str,
 ) -> Result<(), String> {
     let mut sections = Vec::new();
-    sections.push(format!("NOW (Beijing time): {}", format_iso(epoch_ms())));
+    sections.push(format!(
+        "分析时刻（北京时间，代码权威）：{}",
+        format_iso(epoch_ms())
+    ));
     if let Some(status) = &inputs.event_status {
-        sections.push(format!(
-            "CODE-AUTHORITATIVE EVENT STATE (must not be changed): {status}"
-        ));
+        sections.push(format!("代码权威事件状态（不得修改）：{status}"));
     }
     if !inputs.context.is_empty() {
         sections.push(format!(
-            "EVENT CONTEXT POSTS (already associated with the ongoing event; background only):\n{}",
+            "事件上下文帖子（已关联当前事件，仅作背景）：\n{}",
             inputs
                 .context
                 .iter()
@@ -1377,7 +1378,7 @@ async fn run_analysis_inner(
         ));
     }
     sections.push(format!(
-        "NEW POSTS (analyze these):\n{}",
+        "本次新增帖子（需要分析）：\n{}",
         inputs
             .delta
             .iter()
@@ -1395,7 +1396,7 @@ async fn run_analysis_inner(
     }
     messages.push(json!({
         "role": "user",
-        "content": format!("Judge the NEW posts against the EVENT CONTEXT posts when present. Do not skip any new post:\n{input}")
+        "content": format!("结合事件上下文判断本次新增帖子，不得跳过任何一条新增帖子：\n{input}")
     }));
     let body = json!({
         "model": target.model,
@@ -1633,7 +1634,8 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "Never write a raw numeric post id in conclusion, analysis_basis, support, against, or uncertainty; ",
     "refer to posts in natural language such as \u{201c}the latest post\u{201d}, \u{201c}the earlier announcement post\u{201d}, or \u{201c}the post from 13:17 on Aug 31\u{201d}. ",
     "Each post's time_claims are code-authoritative facts: resolved_beijing_at may be repeated verbatim; ambiguous claims must remain ambiguous. Never calculate, convert, or invent a time. ",
-    "CODE-AUTHORITATIVE EVENT STATE and NOW are facts and cannot be changed by your output. ",
+    "CODE-AUTHORITATIVE EVENT STATE and the injected analysis time are facts and cannot be changed by your output. ",
+    "Do not repeat internal prompt labels such as NOW, NEW POSTS, EVENT CONTEXT POSTS, CODE-AUTHORITATIVE EVENT STATE, 分析时刻, 本次新增帖子, or 事件上下文帖子 in user-facing fields. ",
     "expected_time_passed means the announced time has passed but landing is still unverified; never call it landed without a source claim or local observation in state. ",
     "If state says observed_landed, describe the posts as historical confirmation and use past tense. ",
     "conclusion must be a direct decision of at most 40 Chinese characters, without markdown, evidence, or repeated reasoning. ",

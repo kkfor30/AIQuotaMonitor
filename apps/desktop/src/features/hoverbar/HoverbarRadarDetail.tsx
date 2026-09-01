@@ -22,6 +22,8 @@ import {
   humanizeRadarPostRefs,
   quotaBadgeLabel,
   quotaCorrelationLabel,
+  radarEventStatusSummary,
+  radarObservationPeriodLabel,
   radarPhaseLabel,
   radarTemporalLabel,
   shouldShowRadarTemporalBadge,
@@ -68,6 +70,7 @@ export function HoverbarRadarDetail({
 
   const event = radar?.event ?? null;
   const phase = radarPhaseLabel(event?.phase);
+  const observationPeriod = event ? radarObservationPeriodLabel(event) : null;
   const knownPosts = radar?.posts ?? [];
   const source = radar?.sourceAssessment;
   const aiLines = aiAssessmentLines(radar?.aiAssessment);
@@ -134,14 +137,15 @@ export function HoverbarRadarDetail({
             <p className="hb-radar-text" data-selectable="true">
               {humanizeRadarPostRefs(event.title, knownPosts)}
             </p>
-            {event.summary ? (
-              <>
-                <p className="hb-radar-field-label">分析依据</p>
-                <p className="hb-radar-meta" data-selectable="true">
-                  {humanizeRadarPostRefs(event.summary, knownPosts)}
-                </p>
-              </>
+            {observationPeriod ? (
+              <p className="hb-radar-meta" data-observation="true">
+                {observationPeriod}
+              </p>
             ) : null}
+            <p className="hb-radar-field-label">状态说明</p>
+            <p className="hb-radar-meta" data-selectable="true">
+              {radarEventStatusSummary(event)}
+            </p>
             {(() => {
               const temporal = radarTemporalLabel(event.temporalStatus);
               return temporal && shouldShowRadarTemporalBadge(event.phase, event.temporalStatus) ? (

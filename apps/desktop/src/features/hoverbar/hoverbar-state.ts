@@ -175,6 +175,30 @@ export function radarTemporalLabel(temporalStatus: string | null | undefined): s
   }
 }
 
+/** 当前事件只展示代码可确认的状态说明，不复用会随时间陈旧的 AI 分析原文。 */
+export function radarEventStatusSummary(event: NonNullable<RadarSnapshot["event"]>): string {
+  switch (event.phase) {
+    case "landed_observed":
+      return "额度刷新已由本机记录，具体原因尚未确认。";
+    case "landed_claimed":
+      return event.claimedLandedAt
+        ? `来源于 ${formatHoverbarClock(event.claimedLandedAt)} 称重置已落地，等待本机额度验证。`
+        : "来源称重置已落地，等待本机额度验证。";
+    case "upcoming":
+      return event.expectedAt
+        ? `来源预告 ${formatHoverbarClock(event.expectedAt)}，尚待验证。`
+        : "来源出现即将重置的信号，尚未给出可确认时间。";
+    default:
+      return "正在根据来源动态观察本轮重置信号。";
+  }
+}
+
+/** 已观察到刷新后保留 24 小时观察期，展示绝对截止时间避免倒计时陈旧。 */
+export function radarObservationPeriodLabel(event: NonNullable<RadarSnapshot["event"]>): string | null {
+  if (event.phase !== "landed_observed" || !event.expiresAt) return null;
+  return `处于 24 小时观察期 · 至 ${formatHoverbarClock(event.expiresAt)}`;
+}
+
 /**
  * 时态第二徽章展示判断（主窗口与悬浮雷达详情页共用，避免规则漂移）。
  * phase 已经表达、或比 phase 更弱的事实不再重复展示；

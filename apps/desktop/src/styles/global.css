@@ -1635,6 +1635,10 @@ html.hoverbar-window #root {
   line-height: 17px;
 }
 
+.hb-radar-meta[data-observation="true"] {
+  color: var(--q-hoverbar-success);
+}
+
 .hb-radar-error {
   margin: 7px 0 0;
   color: var(--q-hoverbar-danger);

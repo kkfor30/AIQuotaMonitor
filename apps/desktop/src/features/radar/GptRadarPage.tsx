@@ -38,6 +38,8 @@ import {
   humanizeRadarPostRefs,
   quotaBadgeLabel,
   quotaCorrelationLabel,
+  radarEventStatusSummary,
+  radarObservationPeriodLabel,
   radarPhaseLabel,
   radarTemporalLabel,
   shouldShowRadarTemporalBadge,
@@ -281,6 +283,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
   const latest = data?.latest;
   const event = data?.event ?? null;
   const phase = radarPhaseLabel(event?.phase);
+  const observationPeriod = event ? radarObservationPeriodLabel(event) : null;
   const knownPosts = data?.posts ?? [];
   const source = data?.sourceAssessment;
   const ai = data?.aiAssessment;
@@ -430,14 +433,15 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
               <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
                 {humanizeRadarPostRefs(event.title, knownPosts)}
               </p>
-              {event.summary && (
-                <div className="flex flex-col gap-1">
-                  <p className="text-[11px] font-semibold tracking-widest text-q-primary">分析依据</p>
-                  <p className="text-xs leading-relaxed text-q-text-secondary" data-selectable="true">
-                    {humanizeRadarPostRefs(event.summary, knownPosts)}
-                  </p>
-                </div>
-              )}
+              {observationPeriod ? (
+                <p className="text-[11px] font-medium text-q-success">{observationPeriod}</p>
+              ) : null}
+              <div className="flex flex-col gap-1">
+                <p className="text-[11px] font-semibold tracking-widest text-q-primary">状态说明</p>
+                <p className="text-xs leading-relaxed text-q-text-secondary" data-selectable="true">
+                  {radarEventStatusSummary(event)}
+                </p>
+              </div>
               <p className="text-[11px] text-q-text-muted">
                 首次信号 {formatTime(event.firstSignalAt)} · 最新证据 {formatTime(event.latestEvidenceAt)}
               </p>
