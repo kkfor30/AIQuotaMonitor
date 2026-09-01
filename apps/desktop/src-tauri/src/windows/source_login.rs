@@ -291,6 +291,9 @@ const MIMO_CAPTURE_SCRIPT: &str = r#"
 "#;
 
 /// Kimi 控制台：登录后 localStorage 写入 rtoken（刷新 token），标题侧信道交给原生 watcher。
+/// 页面自身会按页改写 document.title，因此每次扫描都重申令牌标题（GLM 同款守卫）；
+/// 精确键 rtoken 优先，其余 token/auth 键作为候选兜底（有效性由 Rust 侧验证把关）；
+/// 一个候选都没有时把 localStorage 键名清单写进 AIQM_KIMI_DEBUG: 标题用于诊断。
 const KIMI_CAPTURE_SCRIPT: &str = r#"
 (function() {
   function deliver(token) {
@@ -298,17 +301,42 @@ const KIMI_CAPTURE_SCRIPT: &str = r#"
     token = String(token).trim().replace(/^Bearer\s+/i, '');
     if (token.length < 20 || token.length > 4096 || /\s/.test(token)) return;
     if (/^(null|undefined)$/i.test(token)) return;
-    if (window.__aiqm_kimi_token__ === token) return;
+    var changed = window.__aiqm_kimi_token__ !== token;
     window.__aiqm_kimi_token__ = token;
     try {
-      if (!document.title.startsWith('AIQM_KIMI_TOKEN:')) {
-        document.title = 'AIQM_KIMI_TOKEN:' + token;
+      var titled = 'AIQM_KIMI_TOKEN:' + token;
+      if (!document.title.startsWith('AIQM_KIMI_TOKEN:') || document.title.length < titled.length) {
+        document.title = titled;
       }
     } catch (_) {}
+    if (changed) {
+      try {
+        if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+          window.chrome.webview.postMessage('AIQM_KIMI_TOKEN:' + token);
+        }
+      } catch (_) {}
+    }
   }
   function scanStores() {
     try { deliver(localStorage.getItem('rtoken')); } catch (_) {}
     try { deliver(sessionStorage.getItem('rtoken')); } catch (_) {}
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i) || '';
+        if (!/token|auth/i.test(key) || /csrf|captcha|hcaptcha|turnstile|apdid/i.test(key)) continue;
+        deliver(localStorage.getItem(key));
+      }
+    } catch (_) {}
+    try {
+      if (!window.__aiqm_kimi_token__) {
+        var keys = [];
+        for (var j = 0; j < localStorage.length; j++) keys.push(localStorage.key(j));
+        var sig = 'AIQM_KIMI_DEBUG:' + keys.join(',');
+        if (document.title.indexOf('AIQM_KIMI_DEBUG:') !== 0) {
+          document.title = sig.slice(0, 600);
+        }
+      }
+    } catch (_) {}
   }
   if (!window.__aiqm_kimi_hook__) {
     window.__aiqm_kimi_hook__ = true;
@@ -1087,6 +1115,7 @@ fn start_watcher(
         tokio::time::sleep(Duration::from_millis(400)).await;
         let mut cache_scan_failed = false;
         let mut usage_status_sent = false;
+        let mut last_kimi_debug = String::new();
         for tick in 0..1200 {
             if current_watcher(&source_id) != generation {
                 return;
@@ -1136,6 +1165,14 @@ fn start_watcher(
                         "source-login-status",
                         "已在财务页读到余额，正在读取登录 Cookie…",
                     );
+                } else if let Some(keys) = title.strip_prefix("AIQM_KIMI_DEBUG:") {
+                    // 诊断通道：脚本没找到任何会话候选时上报 localStorage 键名，帮助定位存储键差异
+                    let _ = window.set_title(template.window_title);
+                    let status = format!("登录页已就绪，尚未发现会话写入（localStorage 键：{keys}）");
+                    if last_kimi_debug != status {
+                        last_kimi_debug = status.clone();
+                        let _ = app.emit("source-login-status", status);
+                    }
                 } else if let Some(secret) = title_secret(&title, template) {
                     let _ = window.set_title(template.window_title);
                     let allow_blank =

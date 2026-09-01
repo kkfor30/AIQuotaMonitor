@@ -100,7 +100,24 @@ async fn fetch_inner(
 
 /// 用 rtoken 换短期 access_token；401/业务 401 视为会话过期。
 async fn refresh_access_token(client: &Client, rtoken: &str) -> Result<String, RefreshError> {
-    let response = console_get(client, "/api?endpoint=refreshToken", None).await?;
+    let response = client
+        .get(format!("{CONSOLE_ORIGIN}/api?endpoint=refreshToken"))
+        .header("Msh-Authorization", rtoken)
+        .header("Accept", "application/json")
+        .header("User-Agent", WEB_UA)
+        .header("Origin", CONSOLE_ORIGIN)
+        .header("Referer", format!("{CONSOLE_ORIGIN}/console/account"))
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|error| {
+            RefreshError::new(
+                "network_error",
+                format!("Kimi 控制台暂时无法连接：{error}"),
+                false,
+                true,
+            )
+        })?;
     let status = response.status();
     let body: Value = response.json().await.map_err(|_| {
         RefreshError::new(
