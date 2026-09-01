@@ -62,7 +62,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v15";
+pub const PROMPT_VERSION: &str = "radar-v16";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -2531,6 +2531,8 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "Never write a raw numeric post id in conclusion, analysis_basis, support, against, or uncertainty; ",
     "refer to posts in natural language such as \u{201c}the latest post\u{201d}, \u{201c}the earlier announcement post\u{201d}, or \u{201c}the post from 13:17 on Aug 31\u{201d}. ",
     "analysis_basis must be 1 to 3 core sentences and must not repeat the conclusion verbatim. ",
+    "conclusion must answer only whether the genuinely new posts contain a new reset signal, in natural Simplified Chinese with no slash-separated post references. ",
+    "When older posts describe a completed reset, call them 上一轮历史背景 and never present them as confirmation of the current batch. ",
     "support may only contain claims the cited posts directly support; anything merely speculative belongs in uncertainty. ",
     "Every conclusion must be backed by citations referring to real input posts; never cite a post that was not provided. ",
     "Each post's time_claims are code-authoritative facts: resolved_beijing_at may be repeated verbatim; ambiguous claims must remain ambiguous. Never calculate, convert, or invent a time. ",
@@ -2538,7 +2540,7 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "Do not repeat internal prompt labels, enums, JSON keys, or NOW such as NEW POSTS, EVENT CONTEXT, HISTORICAL CONTEXT, CODE-AUTHORITATIVE EVENT STATE, event_relation, delta_effect, 分析时刻, 本次新增帖子, 事件上下文帖子, or 历史上下文帖子 in user-facing fields. ",
     "expected_time_passed means the announced time has passed but landing is still unverified; it is not landed. ",
     "If state says observed_landed, describe the posts as historical confirmation and use past tense. ",
-    "conclusion must be a direct decision of at most 40 Chinese characters, without markdown, evidence, or repeated reasoning. ",
+    "conclusion must be a direct decision of at most 30 Chinese characters, without markdown, evidence, or repeated reasoning. ",
     "event_relation: new_event when NEW POSTS start a distinct reset cycle; same_event when they update the ongoing event; none when unrelated. ",
     "Ordinary chatter or unrelated replies must be event_relation none with delta_effect no_change and signal_level none; never overwrite or close the ongoing event for them. ",
     "event_phase is your read of the event stage after the NEW POSTS; delta_effect describes what the NEW POSTS do to the event. ",

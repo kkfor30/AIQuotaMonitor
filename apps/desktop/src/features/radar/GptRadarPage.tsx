@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BrainCircuit,
+  ChevronRight,
   ExternalLink,
   Heart,
   HelpCircle,
@@ -263,6 +264,24 @@ function formatTime(value: number) {
   return new Date(value).toLocaleString("zh-CN", { hour12: false });
 }
 
+function formatCompactTime(value: number) {
+  return new Date(value).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function AnimatedCollapse({ open, children, className = "" }: { open: boolean; children: ReactNode; className?: string }) {
+  return (
+    <div className={`radar-collapse ${className}`} data-open={open || undefined} aria-hidden={!open}>
+      <div className="radar-collapse-inner">{children}</div>
+    </div>
+  );
+}
+
 /** 本机额度验证状态的徽章色调：非计划刷新 → 蓝（重点）；不可达/缺数据 → 中性；其余正常。 */
 function quotaTone(status: string): "success" | "warning" | "neutral" | "primary" {
   if (status === "unscheduled_reset" || status === "possible_reset") return "primary";
@@ -317,6 +336,10 @@ function SignalSummaryView({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const recentResetAt = recentReset?.observedResetAt ?? recentReset?.userConfirmedResetAt ?? null;
+  const recentMeta = recentResetAt
+    ? `${formatCompactTime(recentResetAt)} · ${radarConfirmationSourceLabel(recentReset?.confirmationSource)}`
+    : decision?.recentSummaryText ?? "已结束";
   const confirmCard = useMutation({
     mutationFn: confirmRadarQuotaChange,
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
@@ -447,9 +470,9 @@ function SignalSummaryView({
       </div>
 
       {/* CodexRadar 公告：独立紧凑信息卡，不进入本地 AI 输入 */}
-      <section className="glass-panel radar-notice-card flex flex-col gap-2 p-4">
-        <div className="flex items-center gap-2.5">
-          <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">
+      <section className={cn("glass-panel radar-notice-card flex flex-col", notice ? "gap-2 p-4" : "px-4 py-3")}>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h2 className={cn("font-semibold tracking-tight text-q-text-primary", notice ? "text-[16px]" : "text-[14px]")}>
             {notice ? (notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
           </h2>
           <StatusBadge tone={data?.sourceStatus === "fresh" ? "success" : data?.sourceStatus === "stale" ? "warning" : "neutral"}>
@@ -491,13 +514,11 @@ function SignalSummaryView({
               </a>
             </div>
           </>
-        ) : (
-          <p className="text-[13px] text-q-text-secondary">来源站点当前没有公告区块，帖子同步不受影响。</p>
-        )}
+        ) : null}
       </section>
 
       {/* AI 分析大卡：结论/分析/判断依据 + 可展开细节 */}
-      <section className="glass-panel radar-ai-card flex flex-col gap-3 p-4">
+      <section className="glass-panel radar-ai-card relative flex flex-col gap-3 overflow-hidden p-4">
         <div className="flex items-center gap-2.5">
           <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">AI 分析</h2>
           <span
@@ -517,7 +538,7 @@ function SignalSummaryView({
         {aiReasoning?.conclusion ? (
           <>
             <p className="text-[13px] font-semibold text-q-primary">AI 结论</p>
-            <p className="text-[18px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
+            <p className="text-[17px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
               {humanizeRadarPostRefs(aiReasoning.conclusion, knownPosts)}
             </p>
             {aiReasoning.analysisBasis ? (
@@ -564,7 +585,7 @@ function SignalSummaryView({
                 ))}
               </div>
             ) : (
-              <p className="text-[13px] text-q-text-secondary">本次分析没有引用 NEW POSTS 原帖。</p>
+              <p className="text-[13px] text-q-text-secondary">本轮未发现可作为重置信号的新增帖子。</p>
             )}
             <p className="text-[12px] text-q-text-muted">
               {aiReasoning.model ?? "未知模型"} · {formatTime(aiReasoning.createdAt)}
@@ -573,8 +594,8 @@ function SignalSummaryView({
             <Button variant="ghost" size="sm" className="self-start" onClick={() => setAnalysisOpen((value) => !value)}>
               {analysisOpen ? "收起分析细节" : "查看分析细节"}
             </Button>
-            {analysisOpen ? (
-              <div className="flex flex-col gap-2">
+            <AnimatedCollapse open={analysisOpen}>
+              <div className="radar-collapse-scroll flex flex-col gap-2">
                 <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={aiReasoning.support.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
                 <ListBlock title="反向依据" icon={<ThumbsDown size={13} aria-hidden />} items={aiReasoning.against.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
                 <ListBlock title="不确定性" icon={<HelpCircle size={13} aria-hidden />} items={aiReasoning.uncertainty.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
@@ -585,7 +606,7 @@ function SignalSummaryView({
                     : "使用默认语义提示"}
                 </p>
               </div>
-            ) : null}
+            </AnimatedCollapse>
           </>
         ) : (
           <p className="text-[14px] leading-relaxed text-q-text-secondary">
@@ -596,18 +617,18 @@ function SignalSummaryView({
 
       {/* 最近一次重置：默认折叠；仅有来源声称时不得称“重置” */}
       {recentCard ? (
-        <section className="glass-panel flex flex-col gap-2.5 p-4">
-          <button type="button" className="flex items-center gap-2 text-left" onClick={() => setRecentOpen((value) => !value)}>
+        <section className="glass-panel flex flex-col p-4">
+          <button type="button" className="radar-collapse-trigger" onClick={() => setRecentOpen((value) => !value)} aria-expanded={recentOpen}>
+            <ChevronRight size={17} aria-hidden className={cn("radar-collapse-chevron", recentOpen && "is-open")} />
             <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">
               {recentReset ? "最近一次重置" : "最近一次事件"}
             </h2>
             <span className="min-w-0 flex-1 truncate text-[12px] text-q-text-muted">
-              {decision?.recentSummaryText}
-              {recentReset ? ` · ${radarConfirmationSourceLabel(recentReset.confirmationSource)}` : ""}
+              {recentMeta}
             </span>
           </button>
-          {recentOpen ? (
-            <>
+          <AnimatedCollapse open={recentOpen}>
+            <div className="radar-collapse-scroll flex flex-col gap-2 pt-2">
               <p className="text-[13px] text-q-text-secondary">
                 最终状态：{radarCloseReasonLabel(recentCard.closeReason)}
               </p>
@@ -624,22 +645,23 @@ function SignalSummaryView({
                   {humanizeRadarPostRefs(recentCard.analysis.analysisBasis, knownPosts)}
                 </p>
               ) : null}
-              <CitationList citations={(recentCard.analysis?.citations ?? []).slice(0, 3)} posts={knownPosts} />
+              <CitationList citations={(recentCard.analysis?.citations ?? []).slice(0, 3)} posts={knownPosts} compact />
               <Button variant="ghost" size="sm" className="self-start" onClick={onOpenHistory}>
                 查看完整历史
               </Button>
-            </>
-          ) : null}
+            </div>
+          </AnimatedCollapse>
         </section>
       ) : null}
 
-      <section className="glass-panel flex flex-col gap-2.5 p-4">
-        <button type="button" className="flex items-center gap-2 text-left" onClick={() => setHistoryOpen((value) => !value)}>
-          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">检查历史</h2>
-          <span className="text-[11px] text-q-text-muted">{(data?.checks ?? []).length} 次</span>
+      <section className="glass-panel flex flex-col p-4">
+        <button type="button" className="radar-collapse-trigger" onClick={() => setHistoryOpen((value) => !value)} aria-expanded={historyOpen}>
+          <ChevronRight size={17} aria-hidden className={cn("radar-collapse-chevron", historyOpen && "is-open")} />
+          <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">检查历史</h2>
+          <span className="min-w-0 flex-1 text-[12px] text-q-text-muted">共 {(data?.checks ?? []).length} 次检查</span>
         </button>
-        {historyOpen ? (
-          <>
+        <AnimatedCollapse open={historyOpen}>
+          <div className="radar-collapse-scroll radar-history-scroll pt-2">
             {(data?.checks ?? []).length === 0 && <p className="text-xs text-q-text-muted">还没有检查记录</p>}
             <div className="flex flex-col">
               {(data?.checks ?? []).map((check) => (
@@ -678,8 +700,8 @@ function SignalSummaryView({
                 </div>
               ))}
             </div>
-          </>
-        ) : null}
+          </div>
+        </AnimatedCollapse>
       </section>
 
       <p className="flex items-center gap-1.5 px-1 text-[11px] text-q-text-muted">
@@ -1463,7 +1485,7 @@ function ListBlock({
 }
 
 /** 引用卡：别名映射回真实 post_id 后，用「时间 · 查看原帖」展示，不暴露原始帖子编号。 */
-function CitationList({ citations, posts }: { citations: string[]; posts: RadarPost[] }) {
+function CitationList({ citations, posts, compact = false }: { citations: string[]; posts: RadarPost[]; compact?: boolean }) {
   const [linkError, setLinkError] = useState<string | null>(null);
   if (citations.length === 0) return null;
   const byId = new Map(posts.map((post) => [post.id, post]));
@@ -1476,15 +1498,18 @@ function CitationList({ citations, posts }: { citations: string[]; posts: RadarP
         引用
         <span className="text-q-text-muted">· {citations.length}</span>
       </p>
-      <ul className="flex flex-col gap-1 pl-0.5">
+      <ul className={cn("gap-1.5 pl-0.5", compact ? "flex flex-wrap" : "flex flex-col")}>
         {citations.map((citation, index) => {
           const post = byId.get(citation);
           return (
             <li
               key={`${index}-${citation.slice(0, 12)}`}
-              className="flex items-center gap-2 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2 text-xs leading-relaxed text-q-text-primary"
+              className={cn(
+                "flex items-center gap-2 border border-q-border bg-q-surface-strong text-xs leading-relaxed text-q-text-primary",
+                compact ? "rounded-q-pill px-2.5 py-1" : "rounded-q-control px-3 py-2",
+              )}
             >
-              <span className="shrink-0 tabular-nums font-medium text-q-primary">{index + 1}.</span>
+              {!compact ? <span className="shrink-0 tabular-nums font-medium text-q-primary">{index + 1}.</span> : null}
               {post ? (
                 <>
                   <span className="min-w-0 shrink-0 tabular-nums text-q-text-muted">{citationTimeLabel(post.postedAt)}</span>

@@ -83,6 +83,10 @@ export function HoverbarRadarDetail({
   const recentReset = decision?.recentReset ?? null;
   const recentClosedEvent = decision?.recentClosedEvent ?? null;
   const recentCard = recentReset ?? recentClosedEvent;
+  const recentResetAt = recentReset?.observedResetAt ?? recentReset?.userConfirmedResetAt ?? null;
+  const recentToggleMeta = recentResetAt
+    ? `${formatHoverbarClock(recentResetAt)} · ${radarConfirmationSourceLabel(recentReset?.confirmationSource)}`
+    : radarCloseReasonLabel(recentCard?.closeReason);
   const knownPosts = radar?.posts ?? [];
   const rangeKey = radar?.analysisPrefs.rangeKey;
   const rangePosts = postsInRadarRange(knownPosts, rangeKey).slice().sort((a, b) => b.postedAt - a.postedAt);
@@ -154,7 +158,7 @@ export function HoverbarRadarDetail({
         </div>
         {decision ? (
           <>
-            <p className="hb-radar-text" data-selectable="true">
+            <p className="hb-radar-headline" data-selectable="true">
               {decision.headline}
             </p>
             <p className="hb-radar-meta" data-time-kind={decision.timeKind}>
@@ -192,13 +196,13 @@ export function HoverbarRadarDetail({
       </section>
 
       {/* CodexRadar 公告：独立紧凑信息卡 */}
-      <section className="hb-radar-card hb-notice-card">
+      <section className={`hb-radar-card hb-notice-card${radar?.notice ? "" : " hb-notice-empty"}`}>
         <h3 className="hb-radar-card-title">
           {radar?.notice ? (radar.notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
         </h3>
         {radar?.notice ? (
           <>
-            <p className="hb-radar-text" data-selectable="true">
+            <p className="hb-radar-subheadline" data-selectable="true">
               {radar.notice.headline}
             </p>
             {radar.notice.lead ? (
@@ -270,7 +274,7 @@ export function HoverbarRadarDetail({
             </button>
           ) : null}
         </div>
-        <p className="hb-radar-text" data-selectable="true">
+        <p className="hb-radar-subheadline" data-selectable="true">
           {waitingVerify
             ? "本机尚未观察到额度重置"
             : quotaUnavailable
@@ -279,13 +283,15 @@ export function HoverbarRadarDetail({
         </p>
         {waitingVerify ? <p className="hb-radar-meta">等待本机检测或用户确认</p> : null}
         {quotaUnavailable ? <p className="hb-radar-meta">不影响来源与 AI 判断</p> : null}
-        {quotaDetailOpen ? (
-          verifications.length === 0 ? (
-            <p className="hb-radar-meta">未接入 GPT 额度来源。</p>
-          ) : (
-            verifications.map((item) => <QuotaVerificationRow key={item.sourceId} item={item} />)
-          )
-        ) : null}
+        <div className="hb-radar-collapse" data-open={quotaDetailOpen || undefined} aria-hidden={!quotaDetailOpen}>
+          <div className="hb-radar-collapse-inner">
+            {verifications.length === 0 ? (
+              <p className="hb-radar-meta">未接入 GPT 额度来源。</p>
+            ) : (
+              verifications.map((item) => <QuotaVerificationRow key={item.sourceId} item={item} />)
+            )}
+          </div>
+        </div>
         <div className="hb-radar-post-actions">
           {onRetryQuota ? (
             <button
@@ -307,9 +313,10 @@ export function HoverbarRadarDetail({
       </section>
 
       <section className="hb-radar-card">
-        <h3 className="hb-radar-card-title">
-          Tibo 动态 · {formatRadarRangeLabel(rangeKey)} · {rangePosts.length}条
-        </h3>
+        <div className="hb-radar-card-head">
+          <h3 className="hb-radar-card-title">Tibo 动态</h3>
+          <span className="hb-radar-card-meta">{formatRadarRangeLabel(rangeKey)} · {rangePosts.length} 条</span>
+        </div>
         {rangePosts.length === 0 ? (
           <p className="hb-radar-meta">当前范围内没有动态。</p>
         ) : (
@@ -347,18 +354,18 @@ export function HoverbarRadarDetail({
             />
             {recentReset ? "最近一次重置" : "最近一次事件"}
             <span className="hb-radar-card-toggle-meta">
-              {decision?.recentSummaryText ?? radarCloseReasonLabel(recentCard.closeReason)}
+              {recentToggleMeta}
             </span>
             <ChevronDown size={13} aria-hidden className={recentEventOpen ? "hb-rotate-180" : ""} />
           </button>
-          {recentEventOpen ? (
-            <div className="hb-radar-recent-body">
+          <div className="hb-radar-collapse" data-open={recentEventOpen || undefined} aria-hidden={!recentEventOpen}>
+            <div className="hb-radar-collapse-inner hb-radar-recent-body">
               <p className="hb-radar-meta">
                 {radarConfirmationSourceLabel(recentCard.confirmationSource)} ·{" "}
                 {radarCloseReasonLabel(recentCard.closeReason)}
               </p>
               {recentCard.analysis?.conclusion ? (
-                <p className="hb-radar-text" data-selectable="true">
+                <p className="hb-radar-subheadline" data-selectable="true">
                   {humanizeRadarPostRefs(recentCard.analysis.conclusion, knownPosts)}
                 </p>
               ) : null}
@@ -372,14 +379,7 @@ export function HoverbarRadarDetail({
                 return post ? <EvidenceRow key={post.id} post={post} compact /> : null;
               })}
             </div>
-          ) : (
-            <p className="hb-radar-meta">
-              {decision?.recentSummaryText}
-              {recentCard.confirmationSource
-                ? ` · ${radarConfirmationSourceLabel(recentCard.confirmationSource)}`
-                : ""}
-            </p>
-          )}
+          </div>
         </section>
       ) : null}
 
@@ -431,7 +431,7 @@ function ConfirmResetDialog({
         aria-label="确认额度已经重置"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <p className="hb-radar-text">确认额度已经重置？</p>
+        <p className="hb-radar-subheadline">确认额度已经重置？</p>
         <p className="hb-radar-meta">
           这只记录你的人工观察，不代表官方确认，也不会判断是官方重置还是使用了重置卡。
         </p>
@@ -517,7 +517,7 @@ function AiReasoningBlock({
     <div className="hb-ai-block">
       {historical ? <p className="hb-radar-meta">历史分析 · {formatHoverbarClock(analysis.createdAt)}</p> : null}
       {analysis.conclusion ? (
-        <p className="hb-radar-text" data-selectable="true">
+        <p className="hb-radar-subheadline" data-selectable="true">
           {analysis.conclusion}
         </p>
       ) : null}
@@ -537,7 +537,7 @@ function AiReasoningBlock({
           <CitationChip key={post.id} post={post} tag={irrelevant ? "无关信号" : "直接信号"} />
         ))
       ) : (
-        <p className="hb-radar-meta">本次分析没有引用新增原帖。</p>
+        <p className="hb-radar-meta">本轮未发现可作为重置信号的新增帖子。</p>
       )}
       {currentCitationPosts.length > citationLimit ? (
         <p className="hb-radar-meta">查看全部 {currentCitationPosts.length} 条</p>
@@ -545,8 +545,8 @@ function AiReasoningBlock({
       <button type="button" className="hb-radar-post-button" onClick={onToggle}>
         {open ? "收起分析细节" : "查看分析细节"}
       </button>
-      {open ? (
-        <>
+      <div className="hb-radar-collapse" data-open={open || undefined} aria-hidden={!open}>
+        <div className="hb-radar-collapse-inner hb-ai-detail-body">
           {analysis.support.map((item, index) => (
             <p className="hb-radar-meta" data-selectable="true" key={`support-${index}`}>
               支持 · {item}
@@ -565,8 +565,8 @@ function AiReasoningBlock({
           {allCitationPosts.map((post) => (
             <CitationChip key={`all-${post.id}`} post={post} tag={irrelevant ? "无关信号" : "直接信号"} />
           ))}
-        </>
-      ) : null}
+        </div>
+      </div>
     </div>
   );
 }
