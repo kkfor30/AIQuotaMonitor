@@ -400,8 +400,8 @@ pub fn set_hoverbar_enabled(app: &AppHandle, enabled: bool) -> Result<(), String
 }
 
 /// 前台窗口是否处于全屏（无边框全屏游戏/视频等）：
-/// 前台窗口几乎铺满某显示器工作区且不带 WS_CAPTION 样式时视为全屏；
-/// 普通最大化窗口保留标题栏样式，不会被误判。
+/// 排除 Windows 桌面窗口，并要求无标题栏窗口与显示器物理边界基本重合。
+/// 不能使用“覆盖工作区 95%”判断，否则桌面、输入面板等 Shell 窗口会被误判为全屏。
 #[cfg(windows)]
 fn is_foreground_fullscreen() -> bool {
     use windows_sys::Win32::Foundation::RECT;
@@ -409,13 +409,25 @@ fn is_foreground_fullscreen() -> bool {
         GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowLongW, GetWindowRect, GWL_STYLE, WS_CAPTION,
+        GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetShellWindow, GetWindowLongW,
+        GetWindowRect, GWL_STYLE, WS_CAPTION,
     };
 
     unsafe {
         let hwnd = GetForegroundWindow();
         if hwnd.is_null() {
             return false;
+        }
+        if hwnd == GetShellWindow() || hwnd == GetDesktopWindow() {
+            return false;
+        }
+        let mut class_name = [0u16; 64];
+        let class_name_len = GetClassNameW(hwnd, class_name.as_mut_ptr(), class_name.len() as i32);
+        if class_name_len > 0 {
+            let class_name = String::from_utf16_lossy(&class_name[..class_name_len as usize]);
+            if matches!(class_name.as_str(), "Progman" | "WorkerW") {
+                return false;
+            }
         }
         let mut rect = RECT {
             left: 0,
@@ -441,12 +453,12 @@ fn is_foreground_fullscreen() -> bool {
         if GetMonitorInfoW(hmonitor, &mut info) == 0 {
             return false;
         }
-        let work = &info.rcWork;
-        let area_w = (work.right - work.left) as i64;
-        let area_h = (work.bottom - work.top) as i64;
-        let win_w = (rect.right - rect.left) as i64;
-        let win_h = (rect.bottom - rect.top) as i64;
-        area_w > 0 && area_h > 0 && win_w >= area_w * 95 / 100 && win_h >= area_h * 95 / 100
+        let monitor = &info.rcMonitor;
+        const EDGE_TOLERANCE: i32 = 2;
+        (rect.left - monitor.left).abs() <= EDGE_TOLERANCE
+            && (rect.top - monitor.top).abs() <= EDGE_TOLERANCE
+            && (rect.right - monitor.right).abs() <= EDGE_TOLERANCE
+            && (rect.bottom - monitor.bottom).abs() <= EDGE_TOLERANCE
     }
 }
 
