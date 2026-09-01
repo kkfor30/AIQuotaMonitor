@@ -195,35 +195,36 @@ export function HoverbarRadarDetail({
         )}
       </section>
 
-      {/* CodexRadar 公告：独立紧凑信息卡 */}
-      <section className={`hb-radar-card hb-notice-card${radar?.notice ? "" : " hb-notice-empty"}`}>
-        <h3 className="hb-radar-card-title">
-          {radar?.notice ? (radar.notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
-        </h3>
-        {radar?.notice ? (
-          <>
-            <p className="hb-radar-subheadline" data-selectable="true">
-              {radar.notice.headline}
+      {/* CodexRadar 公告：无公告时压缩为单行，不换行 */}
+      {radar?.notice ? (
+        <section className="hb-radar-card hb-notice-card">
+          <h3 className="hb-radar-card-title">
+            {radar.notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告"}
+          </h3>
+          <p className="hb-radar-subheadline" data-selectable="true">
+            {radar.notice.headline}
+          </p>
+          {radar.notice.lead ? (
+            <p className="hb-radar-meta" data-selectable="true">
+              {radar.notice.lead}
             </p>
-            {radar.notice.lead ? (
-              <p className="hb-radar-meta" data-selectable="true">
-                {radar.notice.lead}
-              </p>
-            ) : null}
-            <p className="hb-radar-meta">
-              {radar.notice.isCurrent
-                ? radar.notice.updatedAt
-                  ? `更新 ${formatHoverbarClock(radar.notice.updatedAt)}`
-                  : "当前公告"
-                : radar.notice.updatedAt
-                  ? `上次出现于 ${formatHoverbarClock(radar.notice.updatedAt)}`
-                  : "历史公告"}
-            </p>
-          </>
-        ) : (
-          <p className="hb-radar-meta">来源站点当前没有公告区块，帖子同步不受影响。</p>
-        )}
-      </section>
+          ) : null}
+          <p className="hb-radar-meta">
+            {radar.notice.isCurrent
+              ? radar.notice.updatedAt
+                ? `更新 ${formatHoverbarClock(radar.notice.updatedAt)}`
+                : "当前公告"
+              : radar.notice.updatedAt
+                ? `上次出现于 ${formatHoverbarClock(radar.notice.updatedAt)}`
+                : "历史公告"}
+          </p>
+        </section>
+      ) : (
+        <section className="hb-radar-card hb-notice-card hb-notice-empty">
+          <h3 className="hb-radar-card-title hb-nowrap">CodexRadar 当前无公告</h3>
+          <span className="hb-radar-meta hb-nowrap">帖子同步正常</span>
+        </section>
+      )}
 
       {/* AI 分析：大标题 + 状态；判断依据只展示当前分析 NEW POSTS 引用 */}
       <section className="hb-radar-card hb-ai-card">
@@ -235,7 +236,7 @@ export function HoverbarRadarDetail({
         </div>
         {aiAnalysis ? (
           <>
-            <p className="hb-radar-field-label">AI 结论</p>
+            <p className="hb-radar-field-label">结论</p>
             <AiReasoningBlock
               analysis={aiAnalysis}
               posts={knownPosts}
@@ -261,8 +262,7 @@ export function HoverbarRadarDetail({
       </section>
 
       <section className="hb-radar-card">
-        <div className="hb-radar-card-head">
-          <h3 className="hb-radar-card-title">本机验证</h3>
+        <div className="hb-radar-card-head hb-radar-card-head-end">
           {verifications.length > 0 ? (
             <button
               type="button"

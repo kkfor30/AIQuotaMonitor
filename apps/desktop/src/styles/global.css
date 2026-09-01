@@ -1970,6 +1970,15 @@ html.hoverbar-window #root {
   padding-block: 9px;
 }
 
+.hb-nowrap {
+  white-space: nowrap;
+}
+
+/* 无标题的操作行（本机验证头部只保留“查看账号详情”时右对齐）。 */
+.hb-radar-card-head-end {
+  justify-content: flex-end;
+}
+
 .hb-notice-empty .hb-radar-card-title,
 .hb-notice-empty .hb-radar-meta {
   margin: 0;
@@ -1995,19 +2004,7 @@ html.hoverbar-window #root {
 }
 
 .hb-ai-card {
-  position: relative;
-  overflow: hidden;
   background: color-mix(in srgb, var(--q-hoverbar-primary) 3%, transparent);
-}
-
-.hb-ai-card::before {
-  content: "";
-  position: absolute;
-  inset-block: 12px;
-  left: 0;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: color-mix(in srgb, var(--q-hoverbar-primary) 58%, transparent);
 }
 
 /* 主窗口雷达折叠区：CSS Grid 支持内容高度动画，不做 JS 测高。 */

@@ -355,7 +355,7 @@ function SignalSummaryView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
+      <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
         <section className="glass-panel flex flex-col gap-3 p-4">
           <div className="flex items-center gap-2.5">
             <span
@@ -470,9 +470,9 @@ function SignalSummaryView({
       </div>
 
       {/* CodexRadar 公告：独立紧凑信息卡，不进入本地 AI 输入 */}
-      <section className={cn("glass-panel radar-notice-card flex flex-col", notice ? "gap-2 p-4" : "px-4 py-3")}>
+      <section className={cn("glass-panel radar-notice-card flex shrink-0 flex-col", notice ? "gap-2 p-4" : "px-4 py-3")}>
         <div className="flex flex-wrap items-center gap-2.5">
-          <h2 className={cn("font-semibold tracking-tight text-q-text-primary", notice ? "text-[16px]" : "text-[14px]")}>
+          <h2 className={cn("whitespace-nowrap font-semibold tracking-tight text-q-text-primary", notice ? "text-[16px]" : "text-[14px]")}>
             {notice ? (notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
           </h2>
           <StatusBadge tone={data?.sourceStatus === "fresh" ? "success" : data?.sourceStatus === "stale" ? "warning" : "neutral"}>
@@ -517,8 +517,8 @@ function SignalSummaryView({
         ) : null}
       </section>
 
-      {/* AI 分析大卡：结论/分析/判断依据 + 可展开细节 */}
-      <section className="glass-panel radar-ai-card relative flex flex-col gap-3 overflow-hidden p-4">
+      {/* AI 分析大卡：结论/分析/判断依据 + 可展开细节；shrink-0 防止被滚动容器压缩裁剪 */}
+      <section className="glass-panel radar-ai-card relative flex shrink-0 flex-col gap-3 p-4">
         <div className="flex items-center gap-2.5">
           <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">AI 分析</h2>
           <span
@@ -544,7 +544,7 @@ function SignalSummaryView({
             {aiReasoning.analysisBasis ? (
               <>
                 <p className="text-[13px] font-semibold text-q-primary">分析</p>
-                <p className="text-[14px] leading-[1.65] text-q-text-secondary" data-selectable="true">
+                <p className="text-[14px] font-medium leading-[1.65] text-q-text-secondary" data-selectable="true">
                   {humanizeRadarPostRefs(aiReasoning.analysisBasis, knownPosts)}
                 </p>
               </>
@@ -617,7 +617,7 @@ function SignalSummaryView({
 
       {/* 最近一次重置：默认折叠；仅有来源声称时不得称“重置” */}
       {recentCard ? (
-        <section className="glass-panel flex flex-col p-4">
+        <section className="glass-panel flex shrink-0 flex-col p-4">
           <button type="button" className="radar-collapse-trigger" onClick={() => setRecentOpen((value) => !value)} aria-expanded={recentOpen}>
             <ChevronRight size={17} aria-hidden className={cn("radar-collapse-chevron", recentOpen && "is-open")} />
             <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">
@@ -654,7 +654,7 @@ function SignalSummaryView({
         </section>
       ) : null}
 
-      <section className="glass-panel flex flex-col p-4">
+      <section className="glass-panel flex shrink-0 flex-col p-4">
         <button type="button" className="radar-collapse-trigger" onClick={() => setHistoryOpen((value) => !value)} aria-expanded={historyOpen}>
           <ChevronRight size={17} aria-hidden className={cn("radar-collapse-chevron", historyOpen && "is-open")} />
           <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">检查历史</h2>
@@ -704,7 +704,7 @@ function SignalSummaryView({
         </AnimatedCollapse>
       </section>
 
-      <p className="flex items-center gap-1.5 px-1 text-[11px] text-q-text-muted">
+      <p className="flex shrink-0 items-center gap-1.5 px-1 text-[11px] text-q-text-muted">
         <ShieldCheck size={13} aria-hidden className="shrink-0" />
         雷达内容独立于平台额度状态；AI 分析只接收英文原文、发布时间与原帖链接，不发送凭据。
       </p>
