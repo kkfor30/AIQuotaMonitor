@@ -8,7 +8,7 @@
 //! 验证成功后写入 Windows Credential Manager。
 
 use crate::domain::refresh::SourceRefreshOutput;
-use crate::providers::{deepseek, glm, kimi_console, mimo};
+use crate::providers::{deepseek, glm, mimo};
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use crate::storage::vault;
@@ -290,85 +290,6 @@ const MIMO_CAPTURE_SCRIPT: &str = r#"
 })();
 "#;
 
-/// Kimi 控制台：登录态在 httpOnly Cookie（localStorage 无 token），页面脚本探测
-/// `/api?endpoint=userInfo` 返回 code 0 即置 AIQM_KIMI_READY 标题；原生侧看到 READY
-/// 后用 CookieManager 读取 Cookie（含 httpOnly）交 Rust 验证（GLM/MiMo 同款链路）。
-/// localStorage 的 rtoken/token 键仍作为手动粘贴与兜底通道；页面自身会按页改写
-/// document.title，因此每次扫描都重申标题；无候选且未登录时上报键名清单用于诊断。
-const KIMI_CAPTURE_SCRIPT: &str = r#"
-(function() {
-  function deliver(token) {
-    if (!token || typeof token !== 'string') return;
-    token = String(token).trim().replace(/^Bearer\s+/i, '');
-    if (token.length < 20 || token.length > 4096 || /\s/.test(token)) return;
-    if (/^(null|undefined)$/i.test(token)) return;
-    var changed = window.__aiqm_kimi_token__ !== token;
-    window.__aiqm_kimi_token__ = token;
-    try {
-      var titled = 'AIQM_KIMI_TOKEN:' + token;
-      if (!document.title.startsWith('AIQM_KIMI_TOKEN:') || document.title.length < titled.length) {
-        document.title = titled;
-      }
-    } catch (_) {}
-    if (changed) {
-      try {
-        if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
-          window.chrome.webview.postMessage('AIQM_KIMI_TOKEN:' + token);
-        }
-      } catch (_) {}
-    }
-  }
-  function markReady() {
-    try {
-      window.__aiqm_kimi_ready__ = true;
-      if (!document.title.startsWith('AIQM_KIMI_TOKEN:')) {
-        document.title = 'AIQM_KIMI_READY';
-      }
-    } catch (_) {}
-  }
-  function probeSession() {
-    try {
-      fetch('/api?endpoint=userInfo', { credentials: 'include', headers: { 'Accept': 'application/json' } })
-        .then(function(response) { return response.json(); })
-        .then(function(body) {
-          if (body && Number(body.code) === 0) {
-            var data = body.data || body;
-            if (data && data.organizations && data.organizations.length) markReady();
-          }
-        })
-        .catch(function() {});
-    } catch (_) {}
-  }
-  function scanStores() {
-    try { deliver(localStorage.getItem('rtoken')); } catch (_) {}
-    try { deliver(sessionStorage.getItem('rtoken')); } catch (_) {}
-    try {
-      for (var i = 0; i < localStorage.length; i++) {
-        var key = localStorage.key(i) || '';
-        if (!/token|auth/i.test(key) || /csrf|captcha|hcaptcha|turnstile|apdid/i.test(key)) continue;
-        deliver(localStorage.getItem(key));
-      }
-    } catch (_) {}
-    probeSession();
-    try {
-      if (!window.__aiqm_kimi_token__ && !window.__aiqm_kimi_ready__) {
-        var keys = [];
-        for (var j = 0; j < localStorage.length; j++) keys.push(localStorage.key(j));
-        var sig = 'AIQM_KIMI_DEBUG:' + keys.join(',');
-        if (document.title.indexOf('AIQM_KIMI_DEBUG:') !== 0) {
-          document.title = sig.slice(0, 600);
-        }
-      }
-    } catch (_) {}
-  }
-  if (!window.__aiqm_kimi_hook__) {
-    window.__aiqm_kimi_hook__ = true;
-    setInterval(scanStores, 1200);
-  }
-  scanStores();
-})();
-"#;
-
 const TEMPLATES: &[LoginTemplate] = &[
     LoginTemplate {
         source_id: deepseek::WEB_SOURCE_ID,
@@ -414,21 +335,6 @@ const TEMPLATES: &[LoginTemplate] = &[
         isolated_profile: true,
         status_open: "请在登录窗口完成 MiMo 登录。同步成功后会自动验证并保存网页余额会话。",
         timeout_message: "MiMo 网页登录等待超时，请关闭后重试。",
-    },
-    LoginTemplate {
-        source_id: kimi_console::CONSOLE_SOURCE_ID,
-        window_label: "kimi-console-login",
-        window_title: "Kimi 控制台登录",
-        login_url: "https://platform.kimi.com/console/account",
-        allowed_host_suffixes: &["kimi.com", "moonshot.cn", "moonshot.ai"],
-        init_script: KIMI_CAPTURE_SCRIPT,
-        title_prefix: "AIQM_KIMI_TOKEN:",
-        cookie_host_suffix: Some("kimi.com"),
-        cookie_required: Some("__kimi_ready__"),
-        cookie_min_len: 60,
-        isolated_profile: true,
-        status_open: "请在登录窗口完成 Kimi 控制台登录。检测到登录态后会自动读取 Cookie 并保存今日/本月消费来源。",
-        timeout_message: "Kimi 控制台登录等待超时，请关闭后重试或手动粘贴 Cookie。",
     },
 ];
 
@@ -1138,7 +1044,6 @@ fn start_watcher(
         tokio::time::sleep(Duration::from_millis(400)).await;
         let mut cache_scan_failed = false;
         let mut usage_status_sent = false;
-        let mut last_kimi_debug = String::new();
         for tick in 0..1200 {
             if current_watcher(&source_id) != generation {
                 return;
@@ -1188,44 +1093,6 @@ fn start_watcher(
                         "source-login-status",
                         "已在财务页读到余额，正在读取登录 Cookie…",
                     );
-                } else if title.starts_with("AIQM_KIMI_READY") {
-                    let _ = window.set_title(template.window_title);
-                    let _ = app.emit(
-                        "source-login-status",
-                        "已检测到 Kimi 登录态，正在读取会话 Cookie…",
-                    );
-                    // 会话 Cookie 命名未知（httpOnly）：READY 后绕过启发式直接抓全量 Cookie 交 Rust 验证
-                    let app_for_cookie = app.clone();
-                    let source_for_cookie = source_id.clone();
-                    let label_for_cookie = window_label.clone();
-                    let _ = query_native_cookie_headers(
-                        &window,
-                        cookie_query_urls(&window, template),
-                        move |header| {
-                            if header.len() < 40 {
-                                return;
-                            }
-                            let app = app_for_cookie.clone();
-                            let source_id = source_for_cookie.clone();
-                            let window_label = label_for_cookie.clone();
-                            tauri::async_runtime::spawn(async move {
-                                let Some(window) = app.get_webview_window(&window_label) else {
-                                    return;
-                                };
-                                let _ =
-                                    capture_and_finish(&app, &window, &source_id, &header, true)
-                                        .await;
-                            });
-                        },
-                    );
-                } else if let Some(keys) = title.strip_prefix("AIQM_KIMI_DEBUG:") {
-                    // 诊断通道：脚本没找到任何会话候选时上报 localStorage 键名，帮助定位存储键差异
-                    let _ = window.set_title(template.window_title);
-                    let status = format!("登录页已就绪，尚未发现会话写入（localStorage 键：{keys}）");
-                    if last_kimi_debug != status {
-                        last_kimi_debug = status.clone();
-                        let _ = app.emit("source-login-status", status);
-                    }
                 } else if let Some(secret) = title_secret(&title, template) {
                     let _ = window.set_title(template.window_title);
                     let allow_blank =
@@ -1280,32 +1147,9 @@ fn cookie_ready(header: &str, template: &LoginTemplate) -> bool {
         Some("bigmodel_token_production") => {
             crate::providers::money::extract_token_cookie(header).is_some()
         }
-        // Kimi 会话 Cookie 名称未知（httpOnly），用「非统计类 + 会话语义键名」启发式；
-        // 页面 READY 标题通道会绕过启发式直接抓取验证。
-        Some("__kimi_ready__") => kimi_cookie_ready(header),
         Some(name) => crate::providers::money::cookie_named(header, name),
         None => false,
     }
-}
-
-/// Kimi Cookie 就绪启发式：排除百度统计/GA/防火墙类，键名含会话语义且值够长。
-fn kimi_cookie_ready(header: &str) -> bool {
-    header.split(';').any(|part| {
-        let Some((name, value)) = part.trim().split_once('=') else {
-            return false;
-        };
-        let name = name.trim().to_ascii_lowercase();
-        let value = value.trim();
-        value.len() >= 16
-            && !name.starts_with("hm_")
-            && !name.starts_with("_ga")
-            && !name.starts_with("acw_")
-            && (name.contains("sess")
-                || name.contains("sid")
-                || name.contains("token")
-                || name.contains("auth")
-                || name.contains("sso"))
-    })
 }
 
 fn maybe_open_glm_finance(window: &tauri::WebviewWindow, template: &LoginTemplate) {
@@ -1690,11 +1534,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registers_deepseek_glm_mimo_and_kimi_login() {
+    fn registers_deepseek_glm_and_mimo_login() {
         assert!(is_web_login_source(deepseek::WEB_SOURCE_ID));
         assert!(is_web_login_source(glm::WEB_BALANCE_SOURCE_ID));
         assert!(is_web_login_source(mimo::SOURCE_ID));
-        assert!(is_web_login_source(kimi_console::CONSOLE_SOURCE_ID));
         assert!(!is_web_login_source("kimi-balance-api"));
     }
 

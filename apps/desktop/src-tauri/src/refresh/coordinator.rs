@@ -1,7 +1,7 @@
 //! Source 级刷新协调器：平台去重、并行 Source、generation 防覆盖与部分成功。
 
 use crate::domain::refresh::{RefreshError, SourceRefreshOutput};
-use crate::providers::{balance, claude, codex, coding_plan, deepseek, glm, grok, kimi, kimi_console, mimo};
+use crate::providers::{balance, claude, codex, coding_plan, deepseek, glm, grok, kimi, mimo};
 use crate::storage::database::Database;
 use crate::storage::repository::SourceRecord;
 use crate::storage::vault;
@@ -281,10 +281,6 @@ async fn fetch_source(
         kimi::BALANCE_SOURCE_ID => match secret {
             Some(secret) => kimi::fetch(client, secret, api_base_url).await,
             None => missing_secret("Kimi 开放平台 API Key 未配置"),
-        },
-        kimi_console::CONSOLE_SOURCE_ID => match secret {
-            Some(secret) => kimi_console::fetch(client, secret).await,
-            None => missing_secret("Kimi 网页会话未配置"),
         },
         glm::WEB_BALANCE_SOURCE_ID => match secret {
             Some(secret) => glm::fetch(client, secret).await,
