@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 10;
+const CURRENT_SCHEMA_VERSION: i64 = 11;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -131,6 +131,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 10 {
         migrate_v10(&transaction)?;
+    }
+    if previous_version < 11 {
+        migrate_v11(&transaction)?;
     }
     transaction
         .commit()
@@ -565,6 +568,23 @@ fn migrate_v10(transaction: &Transaction<'_>) -> Result<(), String> {
             "#,
         )
         .map_err(|err| format!("执行 SQLite v10 迁移失败: {err}"))
+}
+
+/// v11：radar_analyses 增加输入分组持久化，用于隔离“当前判断依据”与“历史上下文引用”。
+/// 旧记录三列均为空数组，不做猜测性回填。
+fn migrate_v11(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            ALTER TABLE radar_analyses ADD COLUMN new_post_ids_json TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE radar_analyses ADD COLUMN event_context_post_ids_json TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE radar_analyses ADD COLUMN historical_post_ids_json TEXT NOT NULL DEFAULT '[]';
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (11, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v11 迁移失败: {err}"))
 }
 
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {

@@ -47,3 +47,7 @@ V1 不直接访问 X，使用独立的 `CodexRadarSource` 从 `https://codexrada
 ## D012：雷达生命周期消费与用户确认重置
 
 帖子用 `lifecycle_consumed_at` 标记是否已成功参与实时分析。用户时间范围只控制展示和 AI 背景，不得用来判断“是否新增”。只有 NEW POSTS 可以创建或推进事件；EVENT CONTEXT / HISTORICAL CONTEXT 不能作为新事件的唯一依据。事件证据只收录被 citations 引用的新增帖和必要事件上下文，不得把整批时间窗帖子写入 `radar_event_evidence`。`radar_events.user_confirmed_reset_at` 记录“用户确认额度已重置”，进入 24 小时观察期，可撤销；本机 `observed_reset_at` 优先于用户确认。提示词版本 radar-v15。
+
+## D013：最近一次重置只认本机观察或用户确认
+
+“最近一次重置”唯一来源是 `latest_confirmed_reset_event`：`closed_at IS NOT NULL AND (observed_reset_at OR user_confirmed_reset_at)`，按 `COALESCE(observed_reset_at, user_confirmed_reset_at)` 倒序。invalid_historical_replay、timeout、claimed_unverified 等普通关闭事件只能进 `recentClosedEvent`（历史/来源声称提示），禁止用 claimed_landed_at 或 closed_at 生成“最近一次重置”；仅有来源声称时文案为“最近一次来源声称于 …·尚未验证”。possible_reset 只是疑似额度刷新，不更新“最近一次重置”。分析记录持久化 new/event_context/historical 三组 post id（SQLite v11），“当前判断依据”引用限定为当前分析 citations ∩ newPostIds，历史引用不进入当前依据。CodexRadar 公告持久化：解析为空时保留最后一次公告并标记非当前。

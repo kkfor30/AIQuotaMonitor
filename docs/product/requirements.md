@@ -74,6 +74,14 @@ AI 为用户配置的可选分析能力，默认关闭。它是原文解释器�
 
 Codex Radar 来源失败时保留最后成功的 Tibo 快照并标记 stale；没有最后成功快照时显示 missing。单条动态解析失败不能清空其他已成功解析的动态。
 
+事实归属与展示约束：
+
+- “最近一次重置”只认本机观察（observed_reset_at）或用户确认（user_confirmed_reset_at）的事件，禁止回退来源声称时间或关闭时间；invalid_historical_replay、timeout、claimed_unverified 等普通关闭事件只能进入历史记录。仅有来源声称时展示“最近一次来源声称于 …·尚未验证”，不得称“最近一次重置”。
+- 额度状态统一文案：unscheduled_reset=观察到额度重置、possible_reset=疑似额度刷新、scheduled=计划内窗口刷新、no_change=未见变化、unavailable=暂无法验证；possible_reset 不得显示为“已重置”，也不得更新“最近一次重置”。
+- 当前判断依据引用只能是当前分析 citations ∩ newPostIds（radar_analyses 持久化 new/event_context/historical 三组 post id，SQLite v11）；历史上下文引用只允许出现在“最近一次重置”历史区。
+- CodexRadar 公告持久化：本次未解析到公告时不清空最后一次公告，仅标记非当前；isCurrent=true 显示“CodexRadar 公告/更新 …”，否则“CodexRadar 最近公告/上次出现于 …”，从未有过显示“当前无公告”。帖子同步正常时禁止显示“暂未同步来源内容”。
+- 主窗口信号摘要层级固定：重置判断+本机额度验证双卡 → CodexRadar 公告卡 → AI 分析大卡（结论/分析/判断依据/查看分析细节，删除静态图例）→ 最近一次重置（默认折叠）→ 检查历史（默认折叠）。
+
 ### 设置
 
 二级分区精简为：

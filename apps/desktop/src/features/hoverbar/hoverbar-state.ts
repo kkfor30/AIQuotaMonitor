@@ -372,7 +372,7 @@ export function quotaCorrelationLabel(correlation: string | null | undefined): s
   return null;
 }
 
-/** 本机额度验证状态中文文案。 */
+/** 本机额度验证状态中文文案（统一语义：possible_reset 不是“已重置”）。 */
 export function quotaStatusText(status: string): string {
   switch (status) {
     case "unavailable":
@@ -382,11 +382,11 @@ export function quotaStatusText(status: string): string {
     case "pending":
       return "待验证";
     case "scheduled":
-      return "正常计划刷新";
+      return "计划内窗口刷新";
     case "possible_reset":
-      return "疑似刷新";
+      return "疑似额度刷新";
     case "unscheduled_reset":
-      return "观察到非计划刷新";
+      return "观察到额度重置";
     case "no_change":
       return "未见变化";
     default:
@@ -394,8 +394,13 @@ export function quotaStatusText(status: string): string {
   }
 }
 
-/** 带历史观察证据的徽章文案：重置证据常驻，不随后续「未见变化」刷新消失。 */
+/** 带历史观察证据的徽章文案：只有非计划重置观察/用户确认可称“已重置”，疑似刷新不算。 */
 export function quotaBadgeLabel(status: string, attribution: string, lastResetObservedAt: number | null): string {
+  if (status === "possible_reset") {
+    return lastResetObservedAt != null
+      ? `疑似额度刷新 · ${formatHoverbarClock(lastResetObservedAt)}`
+      : "疑似额度刷新";
+  }
   if (lastResetObservedAt != null && (status === "unscheduled_reset" || status === "no_change")) {
     return `已重置 · ${formatHoverbarClock(lastResetObservedAt)} 观察`;
   }

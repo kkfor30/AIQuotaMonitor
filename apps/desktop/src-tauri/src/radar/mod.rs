@@ -123,6 +123,12 @@ pub struct RadarAnalysisView {
     pub support: Vec<String>,
     pub against: Vec<String>,
     pub uncertainty: Vec<String>,
+    /// 本次输入 NEW POSTS 的真实 post_id；“当前判断依据”引用只能来自 citations ∩ newPostIds。
+    pub new_post_ids: Vec<String>,
+    /// 本次输入 EVENT CONTEXT POSTS 的真实 post_id。
+    pub event_context_post_ids: Vec<String>,
+    /// 本次输入 HISTORICAL CONTEXT POSTS 的真实 post_id；只允许出现在历史区。
+    pub historical_post_ids: Vec<String>,
     pub error_message: Option<String>,
     pub covers_latest: bool,
     pub event_id: Option<String>,
@@ -251,10 +257,15 @@ pub struct RadarDecisionView {
     /// unknown | expected | passed | claimed | observed | confirmed
     pub time_kind: String,
     pub signal_level: Option<String>,
-    pub recent_event: Option<RadarRecentEventView>,
+    /// 最近一次本机观察或用户确认的重置事件；“最近一次重置”唯一来源。
+    pub recent_reset: Option<RadarRecentEventView>,
+    /// 最近关闭的普通雷达事件（invalid_historical_replay/timeout 等只进历史，不参与“最近一次重置”）。
+    pub recent_closed_event: Option<RadarRecentEventView>,
     pub relevant_post_ids: Vec<String>,
-    /// 当前判断的关键引用（来自分析 citations，不是整批事件证据）。
-    pub key_citation_ids: Vec<String>,
+    /// 当前判断的关键引用：主分析 citations ∩ newPostIds。
+    pub current_key_citation_ids: Vec<String>,
+    /// 历史上下文引用（citations ∩ historicalPostIds），只允许出现在历史区。
+    pub historical_citation_ids: Vec<String>,
     /// 最近一次被判定与事件无关的新帖时间（用于“最新动态无关”摘要）。
     pub latest_irrelevant_update_at: Option<i64>,
     pub can_confirm_reset: bool,
@@ -330,6 +341,15 @@ pub struct RadarNotice {
     pub headline: String,
     pub lead: Option<String>,
     pub items: Vec<String>,
+    /// 最后一次解析到公告的时间；与正文一起持久化，本次未解析到不清空。
+    #[serde(default)]
+    pub updated_at: Option<i64>,
+    /// 当前 CodexRadar 页面是否仍出现该公告；false 时展示“最近公告”。
+    #[serde(default)]
+    pub is_current: bool,
+    /// 距最后一次出现的毫秒数（快照时刻计算）。
+    #[serde(default)]
+    pub freshness_ms: Option<i64>,
 }
 
 pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
@@ -681,10 +701,20 @@ fn build_decision(
     ai_enabled: bool,
 ) -> Result<RadarDecisionView, String> {
     let now = epoch_ms();
-    let recent_record = database.latest_closed_radar_event()?;
-    let recent_event = match recent_record {
+    // “最近一次重置”只认本机观察/用户确认的事件；invalid_historical_replay、
+    // timeout、claimed_unverified 等普通关闭事件只能进 recentClosedEvent（历史/来源声称）。
+    let recent_reset_record = database.latest_confirmed_reset_event()?;
+    let recent_reset = match recent_reset_record {
         Some(record) => Some(recent_event_view(database, &record)?),
         None => None,
+    };
+    let recent_closed_record = database.latest_closed_radar_event()?;
+    let recent_closed_event = match recent_closed_record {
+        // 与 recentReset 同一条时不重复暴露，避免摘要串味。
+        Some(record) if recent_reset.as_ref().is_none_or(|reset| reset.id != record.id) => {
+            Some(recent_event_view(database, &record)?)
+        }
+        _ => None,
     };
     let source_has_direct_signal = groups.range_posts.iter().any(|post| {
         post.explicit_reset || post.filter == "signal"
@@ -763,9 +793,29 @@ fn build_decision(
     let relevant_post_ids = event_view_data
         .map(|view| view.post_ids.clone())
         .unwrap_or_default();
-    let key_citation_ids = event_analysis
-        .or(latest_delta)
-        .map(|analysis| analysis.citations.clone())
+    // 当前判断依据引用：主分析 = 有活动事件时 eventAnalysis（回退 latestDelta），无活动事件时 latestDelta；
+    // 只取 citations ∩ newPostIds，历史上下文引用单独存放，不进入当前依据。
+    let primary_analysis = if active_event.is_some() {
+        event_analysis.or(latest_delta)
+    } else {
+        latest_delta
+    };
+    let (current_key_citation_ids, historical_citation_ids) = primary_analysis
+        .map(|analysis| {
+            let current = analysis
+                .citations
+                .iter()
+                .filter(|id| analysis.new_post_ids.contains(id))
+                .cloned()
+                .collect::<Vec<_>>();
+            let historical = analysis
+                .citations
+                .iter()
+                .filter(|id| analysis.historical_post_ids.contains(id))
+                .cloned()
+                .collect::<Vec<_>>();
+            (current, historical)
+        })
         .unwrap_or_default();
     let latest_irrelevant_update_at = latest_delta
         .filter(|analysis| analysis.event_relation.as_deref() == Some("none"))
@@ -775,14 +825,25 @@ fn build_decision(
                 .filter(|post| !relevant_post_ids.contains(&post.id))
                 .map(|post| post.posted_at)
         });
-    let recent_summary_text = recent_event.as_ref().and_then(|recent| {
-        let at = recent
+    // 摘要文案只从 recentReset 生成；仅有来源声称时不得称“最近一次重置”。
+    let recent_summary_text = match &recent_reset {
+        Some(reset) => reset
             .observed_reset_at
-            .or(recent.user_confirmed_reset_at)
-            .or(recent.claimed_landed_at)
-            .or(recent.closed_at)?;
-        Some(format!("最近一次重置于 {}", format_clock(at)))
-    });
+            .or(reset.user_confirmed_reset_at)
+            .map(|at| {
+                let source_label = if reset.observed_reset_at.is_some() {
+                    "本机观察确认"
+                } else {
+                    "用户确认"
+                };
+                format!("最近一次重置于 {} · {}", format_clock(at), source_label)
+            }),
+        None => recent_closed_event.as_ref().and_then(|recent| {
+            recent
+                .claimed_landed_at
+                .map(|at| format!("最近一次来源声称于 {} · 尚未验证", format_clock(at)))
+        }),
+    };
     let delta_impact_text = delta_impact_line(ai, ai_enabled, pending_unconsumed_count);
     let (strip_badge, strip_primary, strip_primary_compact, strip_secondary) = strip_copy(
         status,
@@ -794,7 +855,7 @@ fn build_decision(
         claimed_at,
         user_confirmed_at,
         observation_expires_at,
-        recent_event.as_ref(),
+        recent_reset.as_ref(),
         latest_delta,
     );
     Ok(RadarDecisionView {
@@ -811,9 +872,15 @@ fn build_decision(
         observation_expires_at,
         time_kind: time_kind.into(),
         signal_level: event_analysis.and_then(|analysis| analysis.signal_level.clone()),
-        recent_event,
+        // 最近一次本机观察/用户确认的重置；“最近一次重置”唯一来源。
+        recent_reset,
+        // 最近关闭的普通雷达事件（含 invalid_historical_replay 等），只用于历史与来源声称提示。
+        recent_closed_event,
         relevant_post_ids,
-        key_citation_ids,
+        // 当前判断依据引用（主分析 citations ∩ newPostIds）。
+        current_key_citation_ids,
+        // 历史上下文引用，不进入当前依据。
+        historical_citation_ids,
         latest_irrelevant_update_at,
         can_confirm_reset,
         can_undo_confirm,
@@ -933,9 +1000,15 @@ fn strip_copy(
     claimed_at: Option<i64>,
     user_confirmed_at: Option<i64>,
     observation_expires_at: Option<i64>,
-    recent_event: Option<&RadarRecentEventView>,
+    recent_reset: Option<&RadarRecentEventView>,
     latest_delta: Option<&RadarAnalysisView>,
 ) -> (String, String, String, String) {
+    // “最近重置”只来自本机观察/用户确认的 recentReset，禁止回退来源声称或关闭时间。
+    let recent_token = recent_reset.and_then(|item| {
+        item.observed_reset_at
+            .or(item.user_confirmed_reset_at)
+            .map(|at| format!("最近重置于 {}", format_clock(at)))
+    });
     let analyzed = latest_delta.is_some();
     let ai_token = if !ai_enabled {
         if pending > 0 {
@@ -972,14 +1045,14 @@ fn strip_copy(
                 "AI 未启用".into(),
                 "来源出现直接重置信号".into(),
                 "来源出现直接重置信号".into(),
-                "AI 尚未分析".into(),
+                recent_token.unwrap_or_else(|| "AI 尚未分析".into()),
             );
         }
         return (
             "AI 未启用".into(),
             "来源动态已同步".into(),
             "来源动态已同步".into(),
-            "AI 未启用 · 本机未观察到新变化".into(),
+            recent_token.unwrap_or_else(|| "本机未观察到新变化".into()),
         );
     }
     match status {
@@ -1051,22 +1124,12 @@ fn strip_copy(
             format!("{ai_token} · 等待验证"),
         ),
         _ => {
-            let recent = recent_event.and_then(|item| {
-                item.observed_reset_at
-                    .or(item.user_confirmed_reset_at)
-                    .or(item.claimed_landed_at)
-                    .map(|at| format!("最近一次重置于 {}", format_clock(at)))
-            });
+            // 无信号：不重复徽章状态，综合行只给“最近重置”或本机无变化。
             (
                 "暂无新信号".into(),
                 "下一次重置时间暂时无法判断".into(),
-                "下一次重置时间暂时无法判断".into(),
-                match (analyzed, recent) {
-                    (true, Some(text)) => format!("AI 已分析 · {text}"),
-                    (true, None) => "AI 已分析".into(),
-                    (false, Some(text)) => text,
-                    _ => "本机未观察到新变化".into(),
-                },
+                "下一次时间暂无法判断".into(),
+                recent_token.unwrap_or_else(|| "本机未观察到新变化".into()),
             )
         }
     }
@@ -1259,11 +1322,22 @@ async fn fetch_feed(client: &Client) -> Result<(Vec<TiboPostRecord>, Option<Rada
 }
 
 fn save_notice(database: &Database, notice: Option<&RadarNotice>) -> Result<(), String> {
-    let payload = match notice {
-        Some(notice) => serde_json::to_string(notice).unwrap_or_else(|_| "{}".into()),
-        None => String::new(),
-    };
-    database.set_setting_string("radar_notice_json", &payload)
+    match notice {
+        Some(notice) => {
+            let mut stored = notice.clone();
+            stored.updated_at = Some(epoch_ms());
+            stored.is_current = true;
+            stored.freshness_ms = Some(0);
+            let payload = serde_json::to_string(&stored).unwrap_or_else(|_| "{}".into());
+            database.set_setting_string("radar_notice_json", &payload)?;
+            database.set_setting_string("radar_notice_seen_at", &epoch_ms().to_string())?;
+            database.set_setting_string("radar_notice_present_current", "true")
+        }
+        None => {
+            // 本次没有解析到公告：不清空最后一次公告，只标记当前页不再出现。
+            database.set_setting_string("radar_notice_present_current", "false")
+        }
+    }
 }
 
 fn load_notice(database: &Database) -> Result<Option<RadarNotice>, String> {
@@ -1273,7 +1347,26 @@ fn load_notice(database: &Database) -> Result<Option<RadarNotice>, String> {
     if raw.trim().is_empty() {
         return Ok(None);
     }
-    Ok(serde_json::from_str(&raw).ok())
+    let mut notice: RadarNotice = serde_json::from_str(&raw).unwrap_or(RadarNotice {
+        headline: String::new(),
+        lead: None,
+        items: Vec::new(),
+        updated_at: None,
+        is_current: false,
+        freshness_ms: None,
+    });
+    if notice.headline.is_empty() {
+        return Ok(None);
+    }
+    let is_current = database
+        .setting_string("radar_notice_present_current")?
+        .map(|value| value == "true")
+        .unwrap_or(false);
+    notice.is_current = is_current;
+    notice.freshness_ms = notice
+        .updated_at
+        .map(|at| (epoch_ms().saturating_sub(at)).max(0));
+    Ok(Some(notice))
 }
 
 fn to_view(post: TiboPostRecord) -> TiboPostView {
@@ -1425,6 +1518,9 @@ fn analysis_view(
         support: json_list(&record.support_json),
         against: json_list(&record.against_json),
         uncertainty: json_list(&record.uncertainty_json),
+        new_post_ids: json_list(&record.new_post_ids_json),
+        event_context_post_ids: json_list(&record.event_context_post_ids_json),
+        historical_post_ids: json_list(&record.historical_post_ids_json),
         error_message: record.error_message,
         covers_latest,
         event_id: record.event_id,
@@ -1454,6 +1550,15 @@ fn time_claim_view(record: RadarTimeClaimRecord) -> RadarTimeClaimView {
 
 fn json_list(value: &str) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(value).unwrap_or_default()
+}
+
+/// 真实 post_id 列表转 JSON 数组字符串（分析输入分组落库）。
+fn post_id_list_json<'a, I>(ids: I) -> String
+where
+    I: Iterator<Item = &'a String>,
+{
+    let ids: Vec<&str> = ids.map(String::as_str).collect();
+    serde_json::to_string(&ids).unwrap_or_else(|_| "[]".into())
 }
 
 fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
@@ -2138,6 +2243,9 @@ async fn run_analysis_inner(
         against_json: serde_json::to_string(&parsed.against).unwrap_or_else(|_| "[]".into()),
         uncertainty_json: serde_json::to_string(&parsed.uncertainty)
             .unwrap_or_else(|_| "[]".into()),
+        new_post_ids_json: post_id_list_json(inputs.delta.iter().map(|post| &post.id)),
+        event_context_post_ids_json: post_id_list_json(inputs.context.iter().map(|post| &post.id)),
+        historical_post_ids_json: post_id_list_json(inputs.historical.iter().map(|post| &post.id)),
         error_message: None,
         event_id: None,
         analysis_mode: Some(inputs.mode.into()),
@@ -2466,6 +2574,9 @@ fn persist_failed_analysis(
         support_json: "[]".into(),
         against_json: "[]".into(),
         uncertainty_json: "[]".into(),
+        new_post_ids_json: "[]".into(),
+        event_context_post_ids_json: "[]".into(),
+        historical_post_ids_json: "[]".into(),
         error_message: Some(error.to_string()),
         event_id: None,
         analysis_mode: None,
@@ -3344,6 +3455,147 @@ mod tests {
         let restored = database.active_radar_event().unwrap().expect("active");
         assert!(restored.user_confirmed_reset_at.is_none());
         assert_eq!(restored.phase, "landed_claimed");
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn closed_event(
+        id: &str,
+        observed_reset_at: Option<i64>,
+        user_confirmed_reset_at: Option<i64>,
+        claimed_landed_at: Option<i64>,
+        close_reason: &str,
+        closed_at: i64,
+    ) -> RadarEventRecord {
+        RadarEventRecord {
+            id: id.into(),
+            phase: "closed".into(),
+            title: "测试事件".into(),
+            summary: None,
+            first_signal_at: closed_at - 6 * 3_600_000,
+            latest_evidence_at: closed_at - 3_600_000,
+            claimed_landed_at,
+            observed_reset_at,
+            closed_at: Some(closed_at),
+            close_reason: Some(close_reason.into()),
+            expected_at: claimed_landed_at,
+            expires_at: None,
+            state_revision: 1,
+            user_confirmed_reset_at,
+        }
+    }
+
+    #[test]
+    fn latest_confirmed_reset_event_skips_historical_replay() {
+        let (database, path) = temp_db();
+        let now = epoch_ms();
+        // 历史重放事件：closed_at 更新但无任何本机/用户确认，不得成为“最近一次重置”。
+        database
+            .insert_radar_event(&closed_event(
+                "event-replay",
+                None,
+                None,
+                Some(now - 3_600_000),
+                "invalid_historical_replay",
+                now - 1_800_000,
+            ))
+            .unwrap();
+        // 正确重置事件：本机观察确认，时间更早但必须胜出。
+        database
+            .insert_radar_event(&closed_event(
+                "event-observed",
+                Some(now - 26 * 3_600_000),
+                None,
+                None,
+                "completed",
+                now - 24 * 3_600_000,
+            ))
+            .unwrap();
+        let confirmed = database
+            .latest_confirmed_reset_event()
+            .unwrap()
+            .expect("confirmed");
+        assert_eq!(confirmed.id, "event-observed");
+        // 普通关闭事件查询仍返回重放事件，供完整历史使用。
+        assert_eq!(
+            database.latest_closed_radar_event().unwrap().expect("closed").id,
+            "event-replay"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn save_notice_none_keeps_last_notice() {
+        let (database, path) = temp_db();
+        let notice = RadarNotice {
+            headline: "模型容量提示反馈增多".into(),
+            lead: Some("社区反馈：大量用户遇到模型容量提示".into()),
+            items: Vec::new(),
+            updated_at: None,
+            is_current: true,
+            freshness_ms: Some(0),
+        };
+        save_notice(&database, Some(&notice)).unwrap();
+        // 本次没有解析到公告：不得清空最后一次公告，只标记非当前。
+        save_notice(&database, None).unwrap();
+        let stored = load_notice(&database).unwrap().expect("kept");
+        assert_eq!(stored.headline, "模型容量提示反馈增多");
+        assert!(!stored.is_current);
+        assert!(stored.updated_at.is_some());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn insert_radar_analysis_persists_post_groups() {
+        let (database, path) = temp_db();
+        let record = RadarAnalysisRecord {
+            id: "analysis-groups".into(),
+            created_at: epoch_ms(),
+            range_key: "3d".into(),
+            cut_post_id: None,
+            from_posted_at: None,
+            to_posted_at: None,
+            source_id: None,
+            model: None,
+            prompt_version: PROMPT_VERSION.into(),
+            input_hash: "hash".into(),
+            conclusion: Some("无关".into()),
+            analysis_basis: None,
+            confidence: Some("low".into()),
+            citations_json: r#"["p-new-1","p-old-1"]"#.into(),
+            support_json: "[]".into(),
+            against_json: "[]".into(),
+            uncertainty_json: "[]".into(),
+            new_post_ids_json: r#"["p-new-1"]"#.into(),
+            event_context_post_ids_json: "[]".into(),
+            historical_post_ids_json: r#"["p-old-1"]"#.into(),
+            error_message: None,
+            event_id: None,
+            analysis_mode: Some("live_delta".into()),
+            context_hash: "ctx".into(),
+            prompt_hash: "prompt".into(),
+            event_relation: Some("none".into()),
+            event_phase: None,
+            delta_effect: Some("no_change".into()),
+            signal_level: Some("none".into()),
+            context_status: Some("complete".into()),
+            temporal_phase: None,
+            valid_until: None,
+            state_revision: 0,
+            timezone_policy_version: time_claims::TIMEZONE_POLICY_VERSION.into(),
+        };
+        database.insert_radar_analysis(&record).unwrap();
+        let stored = database.latest_radar_analysis().unwrap().expect("stored");
+        let view = analysis_view(&database, stored, true);
+        assert_eq!(view.new_post_ids, vec!["p-new-1".to_string()]);
+        assert_eq!(view.historical_post_ids, vec!["p-old-1".to_string()]);
+        // 当前判断依据引用只取 citations ∩ newPostIds，历史引用被隔离。
+        let current: Vec<_> = view
+            .citations
+            .iter()
+            .filter(|id| view.new_post_ids.contains(id))
+            .cloned()
+            .collect();
+        assert_eq!(current, vec!["p-new-1".to_string()]);
         let _ = std::fs::remove_file(path);
     }
 }

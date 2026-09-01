@@ -34,6 +34,10 @@ fn parse_notice(html: &str) -> Option<RadarNotice> {
         headline,
         lead,
         items,
+        // 落库前由 save_notice 统一盖上 updated_at / is_current 戳。
+        updated_at: None,
+        is_current: true,
+        freshness_ms: Some(0),
     })
 }
 

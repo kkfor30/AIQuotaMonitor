@@ -189,6 +189,12 @@ export type RadarNotice = {
   headline: string;
   lead: string | null;
   items: string[];
+  /** 最后一次解析到公告的时间。 */
+  updatedAt: number | null;
+  /** 当前 CodexRadar 页面是否仍出现该公告；false 时展示“最近公告”。 */
+  isCurrent: boolean;
+  /** 距最后一次出现的毫秒数。 */
+  freshnessMs: number | null;
 };
 
 export type RadarPost = {
@@ -240,6 +246,12 @@ export type RadarAnalysis = {
   support: string[];
   against: string[];
   uncertainty: string[];
+  /** 本次输入 NEW POSTS；“当前判断依据”引用只能来自 citations ∩ newPostIds。 */
+  newPostIds: string[];
+  /** 本次输入 EVENT CONTEXT POSTS。 */
+  eventContextPostIds: string[];
+  /** 本次输入 HISTORICAL CONTEXT POSTS；只允许出现在历史区。 */
+  historicalPostIds: string[];
   errorMessage: string | null;
   coversLatest: boolean;
   eventId: string | null;
@@ -345,9 +357,15 @@ export type RadarDecision = {
   /** unknown | expected | passed | claimed | observed | confirmed */
   timeKind: string;
   signalLevel: string | null;
-  recentEvent: RadarRecentEvent | null;
+  /** 最近一次本机观察/用户确认的重置；“最近一次重置”唯一来源。 */
+  recentReset: RadarRecentEvent | null;
+  /** 最近关闭的普通雷达事件（invalid_historical_replay 等），只用于历史与来源声称提示。 */
+  recentClosedEvent: RadarRecentEvent | null;
   relevantPostIds: string[];
-  keyCitationIds: string[];
+  /** 当前判断依据引用：主分析 citations ∩ newPostIds。 */
+  currentKeyCitationIds: string[];
+  /** 历史上下文引用（citations ∩ historicalPostIds），不进入当前依据。 */
+  historicalCitationIds: string[];
   latestIrrelevantUpdateAt: number | null;
   canConfirmReset: boolean;
   canUndoConfirm: boolean;

@@ -79,22 +79,34 @@ export function HoverbarRadarDetail({
   const [tiboLimit, setTiboLimit] = useState(12);
 
   const decision = radar?.decision ?? null;
-  const recentEvent = decision?.recentEvent ?? null;
+  // “最近一次重置”只认本机观察/用户确认；普通关闭事件兜底为“最近一次事件”（来源声称）。
+  const recentReset = decision?.recentReset ?? null;
+  const recentClosedEvent = decision?.recentClosedEvent ?? null;
+  const recentCard = recentReset ?? recentClosedEvent;
   const knownPosts = radar?.posts ?? [];
   const rangeKey = radar?.analysisPrefs.rangeKey;
   const rangePosts = postsInRadarRange(knownPosts, rangeKey).slice().sort((a, b) => b.postedAt - a.postedAt);
   const verifications = radar?.quotaVerifications ?? [];
   const quotaSummary = radarQuotaSummaryLine(verifications);
   const citedIds = new Set([
-    ...(decision?.keyCitationIds ?? []),
+    ...(decision?.currentKeyCitationIds ?? []),
+    ...(decision?.historicalCitationIds ?? []),
     ...(radar?.aiAssessment.latestDeltaAnalysis?.citations ?? []),
     ...(radar?.aiAssessment.eventAnalysis?.citations ?? []),
   ]);
-  const keyEvidence = rangePosts
-    .filter((post) => citedIds.has(post.id) && (post.explicitReset || post.filter !== "none"))
-    .slice(0, 2);
-  const aiAnalysis =
-    radar?.aiAssessment.eventAnalysis ?? radar?.aiAssessment.latestDeltaAnalysis ?? radar?.aiAssessment.history ?? null;
+  // 当前分析选择规则：有活动事件优先 eventAnalysis，无活动事件只读 latestDeltaAnalysis。
+  const aiAnalysis = radar?.aiAssessment.eventAnalysis ?? radar?.aiAssessment.latestDeltaAnalysis ?? null;
+  const aiStatusLabel = !radar || !radar.aiAssessment.enabled
+    ? "AI 已关闭"
+    : radar.aiAssessment.state === "covered"
+      ? "已覆盖"
+      : radar.aiAssessment.state === "pending"
+        ? "待分析"
+        : radar.aiAssessment.state === "failed"
+          ? "分析失败"
+          : radar.aiAssessment.state === "historical"
+            ? "历史分析"
+            : "未分析";
   const rangeTitle =
     radar?.analysisPrefs.analyze
       ? "当前检查将使用主窗口中保存的分析范围"
@@ -179,33 +191,65 @@ export function HoverbarRadarDetail({
         )}
       </section>
 
-      <section className="hb-radar-card">
-        <h3 className="hb-radar-card-title">判断依据</h3>
-        <p className="hb-radar-field-label">关键来源证据</p>
-        {keyEvidence.length > 0 ? (
-          keyEvidence.map((post) => <EvidenceRow key={post.id} post={post} compact />)
+      {/* CodexRadar 公告：独立紧凑信息卡 */}
+      <section className="hb-radar-card hb-notice-card">
+        <h3 className="hb-radar-card-title">
+          {radar?.notice ? (radar.notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
+        </h3>
+        {radar?.notice ? (
+          <>
+            <p className="hb-radar-text" data-selectable="true">
+              {radar.notice.headline}
+            </p>
+            {radar.notice.lead ? (
+              <p className="hb-radar-meta" data-selectable="true">
+                {radar.notice.lead}
+              </p>
+            ) : null}
+            <p className="hb-radar-meta">
+              {radar.notice.isCurrent
+                ? radar.notice.updatedAt
+                  ? `更新 ${formatHoverbarClock(radar.notice.updatedAt)}`
+                  : "当前公告"
+                : radar.notice.updatedAt
+                  ? `上次出现于 ${formatHoverbarClock(radar.notice.updatedAt)}`
+                  : "历史公告"}
+            </p>
+          </>
         ) : (
-          <p className="hb-radar-meta">暂无关键来源证据。</p>
+          <p className="hb-radar-meta">来源站点当前没有公告区块，帖子同步不受影响。</p>
         )}
-        <p className="hb-radar-field-label">AI 分析依据</p>
+      </section>
+
+      {/* AI 分析：大标题 + 状态；判断依据只展示当前分析 NEW POSTS 引用 */}
+      <section className="hb-radar-card hb-ai-card">
+        <div className="hb-radar-card-head">
+          <h3 className="hb-radar-card-title">AI 分析</h3>
+          <span className="radar-phase-badge" data-phase={radar?.aiAssessment.state === "covered" ? "landed_observed" : radar?.aiAssessment.state === "failed" ? "closed" : "upcoming"}>
+            {aiStatusLabel}
+          </span>
+        </div>
         {aiAnalysis ? (
-          <AiReasoningBlock
-            analysis={aiAnalysis}
-            posts={knownPosts}
-            rangeKey={rangeKey ?? null}
-            customPrompt={Boolean(
-              radar?.analysisPrefs.userPrompt.trim() &&
-                radar.analysisPrefs.userPrompt !== radar.analysisPrefs.defaultUserPrompt,
-            )}
-            open={analysisOpen}
-            onToggle={() => setAnalysisOpen((value) => !value)}
-            citationLimit={2}
-            historical={radar?.aiAssessment.state === "historical" || radar?.aiAssessment.state === "disabled"}
-          />
+          <>
+            <p className="hb-radar-field-label">AI 结论</p>
+            <AiReasoningBlock
+              analysis={aiAnalysis}
+              posts={knownPosts}
+              rangeKey={rangeKey ?? null}
+              customPrompt={Boolean(
+                radar?.analysisPrefs.userPrompt.trim() &&
+                  radar.analysisPrefs.userPrompt !== radar.analysisPrefs.defaultUserPrompt,
+              )}
+              open={analysisOpen}
+              onToggle={() => setAnalysisOpen((value) => !value)}
+              citationLimit={2}
+              historical={radar?.aiAssessment.state === "historical" || radar?.aiAssessment.state === "disabled"}
+            />
+          </>
         ) : radar?.aiAssessment.enabled ? (
           <p className="hb-radar-meta">开启 AI 后随「立即检查」生成分析。</p>
         ) : (
-          <p className="hb-radar-meta">AI 未启用：仅展示来源与本机事实。</p>
+          <p className="hb-radar-meta">AI 未启用：来源公告与本机验证不受影响。</p>
         )}
         {radar?.aiAssessment.latestError ? (
           <p className="hb-radar-error">{radar.aiAssessment.latestError}</p>
@@ -289,7 +333,7 @@ export function HoverbarRadarDetail({
         ) : null}
       </section>
 
-      {recentEvent ? (
+      {recentCard ? (
         <section className="hb-radar-card">
           <button
             type="button"
@@ -301,29 +345,29 @@ export function HoverbarRadarDetail({
               aria-hidden
               className={recentEventOpen ? "hb-rotate-90" : ""}
             />
-            最近一次事件
+            {recentReset ? "最近一次重置" : "最近一次事件"}
             <span className="hb-radar-card-toggle-meta">
-              {decision?.recentSummaryText ?? radarCloseReasonLabel(recentEvent.closeReason)}
+              {decision?.recentSummaryText ?? radarCloseReasonLabel(recentCard.closeReason)}
             </span>
             <ChevronDown size={13} aria-hidden className={recentEventOpen ? "hb-rotate-180" : ""} />
           </button>
           {recentEventOpen ? (
             <div className="hb-radar-recent-body">
               <p className="hb-radar-meta">
-                {radarConfirmationSourceLabel(recentEvent.confirmationSource)} ·{" "}
-                {radarCloseReasonLabel(recentEvent.closeReason)}
+                {radarConfirmationSourceLabel(recentCard.confirmationSource)} ·{" "}
+                {radarCloseReasonLabel(recentCard.closeReason)}
               </p>
-              {recentEvent.analysis?.conclusion ? (
+              {recentCard.analysis?.conclusion ? (
                 <p className="hb-radar-text" data-selectable="true">
-                  {humanizeRadarPostRefs(recentEvent.analysis.conclusion, knownPosts)}
+                  {humanizeRadarPostRefs(recentCard.analysis.conclusion, knownPosts)}
                 </p>
               ) : null}
-              {recentEvent.analysis?.analysisBasis ? (
+              {recentCard.analysis?.analysisBasis ? (
                 <p className="hb-radar-meta" data-selectable="true">
-                  {humanizeRadarPostRefs(recentEvent.analysis.analysisBasis, knownPosts)}
+                  {humanizeRadarPostRefs(recentCard.analysis.analysisBasis, knownPosts)}
                 </p>
               ) : null}
-              {(recentEvent.analysis?.citations ?? []).slice(0, 2).map((id) => {
+              {(recentCard.analysis?.citations ?? []).slice(0, 2).map((id) => {
                 const post = knownPosts.find((item) => item.id === id);
                 return post ? <EvidenceRow key={post.id} post={post} compact /> : null;
               })}
@@ -331,8 +375,8 @@ export function HoverbarRadarDetail({
           ) : (
             <p className="hb-radar-meta">
               {decision?.recentSummaryText}
-              {recentEvent.confirmationSource
-                ? ` · ${radarConfirmationSourceLabel(recentEvent.confirmationSource)}`
+              {recentCard.confirmationSource
+                ? ` · ${radarConfirmationSourceLabel(recentCard.confirmationSource)}`
                 : ""}
             </p>
           )}
@@ -459,10 +503,16 @@ function AiReasoningBlock({
   historical: boolean;
 }) {
   const byId = new Map(posts.map((post) => [post.id, post]));
-  const citationPosts = analysis.citations
+  // 判断依据引用只取 citations ∩ newPostIds；历史上下文引用不进入当前依据。
+  const currentCitationPosts = analysis.citations
+    .filter((id) => analysis.newPostIds.includes(id))
     .map((id) => byId.get(id))
     .filter((post): post is RadarPost => Boolean(post));
-  const visible = citationPosts.slice(0, citationLimit);
+  const allCitationPosts = analysis.citations
+    .map((id) => byId.get(id))
+    .filter((post): post is RadarPost => Boolean(post));
+  const visible = currentCitationPosts.slice(0, citationLimit);
+  const irrelevant = analysis.eventRelation === "none";
   return (
     <div className="hb-ai-block">
       {historical ? <p className="hb-radar-meta">历史分析 · {formatHoverbarClock(analysis.createdAt)}</p> : null}
@@ -482,11 +532,15 @@ function AiReasoningBlock({
         {rangeKey ? ` · ${formatRadarRangeLabel(rangeKey, true)}` : ""}
         {customPrompt ? " · 自定义语义提示" : ""}
       </p>
-      {visible.map((post) => (
-        <CitationChip key={post.id} post={post} />
-      ))}
-      {citationPosts.length > citationLimit ? (
-        <p className="hb-radar-meta">查看全部 {citationPosts.length} 条</p>
+      {visible.length > 0 ? (
+        visible.map((post) => (
+          <CitationChip key={post.id} post={post} tag={irrelevant ? "无关信号" : "直接信号"} />
+        ))
+      ) : (
+        <p className="hb-radar-meta">本次分析没有引用新增原帖。</p>
+      )}
+      {currentCitationPosts.length > citationLimit ? (
+        <p className="hb-radar-meta">查看全部 {currentCitationPosts.length} 条</p>
       ) : null}
       <button type="button" className="hb-radar-post-button" onClick={onToggle}>
         {open ? "收起分析细节" : "查看分析细节"}
@@ -508,8 +562,8 @@ function AiReasoningBlock({
               不确定 · {item}
             </p>
           ))}
-          {citationPosts.map((post) => (
-            <CitationChip key={`all-${post.id}`} post={post} />
+          {allCitationPosts.map((post) => (
+            <CitationChip key={`all-${post.id}`} post={post} tag={irrelevant ? "无关信号" : "直接信号"} />
           ))}
         </>
       ) : null}
@@ -517,10 +571,11 @@ function AiReasoningBlock({
   );
 }
 
-function CitationChip({ post }: { post: RadarPost }) {
+function CitationChip({ post, tag }: { post: RadarPost; tag?: string }) {
   const [linkError, setLinkError] = useState<string | null>(null);
   return (
     <span className="hb-citation-chip">
+      {tag ? <span className={irrelevantTagClass(tag)}>{tag}</span> : null}
       <span className="hb-evidence-time">{formatHoverbarClock(post.postedAt)}</span>
       <button
         type="button"
@@ -538,6 +593,13 @@ function CitationChip({ post }: { post: RadarPost }) {
       {linkError ? <p className="hb-radar-error">{linkError}</p> : null}
     </span>
   );
+}
+
+/** 引用标签配色：无关信号中性灰、直接信号暖色，其余蓝色。 */
+function irrelevantTagClass(tag: string): string {
+  if (tag === "无关信号") return "hb-signal-tag hb-signal-tag-none";
+  if (tag === "直接信号") return "hb-signal-tag hb-signal-tag-direct";
+  return "hb-signal-tag hb-signal-tag-related";
 }
 
 function QuotaVerificationRow({ item }: { item: QuotaVerification }) {

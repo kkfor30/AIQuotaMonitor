@@ -122,6 +122,12 @@ pub struct RadarAnalysisRecord {
     pub support_json: String,
     pub against_json: String,
     pub uncertainty_json: String,
+    /// 本次输入 NEW POSTS 的真实 post_id（JSON 数组）；旧记录为 "[]"。
+    pub new_post_ids_json: String,
+    /// 本次输入 EVENT CONTEXT POSTS 的真实 post_id（JSON 数组）。
+    pub event_context_post_ids_json: String,
+    /// 本次输入 HISTORICAL CONTEXT POSTS 的真实 post_id（JSON 数组）。
+    pub historical_post_ids_json: String,
     pub error_message: Option<String>,
     /// 关联的重置事件；历史分析与无关动态分析为 None。
     pub event_id: Option<String>,
@@ -1204,6 +1210,26 @@ impl Database {
             .map_err(|err| format!("读取最近关闭的重置事件失败: {err}"))
     }
 
+    /// 最近一次被本机观察或用户确认的重置事件；“最近一次重置”唯一来源。
+    /// invalid_historical_replay、timeout、claimed_unverified 等普通关闭事件不参与，
+    /// 时间只取 observed_reset_at / user_confirmed_reset_at，禁止回退 claimed_landed_at 或 closed_at。
+    pub fn latest_confirmed_reset_event(&self) -> Result<Option<RadarEventRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at
+                 FROM radar_events
+                 WHERE closed_at IS NOT NULL
+                   AND (observed_reset_at IS NOT NULL OR user_confirmed_reset_at IS NOT NULL)
+                 ORDER BY COALESCE(observed_reset_at, user_confirmed_reset_at) DESC
+                 LIMIT 1",
+                [],
+                map_radar_event,
+            )
+            .optional()
+            .map_err(|err| format!("读取最近确认的重置事件失败: {err}"))
+    }
+
     /// 分析复用查找：新增输入、事件上下文、提示词哈希、模型与 prompt 版本完全一致的成功分析。
     pub fn find_reusable_radar_analysis(
         &self,
@@ -1242,14 +1268,16 @@ impl Database {
         let connection = self.connect()?;
         connection
             .execute(
-                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)",
+                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, new_post_ids_json, event_context_post_ids_json, historical_post_ids_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)",
                 params![
                     analysis.id, analysis.created_at, analysis.range_key, analysis.cut_post_id,
                     analysis.from_posted_at, analysis.to_posted_at, analysis.source_id, analysis.model,
                     analysis.prompt_version, analysis.input_hash, analysis.conclusion, analysis.analysis_basis, analysis.confidence,
                     analysis.citations_json, analysis.support_json, analysis.against_json,
-                    analysis.uncertainty_json, analysis.error_message,
+                    analysis.uncertainty_json, analysis.new_post_ids_json,
+                    analysis.event_context_post_ids_json, analysis.historical_post_ids_json,
+                    analysis.error_message,
                     analysis.event_id, analysis.analysis_mode, analysis.context_hash, analysis.prompt_hash,
                     analysis.event_relation, analysis.event_phase, analysis.delta_effect,
                     analysis.signal_level, analysis.context_status,
@@ -1580,7 +1608,7 @@ impl Database {
 /// radar_analyses 全列 SELECT；各查询只差异 WHERE/ORDER 子句。
 fn radar_analysis_select(suffix: &str) -> String {
     format!(
-        "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version
+        "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, new_post_ids_json, event_context_post_ids_json, historical_post_ids_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version
          FROM radar_analyses {suffix}"
     )
 }
@@ -1651,20 +1679,23 @@ fn map_radar_analysis(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarAnalysis
         support_json: row.get(14)?,
         against_json: row.get(15)?,
         uncertainty_json: row.get(16)?,
-        error_message: row.get(17)?,
-        event_id: row.get(18)?,
-        analysis_mode: row.get(19)?,
-        context_hash: row.get(20)?,
-        prompt_hash: row.get(21)?,
-        event_relation: row.get(22)?,
-        event_phase: row.get(23)?,
-        delta_effect: row.get(24)?,
-        signal_level: row.get(25)?,
-        context_status: row.get(26)?,
-        temporal_phase: row.get(27)?,
-        valid_until: row.get(28)?,
-        state_revision: row.get(29)?,
-        timezone_policy_version: row.get(30)?,
+        new_post_ids_json: row.get(17)?,
+        event_context_post_ids_json: row.get(18)?,
+        historical_post_ids_json: row.get(19)?,
+        error_message: row.get(20)?,
+        event_id: row.get(21)?,
+        analysis_mode: row.get(22)?,
+        context_hash: row.get(23)?,
+        prompt_hash: row.get(24)?,
+        event_relation: row.get(25)?,
+        event_phase: row.get(26)?,
+        delta_effect: row.get(27)?,
+        signal_level: row.get(28)?,
+        context_status: row.get(29)?,
+        temporal_phase: row.get(30)?,
+        valid_until: row.get(31)?,
+        state_revision: row.get(32)?,
+        timezone_policy_version: row.get(33)?,
     })
 }
 

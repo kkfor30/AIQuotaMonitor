@@ -1448,14 +1448,15 @@ html.hoverbar-window #root {
 }
 
 .hb-source-tag {
-  color: var(--q-hoverbar-muted);
-  background: color-mix(in srgb, var(--q-hoverbar-muted) 12%, transparent);
+  color: var(--q-hoverbar-ink);
+  background: color-mix(in srgb, var(--q-hoverbar-muted) 16%, transparent);
 }
 
+/* 信号三类配色：直接=暖橙、间接=蓝、无关=中性灰（保证文字对比）。 */
 .hb-source-tag[data-signal="reset"],
 .hb-source-tag[data-signal="signal"] {
   color: var(--q-hoverbar-warning);
-  background: color-mix(in srgb, var(--q-hoverbar-warning) 14%, transparent);
+  background: color-mix(in srgb, var(--q-hoverbar-warning) 16%, transparent);
 }
 
 .hb-source-tag[data-signal="related"] {
@@ -1646,19 +1647,19 @@ html.hoverbar-window #root {
 }
 
 .hb-radar-card-title {
-  margin: 0 0 7px;
+  margin: 0 0 6px;
   color: var(--q-hoverbar-ink);
-  font-size: 13px;
-  font-weight: 760;
-  line-height: 18px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 19px;
 }
 
 .hb-radar-text {
   margin: 0;
   color: var(--q-hoverbar-ink);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 650;
-  line-height: 19px;
+  line-height: 21px;
 }
 
 /* 雷达双字段：结论 / 分析依据 分层展示；旧数据无依据时整体隐藏。 */
@@ -1905,14 +1906,55 @@ html.hoverbar-window #root {
 }
 
 /* AI 推理依据块与标注图例：与事实证据视觉分层。 */
-.hb-radar-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  margin: 4px 0 6px;
-  color: var(--q-hoverbar-muted);
+/* 信号三类标签（悬浮页引用与判断依据）：直接=暖橙、间接=蓝、无关=中性灰。 */
+.hb-signal-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
   font-size: 10.5px;
-  line-height: 14px;
+  font-weight: 700;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.hb-signal-tag-direct {
+  color: var(--q-hoverbar-warning);
+  background: color-mix(in srgb, var(--q-hoverbar-warning) 16%, transparent);
+}
+
+.hb-signal-tag-related {
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 12%, transparent);
+}
+
+.hb-signal-tag-none {
+  color: var(--q-hoverbar-ink);
+  background: color-mix(in srgb, var(--q-hoverbar-muted) 18%, transparent);
+}
+
+/* CodexRadar 公告卡：低饱和蓝信息卡（主窗口与悬浮共用基调）。 */
+.radar-notice-card,
+.hb-notice-card {
+  background: color-mix(in srgb, var(--q-primary) 5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-primary) 18%, transparent);
+}
+
+.hb-notice-card {
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-primary) 20%, transparent);
+}
+
+/* AI 分析卡：左侧主蓝强调线 + 轻微冰蓝底。 */
+.radar-ai-card {
+  background: color-mix(in srgb, var(--q-primary) 4%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--q-primary) 55%, transparent);
+}
+
+.hb-ai-card {
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 5%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--q-hoverbar-primary) 55%, transparent);
 }
 
 .hb-ai-block {
