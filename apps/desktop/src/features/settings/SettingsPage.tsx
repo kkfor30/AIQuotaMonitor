@@ -26,6 +26,7 @@ import {
 import { applyAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
 import { PlatformMark } from "@/features/platform-center/ProviderRail";
+import { sortHoverbarPlatforms } from "@/features/hoverbar/hoverbar-state";
 
 /**
  * 设置按用户任务归为三类：通用、悬浮球、刷新与数据。
@@ -235,8 +236,21 @@ function HoverbarSettingsSection() {
   });
 
   const sortMutation = useMutation({
-    mutationFn: setHoverbarSortMode,
-    onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
+    mutationFn: async (nextMode: "manual" | "smart") => {
+      if (nextMode === "smart") {
+        const smartOrder = sortHoverbarPlatforms(platforms, order, "smart").map((platform) => platform.providerId);
+        await reorderPlatforms(smartOrder);
+        return { settings: await setHoverbarSortMode(nextMode), smartOrder };
+      }
+      return { settings: await setHoverbarSortMode(nextMode), smartOrder: null };
+    },
+    onSuccess: ({ settings: next, smartOrder }) => {
+      queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next);
+      if (smartOrder) {
+        setOrder(smartOrder);
+        void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
+      }
+    },
   });
   const reorderMutation = useMutation({
     mutationFn: reorderPlatforms,
@@ -410,7 +424,7 @@ function HoverbarSettingsSection() {
       <div className="glass-panel flex flex-col gap-4 p-5">
         <SettingRow
           title="排序方式"
-          description="智能排序优先展示套餐平台；拖拽顺序仍用于同一优先级内的排列"
+          description="智能排序会立即把套餐平台移到前面并同步保存；切回手动后可继续拖拽微调"
         >
           <div className="inline-flex gap-1 rounded-q-control border border-q-border bg-q-surface-muted p-1">
             {[
