@@ -38,9 +38,10 @@ import {
   humanizeRadarPostRefs,
   quotaBadgeLabel,
   quotaCorrelationLabel,
-  radarEventStatusSummary,
-  radarObservationPeriodLabel,
-  radarPhaseLabel,
+  radarCloseReasonLabel,
+  radarDecisionBadge,
+  radarDecisionTimeText,
+  radarDeltaImpactLine,
   radarTemporalLabel,
   shouldShowRadarTemporalBadge,
 } from "@/features/hoverbar/hoverbar-state";
@@ -282,14 +283,16 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
   const queryClient = useQueryClient();
   const latest = data?.latest;
   const event = data?.event ?? null;
-  const phase = radarPhaseLabel(event?.phase);
-  const observationPeriod = event ? radarObservationPeriodLabel(event) : null;
+  const decision = data?.decision ?? null;
+  const recentEvent = decision?.recentEvent ?? null;
   const knownPosts = data?.posts ?? [];
   const source = data?.sourceAssessment;
   const ai = data?.aiAssessment;
   const verifications = data?.quotaVerifications ?? [];
   const timeline = event?.timeline ?? [];
   const aiState = !ai ? "not_analyzed" : ai.enabled ? ai.state : "disabled";
+  const aiReasoning = ai?.eventAnalysis ?? null;
+  const evidencePosts = event ? knownPosts.filter((post) => event.postIds.includes(post.id)) : [];
   const sourceHeadline =
     source?.headline ?? data?.notice?.headline ?? latest?.summary ?? latest?.translatedText ?? latest?.text ?? "暂未同步来源内容";
   const confirmMutation = useMutation({
@@ -300,7 +303,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
-        {/* 两路判断 · CodexRadar 来源 */}
+        {/* 判断依据 · 事实证据（客观，不含 AI 推理） */}
         <section className="glass-panel flex flex-col gap-3 p-4">
           <div className="flex items-center gap-2.5">
             <span
@@ -309,21 +312,53 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             >
               <Radar size={17} aria-hidden />
             </span>
-            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">CodexRadar 来源判断</h2>
-          </div>
-          <div className="flex items-center gap-2">
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">事实证据</h2>
             <StatusBadge tone={sourceTone(data?.sourceStatus)}>{sourceLabel(data?.sourceStatus)}</StatusBadge>
-            <span className="text-[11px] text-q-text-muted">
-              {data?.lastSyncedAt ? `上次同步 ${formatTime(data.lastSyncedAt)}` : "尚未同步"}
-            </span>
           </div>
           <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
             {sourceHeadline}
           </p>
           {source?.lead && <p className="text-xs leading-relaxed text-q-text-secondary">{source.lead}</p>}
-          <p className="text-xs leading-relaxed text-q-text-secondary">
-            内容来自 codexradar.com 公开首页转载的 Tibo 原文，同步失败时保留最后成功快照；本行不受 AI 开关影响。
-          </p>
+          {event?.claimedLandedAt ? (
+            <p className="text-xs text-q-text-secondary">来源称落地 {formatTime(event.claimedLandedAt)}</p>
+          ) : null}
+          {decision?.observedAt ? (
+            <p className="text-xs text-q-text-secondary">本机额度刷新 {formatTime(decision.observedAt)}</p>
+          ) : null}
+          {evidencePosts.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {evidencePosts.map((post) => (
+                <div
+                  key={post.id}
+                  className="rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2"
+                >
+                  <p
+                    className="line-clamp-2 text-xs leading-relaxed text-q-text-secondary"
+                    data-selectable="true"
+                  >
+                    {post.summary ?? post.text}
+                  </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="shrink-0 tabular-nums text-[11px] text-q-text-muted">
+                      {formatTime(post.postedAt)}
+                    </span>
+                    {post.url ? (
+                      <button
+                        type="button"
+                        className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-q-primary hover:underline"
+                        onClick={() => void openExternalUrl(post.url).catch(() => {})}
+                      >
+                        <ExternalLink size={11} aria-hidden />
+                        查看原帖
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-q-text-muted">暂无关联原帖。</p>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -335,7 +370,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
           </Button>
         </section>
 
-        {/* 两路判断 · AI 辅助 */}
+        {/* AI 推理依据（推测，与事实证据分层） */}
         <section className="glass-panel flex flex-col gap-3 p-4">
           <div className="flex items-center gap-2.5">
             <span
@@ -344,7 +379,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             >
               <BrainCircuit size={17} aria-hidden />
             </span>
-            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">AI 辅助判断</h2>
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">AI 推理依据</h2>
             {ai?.enabled && ai.state === "pending" ? (
               <span className="rounded-q-pill bg-q-warning-soft px-2.5 py-1 text-[11px] text-q-warning">
                 有新动态待分析
@@ -354,9 +389,14 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
               <span className="rounded-q-pill bg-q-neutral-soft px-2.5 py-1 text-[11px] text-q-neutral">已关闭</span>
             ) : null}
           </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-q-text-muted">
+            <span>原帖明确 = 来源可直接支持</span>
+            <span>AI 推断 = 模型语境解读</span>
+            <span>不确定性 = 未被验证</span>
+          </div>
           {aiState === "disabled" ? (
             <div className="flex flex-col gap-1.5">
-              <p className="text-[13px] leading-relaxed text-q-text-primary">AI 分析已关闭，来源行与额度验证不受影响。</p>
+              <p className="text-[13px] leading-relaxed text-q-text-primary">AI 分析已关闭，来源证据与额度验证不受影响。</p>
               <p className="text-[11px] text-q-text-muted">
                 {ai?.history
                   ? `最近一次成功分析 ${formatTime(ai.history.createdAt)} · ${ai.history.model ?? "未知模型"}`
@@ -372,30 +412,33 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
                   : "没有可展示的历史分析"}
               </p>
             </div>
-          ) : ai?.current?.conclusion ? (
+          ) : aiReasoning?.conclusion ? (
             <div className="flex min-h-0 flex-col gap-2">
               <div className="flex flex-col gap-1">
-                <p className="text-[11px] font-semibold tracking-widest text-q-primary">结论</p>
+                <p className="text-[11px] font-semibold tracking-widest text-q-primary">AI 结论</p>
                 <p className="text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
-                  {humanizeRadarPostRefs(ai.current.conclusion, knownPosts)}
+                  {humanizeRadarPostRefs(aiReasoning.conclusion, knownPosts)}
                 </p>
               </div>
-              {ai.current.analysisBasis ? (
+              {aiReasoning.analysisBasis ? (
                 <div className="flex flex-col gap-1">
                   <p className="text-[11px] font-semibold tracking-widest text-q-primary">
-                    分析依据 · {humanizeRadarPostRefs(ai.current.analysisBasis, knownPosts).length} 字
+                    分析依据 · {humanizeRadarPostRefs(aiReasoning.analysisBasis, knownPosts).length} 字
                   </p>
                   <div
                     className="max-h-44 overflow-y-auto rounded-q-card border border-q-border bg-q-primary-softer px-3 py-2.5 text-xs leading-relaxed text-q-text-secondary"
                     data-selectable="true"
                   >
-                    {humanizeRadarPostRefs(ai.current.analysisBasis, knownPosts)}
+                    {humanizeRadarPostRefs(aiReasoning.analysisBasis, knownPosts)}
                   </div>
                 </div>
               ) : null}
+              {data ? (
+                <p className="text-xs leading-relaxed text-q-text-secondary">{radarDeltaImpactLine(data)}</p>
+              ) : null}
               <div className="mt-auto flex flex-wrap items-center gap-2">
-                {ai.current.model && <span className="text-[11px] text-q-text-muted">{ai.current.model}</span>}
-                <span className="text-[11px] text-q-text-muted">{formatTime(ai.current.createdAt)} 分析</span>
+                {aiReasoning.model && <span className="text-[11px] text-q-text-muted">{aiReasoning.model}</span>}
+                <span className="text-[11px] text-q-text-muted">{formatTime(aiReasoning.createdAt)} 分析</span>
               </div>
             </div>
           ) : (
@@ -407,7 +450,7 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
       </div>
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
-        {/* 当前重置事件 */}
+        {/* 重置判断：状态由 Rust decision 推导，第一屏回答“什么时候” */}
         <section className="glass-panel flex flex-col gap-3 p-4">
           <div className="flex items-center gap-2.5">
             <span
@@ -416,9 +459,11 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
             >
               <Megaphone size={17} aria-hidden />
             </span>
-            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">当前重置事件</h2>
-            {phase ? (
-              <span className="rounded-q-pill bg-q-primary-soft px-2.5 py-1 text-[11px] text-q-primary">{phase}</span>
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">重置判断</h2>
+            {decision ? (
+              <span className="rounded-q-pill bg-q-primary-soft px-2.5 py-1 text-[11px] text-q-primary">
+                {radarDecisionBadge(decision)}
+              </span>
             ) : null}
             {(() => {
               const temporal = radarTemporalLabel(event?.temporalStatus);
@@ -427,24 +472,32 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
               ) : null;
             })()}
           </div>
-          {event ? (
+          {decision ? (
             <div className="flex min-h-0 flex-col gap-2">
-              <p className="text-[11px] font-semibold tracking-widest text-q-primary">结论</p>
-              <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
-                {humanizeRadarPostRefs(event.title, knownPosts)}
+              <p className="text-[15px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
+                {decision.headline}
               </p>
-              {observationPeriod ? (
-                <p className="text-[11px] font-medium text-q-success">{observationPeriod}</p>
-              ) : null}
-              <div className="flex flex-col gap-1">
-                <p className="text-[11px] font-semibold tracking-widest text-q-primary">状态说明</p>
-                <p className="text-xs leading-relaxed text-q-text-secondary" data-selectable="true">
-                  {radarEventStatusSummary(event)}
+              <p className="text-xs font-medium text-q-text-secondary" data-time-kind={decision.timeKind}>
+                {radarDecisionTimeText(decision)}
+              </p>
+              {decision.status === "landed_observed" && decision.observationExpiresAt ? (
+                <p className="text-[11px] font-medium text-q-success">
+                  处于 24 小时观察期 · 至 {formatTime(decision.observationExpiresAt)}
                 </p>
-              </div>
-              <p className="text-[11px] text-q-text-muted">
-                首次信号 {formatTime(event.firstSignalAt)} · 最新证据 {formatTime(event.latestEvidenceAt)}
-              </p>
+              ) : null}
+              {data ? (
+                <p className="text-xs leading-relaxed text-q-text-secondary">{radarDeltaImpactLine(data)}</p>
+              ) : null}
+              {decision.status === "no_signal" && recentEvent?.observedResetAt ? (
+                <p className="text-[11px] text-q-text-muted">
+                  最近一次 {formatTime(recentEvent.observedResetAt)} 本机观察到刷新
+                </p>
+              ) : null}
+              {event ? (
+                <p className="text-[11px] text-q-text-muted">
+                  首次信号 {formatTime(event.firstSignalAt)} · 最新证据 {formatTime(event.latestEvidenceAt)}
+                </p>
+              ) : null}
               {timeline.length > 0 && (
                 <div className="flex flex-col gap-1.5 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2.5">
                   {timeline.map((node) => (
@@ -545,6 +598,44 @@ function SignalSummaryView({ data }: { data: Awaited<ReturnType<typeof fetchRada
           )}
         </section>
       </div>
+
+      {/* 最近一次事件：无活动事件时展示，不冒充当前信号 */}
+      {!event && recentEvent ? (
+        <section className="glass-panel flex flex-col gap-2.5 p-4">
+          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">最近一次事件</h2>
+          <p className="text-[13px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
+            {humanizeRadarPostRefs(recentEvent.title, knownPosts)}
+          </p>
+          <p className="text-xs text-q-text-secondary">
+            最终状态：{radarCloseReasonLabel(recentEvent.closeReason)}
+            {recentEvent.observedResetAt ? ` · 观察于 ${formatTime(recentEvent.observedResetAt)}` : null}
+            {recentEvent.closedAt ? ` · 关闭于 ${formatTime(recentEvent.closedAt)}` : null}
+          </p>
+          {recentEvent.analysis?.conclusion ? (
+            <div className="flex flex-col gap-1">
+              <p className="text-[11px] font-semibold tracking-widest text-q-primary">当时的分析</p>
+              <p className="text-xs leading-relaxed text-q-text-secondary" data-selectable="true">
+                {humanizeRadarPostRefs(recentEvent.analysis.conclusion, knownPosts)}
+              </p>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {knownPosts
+              .filter((post) => recentEvent.postIds.includes(post.id))
+              .map((post) => (
+                <button
+                  key={post.id}
+                  type="button"
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-q-pill border border-q-border bg-q-surface-strong px-2.5 py-1 text-[11px] text-q-text-secondary hover:text-q-primary"
+                  onClick={() => void openExternalUrl(post.url).catch(() => {})}
+                >
+                  <span className="tabular-nums">{formatTime(post.postedAt)}</span>
+                  查看原帖
+                </button>
+              ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* 检查历史 */}
       <section className="glass-panel flex flex-col gap-2.5 p-4">

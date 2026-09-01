@@ -1145,6 +1145,38 @@ impl Database {
             .map_err(|err| format!("读取雷达分析失败: {err}"))
     }
 
+    /// 指定事件的最新成功分析（eventAnalysis：本轮事件为什么成立）。
+    pub fn latest_event_radar_analysis(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<RadarAnalysisRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                &radar_analysis_select(
+                    "WHERE error_message IS NULL AND event_id = ?1 ORDER BY created_at DESC LIMIT 1",
+                ),
+                params![event_id],
+                map_radar_analysis,
+            )
+            .optional()
+            .map_err(|err| format!("读取事件雷达分析失败: {err}"))
+    }
+
+    /// 最近一次已关闭事件（「最近一次事件」折叠区来源；不冒充当前信号）。
+    pub fn latest_closed_radar_event(&self) -> Result<Option<RadarEventRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision
+                 FROM radar_events WHERE closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 1",
+                [],
+                map_radar_event,
+            )
+            .optional()
+            .map_err(|err| format!("读取最近关闭的重置事件失败: {err}"))
+    }
+
     /// 分析复用查找：新增输入、事件上下文、提示词哈希、模型与 prompt 版本完全一致的成功分析。
     pub fn find_reusable_radar_analysis(
         &self,

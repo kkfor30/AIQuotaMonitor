@@ -31,11 +31,10 @@ import type { RadarSnapshot } from "@/lib/ipc";
 import { compactPercentText } from "@/lib/format";
 import { capabilityRemainingPercent, quotaTone, quotaToneColor } from "@/components/ui/QuotaProgress";
 import {
-  QUOTA_STATUS_PRIORITY,
   formatHoverbarClock,
-  radarAiLine,
-  radarPhaseLabel,
-  radarQuotaLine,
+  radarDecisionBadge,
+  radarDecisionStripLine,
+  radarDecisionSynthesis,
   radarSourceLine,
 } from "./hoverbar-state";
 import { hoverbarProviderVisual } from "./provider-visuals";
@@ -469,34 +468,18 @@ function RadarStrip({
   radarRefreshing: boolean;
   radarRefreshError: string | null;
 }) {
-  // 三路证据各行独立：CodexRadar 来源行不受 AI 开关影响，AI 关闭时历史正文不得替换来源行。
-  // 来源行优先站点公告；站点无公告区块时回退最新帖摘要（保持信息可用）。
-  const source =
-    radar.sourceAssessment?.headline ??
-    radar.notice?.headline ??
-    radar.latest?.summary ??
-    radar.latest?.translatedText ??
-    radar.latest?.text ??
-    "暂未同步来源内容";
-  const phase = radarPhaseLabel(radar.event?.phase);
-  const aiLine = radarAiLine(radar);
-  const quotaLine = radarQuotaLine(radar);
-  const quotaStatus = (radar.quotaVerifications ?? [])
-    .map((item) => item.status)
-    .sort(
-      (left, right) =>
-        QUOTA_STATUS_PRIORITY.indexOf(left) - QUOTA_STATUS_PRIORITY.indexOf(right),
-    )[0];
+  // 判断先行：不再平铺 CodexRadar/AI/本机三行同级判断，收敛为“结论 + 综合”两行；
+  // 三路证据的完整分层展示在悬浮雷达详情页。
+  const decision = radar.decision;
+  const badge = radarDecisionBadge(decision);
   return (
     <footer className="hb-radar-strip">
       <div className="hb-radar-strip-head">
         <Radar size={14} aria-hidden />
         <span className="hb-radar-strip-title">重置雷达</span>
-        {phase ? (
-          <span className="radar-phase-badge" data-phase={radar.event?.phase}>
-            {phase}
-          </span>
-        ) : null}
+        <span className="radar-phase-badge" data-phase={decision.status}>
+          {badge}
+        </span>
         <div className="hb-radar-strip-actions">
           {onRefreshRadar ? (
             <button
@@ -515,27 +498,16 @@ function RadarStrip({
           </button>
         </div>
       </div>
-      <div className="hb-radar-strip-row">
-        <span className="hb-radar-strip-tag">CodexRadar</span>
-        <span className="hb-radar-strip-row-text" data-selectable="true">
-          {radarRefreshing ? "正在同步 CodexRadar…" : source}
-        </span>
-      </div>
-      <div className="hb-radar-strip-row">
-        <span className="hb-radar-strip-tag">AI分析</span>
-        <span className="hb-radar-strip-row-text" data-selectable="true">
-          {aiLine}
-        </span>
-      </div>
-      {quotaLine ? (
-        <div className="hb-radar-strip-row">
-          <span className="hb-radar-strip-tag">本机额度</span>
-          <span className="hb-radar-strip-row-text" data-quota={quotaStatus} data-selectable="true">
-            {quotaLine}
-          </span>
-        </div>
-      ) : null}
-      {radarRefreshError ? <p className="hb-radar-strip-error">{radarRefreshError}</p> : null}
+      <p className="hb-radar-strip-row-text" data-selectable="true">
+        {radarRefreshing ? "正在同步 CodexRadar…" : radarDecisionStripLine(decision)}
+      </p>
+      {radarRefreshError ? (
+        <p className="hb-radar-strip-error">{radarRefreshError}</p>
+      ) : (
+        <p className="hb-radar-strip-row-text" data-selectable="true">
+          {radarDecisionSynthesis(decision, radar)}
+        </p>
+      )}
       <p className="hb-radar-strip-note">{radarSourceLine(radar)} · 仅为推测，不代表官方结论</p>
     </footer>
   );

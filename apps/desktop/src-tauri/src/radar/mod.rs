@@ -62,7 +62,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v13";
+pub const PROMPT_VERSION: &str = "radar-v14";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -199,14 +199,51 @@ pub struct RadarEventView {
 #[serde(rename_all = "camelCase")]
 pub struct RadarAiAssessmentView {
     pub enabled: bool,
-    /// current | disabled | pending | failed | not_analyzed
+    /// covered：latestDeltaAnalysis 已覆盖所选范围内最新帖子；其余为 disabled | pending | failed | not_analyzed
     pub state: String,
-    /// 最近一次成功的增量分析；无关新帖也属于已分析结果。
-    pub current: Option<RadarAnalysisView>,
+    /// 当前（或最近）事件的最新成功分析：回答“为什么认为本轮存在重置信号”。
+    pub event_analysis: Option<RadarAnalysisView>,
+    /// 最近一次成功增量分析（含 event_relation=none 的无关帖子）：回答“最新帖子是否改变当前判断”。
+    pub latest_delta_analysis: Option<RadarAnalysisView>,
     /// 最近一次成功分析（历史）。
     pub history: Option<RadarAnalysisView>,
     /// 最近一次失败检查的分析错误。
     pub latest_error: Option<String>,
+}
+
+/// 「最近一次事件」折叠区：仅无活动事件时展示，不冒充当前信号。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarRecentEventView {
+    pub id: String,
+    pub phase: String,
+    pub title: String,
+    pub close_reason: Option<String>,
+    pub observed_reset_at: Option<i64>,
+    pub closed_at: Option<i64>,
+    pub post_ids: Vec<String>,
+    pub analysis: Option<RadarAnalysisView>,
+}
+
+/// 面向用户的综合判断：由 Rust 从活动事件/时间/观察推导，React 只消费不二次判断。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarDecisionView {
+    /// no_signal | watching | upcoming | expected_time_passed | landed_claimed | landed_observed
+    pub status: String,
+    pub active_event_id: Option<String>,
+    pub headline: String,
+    pub expected_at: Option<i64>,
+    pub observed_at: Option<i64>,
+    /// landed_observed 的 24 小时观察期截止时间。
+    pub observation_expires_at: Option<i64>,
+    /// unknown | expected | passed | claimed | observed
+    pub time_kind: String,
+    pub signal_level: Option<String>,
+    pub recent_event: Option<RadarRecentEventView>,
+    pub relevant_post_ids: Vec<String>,
+    /// 最近一次被判定与事件无关的新帖时间（用于“最新动态无关”摘要）。
+    pub latest_irrelevant_update_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -236,6 +273,7 @@ pub struct RadarSnapshot {
     pub source_assessment: RadarSourceAssessmentView,
     pub event: Option<RadarEventView>,
     pub ai_assessment: RadarAiAssessmentView,
+    pub decision: RadarDecisionView,
     pub quota_verifications: Vec<QuotaVerificationView>,
 }
 
@@ -297,10 +335,29 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
     let event_record = database.active_radar_event()?;
     let quota_verifications =
         quota_watch::assess_quota_verifications(database, event_record.as_ref())?;
-    let event_view_data = event_record
+    // expiresAt 已过的事件不再作为“当前事件”展示；数据库仍由 reconcile_event_state 正式关闭。
+    let now_ms = epoch_ms();
+    let active_event =
+        event_record.filter(|event| event.expires_at.is_none_or(|at| at > now_ms));
+    let newest_post_at = posts.first().map(|post| post.posted_at);
+    let event_view_data = active_event
         .as_ref()
         .map(|record| event_view(database, record));
-    let ai_assessment = build_ai_assessment(database, analysis.as_ref(), &checks);
+    let ai_assessment = build_ai_assessment(
+        database,
+        analysis.as_ref(),
+        active_event.as_ref(),
+        newest_post_at,
+        &checks,
+    )?;
+    let decision = build_decision(
+        database,
+        active_event.as_ref(),
+        ai_assessment.event_analysis.as_ref(),
+        ai_assessment.latest_delta_analysis.as_ref(),
+        event_view_data.as_ref(),
+        &posts,
+    )?;
     Ok(RadarSnapshot {
         source_status: source_status.into(),
         last_synced_at,
@@ -314,6 +371,7 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         source_assessment,
         event: event_view_data,
         ai_assessment,
+        decision,
         quota_verifications,
     })
 }
@@ -488,38 +546,162 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
     }
 }
 
-/// AI 评估：按最近一次成功的增量分析是否覆盖最新帖子派生 UI 状态。
+/// AI 评估：拆分“事件为什么成立”（eventAnalysis）与“最新帖子是否改变判断”（latestDeltaAnalysis）。
 fn build_ai_assessment(
     database: &Database,
     latest_success: Option<&RadarAnalysisView>,
+    active_event: Option<&RadarEventRecord>,
+    newest_post_at: Option<i64>,
     checks: &[RadarCheckView],
-) -> RadarAiAssessmentView {
+) -> Result<RadarAiAssessmentView, String> {
     let enabled = load_analysis_prefs(database)
         .map(|prefs| prefs.analyze)
         .unwrap_or(false);
-    let current = latest_success.cloned();
+    let covers = |record: &RadarAnalysisRecord| match record.to_posted_at {
+        Some(to) => newest_post_at.map_or(true, |post_at| post_at <= to),
+        None => true,
+    };
+    let latest_delta = latest_success.cloned();
+    let event_analysis = match active_event {
+        Some(event) => database
+            .latest_event_radar_analysis(&event.id)?
+            .map(|record| {
+                let covers_latest = covers(&record);
+                analysis_view(database, record, covers_latest)
+            }),
+        None => None,
+    };
     let latest_error = checks
         .iter()
         .find(|check| check.analyze_status.as_deref() == Some("failed"))
         .and_then(|check| check.error_message.clone());
     let state = if !enabled {
         "disabled"
-    } else if current.as_ref().is_some_and(|analysis| analysis.covers_latest) {
-        "current"
-    } else if current.is_some() {
+    } else if latest_delta.as_ref().is_some_and(|analysis| analysis.covers_latest) {
+        "covered"
+    } else if latest_delta.is_some() {
         "pending"
     } else if latest_error.is_some() {
         "failed"
     } else {
         "not_analyzed"
     };
-    RadarAiAssessmentView {
+    Ok(RadarAiAssessmentView {
         enabled,
         state: state.into(),
-        current,
+        event_analysis,
+        latest_delta_analysis: latest_delta,
         history: latest_success.cloned(),
         latest_error,
-    }
+    })
+}
+
+/// 综合判断视图：状态与时间只由代码推导，AI 不参与；expired 事件不作为当前事件。
+fn build_decision(
+    database: &Database,
+    active_event: Option<&RadarEventRecord>,
+    event_analysis: Option<&RadarAnalysisView>,
+    latest_delta: Option<&RadarAnalysisView>,
+    event_view_data: Option<&RadarEventView>,
+    posts: &[TiboPostView],
+) -> Result<RadarDecisionView, String> {
+    let now = epoch_ms();
+    let recent_record = database.latest_closed_radar_event()?;
+    let recent_event = match recent_record {
+        Some(record) => {
+            let post_ids = database.radar_event_post_ids(&record.id).unwrap_or_default();
+            let analysis = database
+                .latest_event_radar_analysis(&record.id)?
+                .map(|item| analysis_view(database, item, true));
+            Some(RadarRecentEventView {
+                id: record.id.clone(),
+                phase: record.phase.clone(),
+                title: record.title.clone(),
+                close_reason: record.close_reason.clone(),
+                observed_reset_at: record.observed_reset_at,
+                closed_at: record.closed_at,
+                post_ids,
+                analysis,
+            })
+        }
+        None => None,
+    };
+    let (status, headline, time_kind, expected_at, observed_at, observation_expires_at) =
+        match active_event {
+            Some(event) => {
+                if event_temporal_phase(event, now) == "expected_time_passed" {
+                    (
+                        "expected_time_passed",
+                        "预告时间已过，等待验证",
+                        "passed",
+                        event.expected_at,
+                        None,
+                        None,
+                    )
+                } else {
+                    match event.phase.as_str() {
+                        "landed_observed" => (
+                            "landed_observed",
+                            "本机已观察到额度刷新",
+                            "observed",
+                            None,
+                            event.observed_reset_at,
+                            event.expires_at,
+                        ),
+                        "landed_claimed" => (
+                            "landed_claimed",
+                            "来源称已经重置",
+                            "claimed",
+                            event.expected_at,
+                            None,
+                            None,
+                        ),
+                        _ if event.expected_at.is_some() => (
+                            "upcoming",
+                            "预计即将重置",
+                            "expected",
+                            event.expected_at,
+                            None,
+                            None,
+                        ),
+                        _ => ("watching", "可能即将重置", "unknown", None, None, None),
+                    }
+                }
+            }
+            None => (
+                "no_signal",
+                "暂无下一轮重置信号",
+                "unknown",
+                None,
+                None,
+                None,
+            ),
+        };
+    let relevant_post_ids = event_view_data
+        .map(|view| view.post_ids.clone())
+        .unwrap_or_default();
+    // 最新无关动态：仅当最新一次增量分析判定无关时，取范围外最新帖时间。
+    let latest_irrelevant_update_at = latest_delta
+        .filter(|analysis| analysis.event_relation.as_deref() == Some("none"))
+        .and_then(|_| {
+            posts
+                .first()
+                .filter(|post| !relevant_post_ids.contains(&post.id))
+                .map(|post| post.posted_at)
+        });
+    Ok(RadarDecisionView {
+        status: status.into(),
+        active_event_id: active_event.map(|event| event.id.clone()),
+        headline: headline.into(),
+        expected_at,
+        observed_at,
+        observation_expires_at,
+        time_kind: time_kind.into(),
+        signal_level: event_analysis.and_then(|analysis| analysis.signal_level.clone()),
+        recent_event,
+        relevant_post_ids,
+        latest_irrelevant_update_at,
+    })
 }
 
 pub async fn run_check(
@@ -1628,14 +1810,17 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "You analyze public Tibo/Codex reset-related posts. NEW POSTS are the batch to judge; ",
     "EVENT CONTEXT POSTS (when present) are previously associated originals of an ongoing reset event, background only. ",
     "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"post_alias\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
-    "Write conclusion and analysis_basis in Simplified Chinese. ",
+    "Write conclusion, analysis_basis, support, against, and uncertainty in Simplified Chinese. ",
     "Each post is JSON and carries a short alias: N1, N2 … for NEW POSTS, C1, C2 … for EVENT CONTEXT POSTS. ",
     "In citations return exactly these aliases, one per cited post; never return raw numeric post ids or URLs. ",
     "Never write a raw numeric post id in conclusion, analysis_basis, support, against, or uncertainty; ",
     "refer to posts in natural language such as \u{201c}the latest post\u{201d}, \u{201c}the earlier announcement post\u{201d}, or \u{201c}the post from 13:17 on Aug 31\u{201d}. ",
+    "analysis_basis must separately state what the posts explicitly say and what you infer from context; ",
+    "support may only contain claims the cited posts directly support; anything merely speculative belongs in uncertainty. ",
+    "Every conclusion must be backed by citations referring to real input posts; never cite a post that was not provided. ",
     "Each post's time_claims are code-authoritative facts: resolved_beijing_at may be repeated verbatim; ambiguous claims must remain ambiguous. Never calculate, convert, or invent a time. ",
     "CODE-AUTHORITATIVE EVENT STATE and the injected analysis time are facts and cannot be changed by your output. ",
-    "Do not repeat internal prompt labels such as NOW, NEW POSTS, EVENT CONTEXT POSTS, CODE-AUTHORITATIVE EVENT STATE, 分析时刻, 本次新增帖子, or 事件上下文帖子 in user-facing fields. ",
+    "Do not repeat internal prompt labels, enums, or state JSON keys such as NOW, NEW POSTS, EVENT CONTEXT POSTS, CODE-AUTHORITATIVE EVENT STATE, event_relation, delta_effect, 分析时刻, 本次新增帖子, or 事件上下文帖子 in user-facing fields. ",
     "expected_time_passed means the announced time has passed but landing is still unverified; never call it landed without a source claim or local observation in state. ",
     "If state says observed_landed, describe the posts as historical confirmation and use past tense. ",
     "conclusion must be a direct decision of at most 40 Chinese characters, without markdown, evidence, or repeated reasoning. ",

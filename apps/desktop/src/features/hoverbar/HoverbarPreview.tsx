@@ -15,6 +15,7 @@ import type {
 } from "@/lib/types";
 import type {
   RadarAnalysis,
+  RadarDecision,
   RadarEvent,
   QuotaVerification,
   RadarSnapshot,
@@ -313,6 +314,24 @@ const previewEvent: RadarEvent = {
   temporalStatus: "observed_landed",
 };
 
+/** 按状态构建预览决策，保证与事件 mock 同源一致（仅布局验收用）。 */
+function previewDecision(overrides: Partial<RadarDecision> = {}): RadarDecision {
+  return {
+    status: "landed_claimed",
+    activeEventId: "preview-event",
+    headline: "来源称已经重置",
+    expectedAt: previewEvent.expectedAt,
+    observedAt: null,
+    observationExpiresAt: null,
+    timeKind: "claimed",
+    signalLevel: "strong",
+    recentEvent: null,
+    relevantPostIds: [...previewEvent.postIds],
+    latestIrrelevantUpdateAt: null,
+    ...overrides,
+  };
+}
+
 /** 预览本机额度验证：本机观察到非计划刷新，额外账号未见变化。 */
 const previewQuota: QuotaVerification[] = [
   {
@@ -444,11 +463,13 @@ const previewRadar: RadarSnapshot = {
   event: previewEvent,
   aiAssessment: {
     enabled: true,
-    state: "current",
-    current: previewAnalysis,
+    state: "covered",
+    eventAnalysis: previewAnalysis,
+    latestDeltaAnalysis: previewAnalysis,
     history: previewAnalysis,
     latestError: null,
   },
+  decision: previewDecision(),
   quotaVerifications: previewQuota,
 };
 previewRadar.latest = previewRadar.posts[0];
@@ -467,7 +488,14 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
     {
       label: "AI 关 · 有历史分析",
       snapshot: withOverrides({
-        aiAssessment: { enabled: false, state: "disabled", current: null, history: previewAnalysis, latestError: null },
+        aiAssessment: {
+          enabled: false,
+          state: "disabled",
+          eventAnalysis: previewAnalysis,
+          latestDeltaAnalysis: null,
+          history: previewAnalysis,
+          latestError: null,
+        },
       }),
     },
     {
@@ -476,7 +504,8 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
         aiAssessment: {
           enabled: true,
           state: "failed",
-          current: null,
+          eventAnalysis: previewAnalysis,
+          latestDeltaAnalysis: null,
           history: previewAnalysis,
           latestError: "示例：当前时间窗内没有 Tibo 动态可分析",
         },
@@ -545,7 +574,19 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
     {
       label: "正常计划内刷新",
       snapshot: withOverrides({
-        event: { ...previewEvent, phase: "upcoming", temporalStatus: "before_expected", title: "出现较强的即将重置信号" },
+        event: {
+          ...previewEvent,
+          phase: "upcoming",
+          temporalStatus: "before_expected",
+          title: "出现较强的即将重置信号",
+          expectedAt: Date.now() + 14 * 60 * 60 * 1000,
+        },
+        decision: previewDecision({
+          status: "upcoming",
+          headline: "预计即将重置",
+          timeKind: "expected",
+          expectedAt: Date.now() + 14 * 60 * 60 * 1000,
+        }),
         quotaVerifications: [
           {
             accountId: "openai-local",
@@ -579,21 +620,60 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
           phase: "landed_observed",
           temporalStatus: "observed_landed",
           observedResetAt: Date.now() - 8 * 60 * 1000,
+          expiresAt: Date.now() + 24 * 60 * 60 * 1000 - 8 * 60 * 1000,
           title: "本机已观察到额度刷新",
         },
+        decision: previewDecision({
+          status: "landed_observed",
+          headline: "本机已观察到额度刷新",
+          timeKind: "observed",
+          observedAt: Date.now() - 8 * 60 * 1000,
+          observationExpiresAt: Date.now() + 24 * 60 * 60 * 1000 - 8 * 60 * 1000,
+        }),
       }),
     },
     {
       label: "预告时间已过 · 等待验证",
       snapshot: withOverrides({
         event: { ...previewEvent, phase: "upcoming", temporalStatus: "expected_time_passed", title: "预告时间已过，等待本机验证" },
+        decision: previewDecision({
+          status: "expected_time_passed",
+          headline: "预告时间已过，等待验证",
+          timeKind: "passed",
+        }),
       }),
     },
     {
       label: "无事件 · AI 未分析",
       snapshot: withOverrides({
         event: null,
-        aiAssessment: { enabled: true, state: "not_analyzed", current: null, history: null, latestError: null },
+        aiAssessment: {
+          enabled: true,
+          state: "not_analyzed",
+          eventAnalysis: null,
+          latestDeltaAnalysis: null,
+          history: null,
+          latestError: null,
+        },
+        decision: previewDecision({
+          status: "no_signal",
+          activeEventId: null,
+          headline: "暂无下一轮重置信号",
+          expectedAt: null,
+          timeKind: "unknown",
+          signalLevel: null,
+          relevantPostIds: [],
+          recentEvent: {
+            id: "preview-event-closed",
+            phase: "closed",
+            title: "本机已观察到额度刷新",
+            closeReason: "completed",
+            observedResetAt: Date.now() - 26 * 60 * 60 * 1000,
+            closedAt: Date.now() - 2 * 60 * 60 * 1000,
+            postIds: ["2094252447271366730"],
+            analysis: previewAnalysis,
+          },
+        }),
         quotaVerifications: [],
       }),
     },

@@ -171,6 +171,7 @@ export type RadarSnapshot = {
   sourceAssessment: RadarSourceAssessment;
   event: RadarEvent | null;
   aiAssessment: RadarAiAssessment;
+  decision: RadarDecision;
   quotaVerifications: QuotaVerification[];
 };
 
@@ -298,11 +299,44 @@ export type RadarEvent = {
 
 export type RadarAiAssessment = {
   enabled: boolean;
-  /** current | disabled | pending | failed | not_analyzed */
+  /** covered：latestDeltaAnalysis 已覆盖所选范围内最新帖子；其余 disabled | pending | failed | not_analyzed */
   state: string;
-  current: RadarAnalysis | null;
+  /** 当前（或最近）事件的最新成功分析：本轮事件为什么成立。 */
+  eventAnalysis: RadarAnalysis | null;
+  /** 最近一次成功增量分析（含无关帖）：最新帖子是否改变当前判断。 */
+  latestDeltaAnalysis: RadarAnalysis | null;
   history: RadarAnalysis | null;
   latestError: string | null;
+};
+
+/** 「最近一次事件」折叠区：仅无活动事件时展示。 */
+export type RadarRecentEvent = {
+  id: string;
+  phase: string;
+  title: string;
+  closeReason: string | null;
+  observedResetAt: number | null;
+  closedAt: number | null;
+  postIds: string[];
+  analysis: RadarAnalysis | null;
+};
+
+/** Rust 推导的综合判断；React 只消费不二次判断。 */
+export type RadarDecision = {
+  /** no_signal | watching | upcoming | expected_time_passed | landed_claimed | landed_observed */
+  status: string;
+  activeEventId: string | null;
+  headline: string;
+  expectedAt: number | null;
+  observedAt: number | null;
+  /** landed_observed 的 24 小时观察期截止时间。 */
+  observationExpiresAt: number | null;
+  /** unknown | expected | passed | claimed | observed */
+  timeKind: string;
+  signalLevel: string | null;
+  recentEvent: RadarRecentEvent | null;
+  relevantPostIds: string[];
+  latestIrrelevantUpdateAt: number | null;
 };
 
 export type QuotaWindowPoint = {

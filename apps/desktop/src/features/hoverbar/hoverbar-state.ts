@@ -25,7 +25,7 @@ export type HoverbarEdge = "top" | "right" | "bottom" | "left";
 export type HoverbarSortMode = "manual" | "smart";
 
 import type { PlatformSummaryViewModel } from "@/lib/types";
-import type { RadarSnapshot } from "@/lib/ipc";
+import type { RadarDecision, RadarSnapshot } from "@/lib/ipc";
 
 /** 默认平台顺序（后续由设置页排序编辑持久化）。 */
 export const DEFAULT_HOVERBAR_PROVIDER_ORDER = [
@@ -175,30 +175,6 @@ export function radarTemporalLabel(temporalStatus: string | null | undefined): s
   }
 }
 
-/** 当前事件只展示代码可确认的状态说明，不复用会随时间陈旧的 AI 分析原文。 */
-export function radarEventStatusSummary(event: NonNullable<RadarSnapshot["event"]>): string {
-  switch (event.phase) {
-    case "landed_observed":
-      return "额度刷新已由本机记录，具体原因尚未确认。";
-    case "landed_claimed":
-      return event.claimedLandedAt
-        ? `来源于 ${formatHoverbarClock(event.claimedLandedAt)} 称重置已落地，等待本机额度验证。`
-        : "来源称重置已落地，等待本机额度验证。";
-    case "upcoming":
-      return event.expectedAt
-        ? `来源预告 ${formatHoverbarClock(event.expectedAt)}，尚待验证。`
-        : "来源出现即将重置的信号，尚未给出可确认时间。";
-    default:
-      return "正在根据来源动态观察本轮重置信号。";
-  }
-}
-
-/** 已观察到刷新后保留 24 小时观察期，展示绝对截止时间避免倒计时陈旧。 */
-export function radarObservationPeriodLabel(event: NonNullable<RadarSnapshot["event"]>): string | null {
-  if (event.phase !== "landed_observed" || !event.expiresAt) return null;
-  return `处于 24 小时观察期 · 至 ${formatHoverbarClock(event.expiresAt)}`;
-}
-
 /**
  * 时态第二徽章展示判断（主窗口与悬浮雷达详情页共用，避免规则漂移）。
  * phase 已经表达、或比 phase 更弱的事实不再重复展示；
@@ -219,6 +195,164 @@ export function shouldShowRadarTemporalBadge(
 ): boolean {
   if (!temporalStatus) return false;
   return !TEMPORAL_IMPLIED_BY_PHASE[phase ?? ""]?.has(temporalStatus);
+}
+
+function joinTokens(tokens: Array<string | null | undefined>): string {
+  return tokens.filter((token) => Boolean(token && token.trim())).join(" · ");
+}
+
+/** 决策状态徽章：悬浮摘要条与详情页「重置判断」卡共用。 */
+export function radarDecisionBadge(decision: RadarDecision): string {
+  switch (decision.status) {
+    case "landed_observed":
+      return "已观察到";
+    case "landed_claimed":
+      return "待本机验证";
+    case "expected_time_passed":
+      return "等待验证";
+    case "upcoming":
+      return decision.signalLevel === "strong"
+        ? "强信号"
+        : decision.signalLevel === "weak"
+          ? "弱信号"
+          : "预计重置";
+    case "watching":
+      return "观察中";
+    default:
+      return "暂无新信号";
+  }
+}
+
+/** 决策时间文案：精确时间只来自 Rust 结构化字段，不由前端或 AI 推算。 */
+export function radarDecisionTimeText(decision: RadarDecision): string {
+  switch (decision.timeKind) {
+    case "expected":
+      return decision.expectedAt
+        ? `北京时间 ${formatHoverbarClock(decision.expectedAt)} 左右`
+        : "时间尚未明确";
+    case "passed":
+      return decision.expectedAt
+        ? `原预告 ${formatHoverbarClock(decision.expectedAt)}`
+        : "原预告时间已过";
+    case "claimed":
+      return "等待本机额度验证";
+    case "observed":
+      return decision.observedAt
+        ? `观察于 ${formatHoverbarClock(decision.observedAt)}`
+        : "等待观察时间";
+    default:
+      return decision.status === "no_signal" ? "暂时无法判断" : "时间尚未明确";
+  }
+}
+
+/** 摘要条主行：第一屏直接回答“什么时候重置”。 */
+export function radarDecisionStripLine(decision: RadarDecision): string {
+  if (decision.status === "landed_observed" && decision.observedAt) {
+    return `本机于 ${formatHoverbarClock(decision.observedAt)} 观察到额度刷新`;
+  }
+  if (decision.status === "no_signal") return "下一次重置：暂时无法判断";
+  if (
+    decision.status === "upcoming" &&
+    decision.timeKind === "expected" &&
+    decision.expectedAt
+  ) {
+    return `预计北京时间 ${formatHoverbarClock(decision.expectedAt)} 左右`;
+  }
+  return decision.headline;
+}
+
+/** 摘要条综合行：来源/AI/本机三路收敛为一行，不再平铺三条同级判断。 */
+export function radarDecisionSynthesis(decision: RadarDecision, radar: RadarSnapshot): string {
+  const ai = radar.aiAssessment;
+  const confidence = ai.eventAnalysis?.confidence ?? null;
+  const aiToken = !ai.enabled
+    ? "AI 未启用"
+    : confidence === "high"
+      ? "AI 高把握"
+      : confidence === "medium"
+        ? "AI 中等把握"
+        : confidence === "low"
+          ? "AI 低把握"
+          : null;
+  const latestIrrelevant = ai.enabled && ai.latestDeltaAnalysis?.eventRelation === "none";
+  switch (decision.status) {
+    case "landed_observed":
+      return decision.observationExpiresAt
+        ? `24 小时观察期至 ${formatHoverbarClock(decision.observationExpiresAt)}`
+        : "等待观察期结束";
+    case "landed_claimed":
+      return joinTokens(["来源称已重置", "等待本机额度验证"]);
+    case "expected_time_passed":
+      return joinTokens([
+        decision.expectedAt ? `原预告 ${formatHoverbarClock(decision.expectedAt)}` : null,
+        "本机待验证",
+      ]);
+    case "upcoming":
+      return joinTokens([
+        decision.timeKind === "expected" ? "来源明确预告" : null,
+        aiToken,
+        "本机待验证",
+      ]);
+    case "watching":
+      return joinTokens([aiToken, "暂无明确时间"]);
+    default:
+      return joinTokens([
+        latestIrrelevant ? "最新动态无关" : null,
+        decision.recentEvent?.observedResetAt
+          ? `最近一次 ${formatHoverbarClock(decision.recentEvent.observedResetAt)} 观察到刷新`
+          : null,
+        "本机未观察到新变化",
+      ]);
+  }
+}
+
+/** 详情页「最新动态是否影响判断」行：无关新帖不覆盖事件分析。 */
+export function radarDeltaImpactLine(radar: RadarSnapshot): string {
+  const ai = radar.aiAssessment;
+  if (!ai.enabled) return "AI 未启用：仅展示来源与本机事实。";
+  const latest = ai.latestDeltaAnalysis;
+  if (!latest) return "最新动态尚未分析。";
+  if (latest.eventRelation === "none") return "最新动态已分析：与重置无关，不影响当前判断。";
+  if (!latest.coversLatest) return "有更新动态待分析，当前判断可能变化。";
+  return "最新动态已核对，未改变当前判断。";
+}
+
+/** 最近事件的关闭原因文案。 */
+export function radarCloseReasonLabel(reason: string | null | undefined): string {
+  switch (reason) {
+    case "completed":
+      return "观察期完成";
+    case "timeout_no_signal":
+      return "超时未再见信号";
+    case "timeout_unverified":
+      return "超时未获本机验证";
+    case "claimed_unverified":
+      return "声称落地未获验证";
+    case "timeout":
+      return "观察期超时关闭";
+    default:
+      return "已结束";
+  }
+}
+
+/** 本机验证摘要行：默认收缩为一行，账号/窗口细节在「查看验证详情」。 */
+export function radarQuotaSummaryLine(
+  verifications: ReadonlyArray<{
+    status: string;
+    attribution: string;
+    lastResetObservedAt: number | null;
+  }>,
+): string {
+  if (verifications.length === 0) return "未接入 GPT 额度来源";
+  const observed = verifications.find((item) => item.lastResetObservedAt);
+  if (observed?.lastResetObservedAt) {
+    const confirmed = observed.attribution === "user_confirmed";
+    return `本机于 ${formatHoverbarClock(observed.lastResetObservedAt)} 观察到刷新${confirmed ? "" : "，原因未知"}`;
+  }
+  if (verifications.some((item) => item.status === "unavailable")) {
+    return "本机暂无法验证，不影响来源与 AI 判断";
+  }
+  return "本机未观察到新变化";
 }
 
 /**
@@ -280,42 +414,6 @@ export function quotaCorrelationLabel(correlation: string | null | undefined): s
   return null;
 }
 
-/** 重置事件阶段中文标签；未知阶段不臆造文案。 */
-export function radarPhaseLabel(phase: string | null | undefined): string | null {
-  switch (phase) {
-    case "watching":
-      return "观察中";
-    case "upcoming":
-      return "即将重置";
-    case "landed_claimed":
-      return "来源称已落地";
-    case "landed_observed":
-      return "本机已观察到刷新";
-    case "closed":
-      return "已结束";
-    default:
-      return null;
-  }
-}
-
-/** 摘要条 AI 状态行：关闭/失败/待分析时不得用历史结论正文替代来源行。 */
-export function radarAiLine(radar: RadarSnapshot): string {
-  const ai = radar.aiAssessment;
-  if (!ai.enabled) {
-    return ai.history ? `已关闭 · 历史 ${formatHoverbarClock(ai.history.createdAt)}` : "已关闭";
-  }
-  switch (ai.state) {
-    case "pending":
-      return "有新动态待分析";
-    case "failed":
-      return ai.history ? `分析失败 · 历史 ${formatHoverbarClock(ai.history.createdAt)}` : "分析失败";
-    case "current":
-      return ai.current?.conclusion ?? "已分析";
-    default:
-      return "未分析";
-  }
-}
-
 /** 本机额度验证状态中文文案。 */
 export function quotaStatusText(status: string): string {
   switch (status) {
@@ -354,31 +452,6 @@ export function quotaStatusLabel(status: string, attribution: string): string {
     return "本机已观察到刷新，原因未知";
   }
   return quotaStatusText(status);
-}
-
-export const QUOTA_STATUS_PRIORITY: string[] = [
-  "unscheduled_reset",
-  "possible_reset",
-  "scheduled",
-  "pending",
-  "insufficient_data",
-  "unavailable",
-  "no_change",
-];
-
-/** 摘要条本机额度行：取最显著的验证状态；多账号状态不一致时带计数。 */
-export function radarQuotaLine(radar: RadarSnapshot): string | null {
-  const list = radar.quotaVerifications ?? [];
-  if (list.length === 0) return null;
-  const sorted = [...list].sort(
-    (left, right) => QUOTA_STATUS_PRIORITY.indexOf(left.status) - QUOTA_STATUS_PRIORITY.indexOf(right.status),
-  );
-  const primary = sorted[0];
-  const sameCount = list.filter((item) => item.status === primary.status).length;
-  if (primary.status === "unscheduled_reset" && sameCount < list.length) {
-    return `${sameCount}/${list.length} 账号观察到非计划刷新`;
-  }
-  return quotaStatusText(primary.status);
 }
 
 /** 悬浮球头部状态文案：成功/部分/失败同时用文字表达。 */
