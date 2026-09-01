@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GripVertical, Info, Monitor, Palette, RefreshCw, ShieldAlert } from "lucide-react";
+import { GripVertical, Info, Monitor, Palette, RefreshCw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -28,7 +28,7 @@ import { cn } from "@/lib/cn";
 import { PlatformMark } from "@/features/platform-center/ProviderRail";
 
 /**
- * 精简设置：常规（自启 / 主题 / 悬浮球开关）、悬浮球排序、刷新间隔、数据与关于。
+ * 设置按用户任务归为三类：通用、悬浮球、刷新与数据。
  * 平台登录和 API Key 留在平台中心。
  */
 export function SettingsPage() {
@@ -41,20 +41,18 @@ export function SettingsPage() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
         {section === "general" && <GeneralSection />}
         {section === "hoverbar" && <HoverbarSettingsSection />}
-        {section === "refresh" && <RefreshSection />}
-        {section === "data" && <DataSection />}
+        {section === "refresh_data" && <RefreshDataSection />}
       </div>
     </div>
   );
 }
 
-type SettingsSectionId = "general" | "hoverbar" | "refresh" | "data";
+type SettingsSectionId = "general" | "hoverbar" | "refresh_data";
 
 const SECTIONS: Array<{ id: SettingsSectionId; label: string; icon: LucideIcon }> = [
-  { id: "general", label: "常规与外观", icon: Palette },
-  { id: "hoverbar", label: "悬浮球排序", icon: Monitor },
-  { id: "refresh", label: "自动刷新", icon: RefreshCw },
-  { id: "data", label: "数据与关于", icon: ShieldAlert },
+  { id: "general", label: "通用", icon: Palette },
+  { id: "hoverbar", label: "悬浮球", icon: Monitor },
+  { id: "refresh_data", label: "刷新与数据", icon: RefreshCw },
 ];
 
 function SettingsSectionRail({
@@ -139,10 +137,6 @@ function useSettings() {
 
 function GeneralSection() {
   const { data: settings, queryClient } = useSettings();
-  const { data: prefs } = useQuery({
-    queryKey: HOVERBAR_PREFERENCES_QUERY_KEY,
-    queryFn: fetchHoverbarPreferences,
-  });
 
   const themeMutation = useMutation({
     mutationFn: setAppTheme,
@@ -155,24 +149,13 @@ function GeneralSection() {
     mutationFn: setAutostart,
     onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
   });
-  const hoverbarMutation = useMutation({
-    mutationFn: setHoverbarEnabled,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: HOVERBAR_PREFERENCES_QUERY_KEY });
-    },
-  });
-  const autoRadarMutation = useMutation({
-    mutationFn: setHoverbarAutoRadarCheck,
-    onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
-  });
 
   const theme = settings?.theme === "dark" ? "dark" : "light";
-  const error =
-    themeMutation.error ?? autostartMutation.error ?? hoverbarMutation.error;
+  const error = themeMutation.error ?? autostartMutation.error;
 
   return (
     <>
-      <SectionHeader title="常规与外观" description="启动行为、主题和悬浮球开关会立即保存。" />
+      <SectionHeader title="通用" description="管理应用启动、主题和版本信息。设置修改后立即保存。" />
       {error ? <ErrorText error={error} fallback="保存设置失败" /> : null}
       <div className="glass-panel flex flex-col gap-4 p-5">
         <SettingRow title="开机自启" description="登录 Windows 后自动启动本应用">
@@ -181,25 +164,6 @@ function GeneralSection() {
             disabled={autostartMutation.isPending}
             onCheckedChange={(next) => autostartMutation.mutate(next)}
             label="开机自启"
-          />
-        </SettingRow>
-        <SettingRow title="启用悬浮球" description="关闭后立即隐藏悬浮球与详情窗口">
-          <Switch
-            checked={prefs?.enabled ?? false}
-            disabled={hoverbarMutation.isPending}
-            onCheckedChange={(next) => hoverbarMutation.mutate(next)}
-            label="启用悬浮球"
-          />
-        </SettingRow>
-        <SettingRow
-          title="展开悬浮详情时自动检查重置雷达"
-          description="悬浮球展开详情时自动同步 Tibo 动态并按偏好运行 AI 分析；距上次检查不足 5 分钟时跳过"
-        >
-          <Switch
-            checked={settings?.hoverbarAutoRadarCheck ?? false}
-            disabled={autoRadarMutation.isPending}
-            onCheckedChange={(next) => autoRadarMutation.mutate(next)}
-            label="展开悬浮详情时自动检查重置雷达"
           />
         </SettingRow>
         <SettingRow title="主题" description="主窗口与悬浮详情一起切换；仅提供浅色 / 深色两档">
@@ -225,12 +189,30 @@ function GeneralSection() {
           </div>
         </SettingRow>
       </div>
+      <div className="glass-panel flex flex-col gap-3 p-5">
+        <div className="flex items-center gap-2 text-sm font-medium text-q-text-primary">
+          <Info size={16} aria-hidden />
+          关于本应用
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-q-text-secondary">版本</span>
+          <span className="font-medium text-q-text-primary" data-selectable="true">0.1.0</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-q-text-secondary">第三方许可</span>
+          <span className="text-q-text-primary">见仓库 THIRD_PARTY_NOTICES.md</span>
+        </div>
+      </div>
     </>
   );
 }
 
 function HoverbarSettingsSection() {
   const { data: settings, queryClient } = useSettings();
+  const { data: prefs } = useQuery({
+    queryKey: HOVERBAR_PREFERENCES_QUERY_KEY,
+    queryFn: fetchHoverbarPreferences,
+  });
   const { data: platforms = [] } = useQuery({
     queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
     queryFn: fetchPlatformSummaries,
@@ -240,6 +222,17 @@ function HoverbarSettingsSection() {
   useEffect(() => {
     setOrder(platforms.map((platform) => platform.providerId));
   }, [platforms]);
+
+  const hoverbarMutation = useMutation({
+    mutationFn: setHoverbarEnabled,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: HOVERBAR_PREFERENCES_QUERY_KEY });
+    },
+  });
+  const autoRadarMutation = useMutation({
+    mutationFn: setHoverbarAutoRadarCheck,
+    onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
+  });
 
   const sortMutation = useMutation({
     mutationFn: setHoverbarSortMode,
@@ -340,14 +333,46 @@ function HoverbarSettingsSection() {
   return (
     <>
       <SectionHeader
-        title="悬浮球排序"
-        description="手动顺序会同步到主窗口平台列表和悬浮详情。智能排序把套餐制平台提前，组内仍按手动顺序。"
+        title="悬浮球"
+        description="管理悬浮球显示、展开行为和平台排列顺序。"
       />
-      {(sortMutation.error || reorderMutation.error) && (
-        <ErrorText error={sortMutation.error ?? reorderMutation.error} fallback="保存排序失败" />
+      {(hoverbarMutation.error || autoRadarMutation.error || sortMutation.error || reorderMutation.error) && (
+        <ErrorText
+          error={hoverbarMutation.error ?? autoRadarMutation.error ?? sortMutation.error ?? reorderMutation.error}
+          fallback="保存悬浮球设置失败"
+        />
       )}
       <div className="glass-panel flex flex-col gap-4 p-5">
-        <SettingRow title="排序方式" description="智能排序优先展示 GPT、Claude、GLM、MiniMax 等套餐平台">
+        <SettingRow title="启用悬浮球" description="关闭后立即隐藏悬浮球和详情窗口">
+          <Switch
+            checked={prefs?.enabled ?? false}
+            disabled={hoverbarMutation.isPending}
+            onCheckedChange={(next) => hoverbarMutation.mutate(next)}
+            label="启用悬浮球"
+          />
+        </SettingRow>
+        <SettingRow
+          title="打开详情时检查重置雷达"
+          description="展开悬浮详情时同步 Tibo 动态，并按雷达偏好运行 AI 分析；距上次检查不足 5 分钟时跳过"
+        >
+          <Switch
+            checked={settings?.hoverbarAutoRadarCheck ?? false}
+            disabled={autoRadarMutation.isPending}
+            onCheckedChange={(next) => autoRadarMutation.mutate(next)}
+            label="打开详情时检查重置雷达"
+          />
+        </SettingRow>
+        {prefs && !prefs.enabled ? (
+          <p className="text-xs leading-relaxed text-q-text-muted">
+            悬浮球当前已关闭，下面的排序设置会保留，并在重新启用后生效。
+          </p>
+        ) : null}
+      </div>
+      <div className="glass-panel flex flex-col gap-4 p-5">
+        <SettingRow
+          title="排序方式"
+          description="智能排序优先展示套餐平台；拖拽顺序仍用于同一优先级内的排列"
+        >
           <div className="inline-flex gap-1 rounded-q-control border border-q-border bg-q-surface-muted p-1">
             {[
               ["manual", "手动"],
@@ -372,7 +397,7 @@ function HoverbarSettingsSection() {
         <div>
           <p className="text-sm font-medium text-q-text-primary">平台顺序</p>
           <p className="mt-0.5 text-xs leading-relaxed text-q-text-secondary">
-            按住平台行拖动调整顺序。未接入的平台也会参与排序，但不会出现在悬浮详情里。
+            按住平台行拖动调整顺序。待配置平台仍会保留顺序，但只在完成接入后出现在悬浮详情里。
           </p>
           <div className="mt-3 space-y-2" data-sort-rows>
             {order.length === 0 && (
@@ -413,45 +438,14 @@ function HoverbarSettingsSection() {
   );
 }
 
-function RefreshSection() {
+function RefreshDataSection() {
   const { data: settings, queryClient } = useSettings();
-  const mutation = useMutation({
+  const [message, setMessage] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const refreshMutation = useMutation({
     mutationFn: setRefreshInterval,
     onSuccess: (next) => queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next),
   });
-  const minutes = settings?.refreshIntervalMinutes ?? 15;
-
-  return (
-    <>
-      <SectionHeader
-        title="自动刷新"
-        description="仅刷新已配置 Source。关闭后只支持手动刷新；雷达检查始终需要手动触发。"
-      />
-      {mutation.error ? <ErrorText error={mutation.error} fallback="保存刷新间隔失败" /> : null}
-      <div className="glass-panel flex flex-col gap-4 p-5">
-        <SettingRow title="刷新间隔" description="3 / 5 / 15 / 30 / 60 分钟，或关闭自动刷新">
-          <select
-            value={String(minutes)}
-            onChange={(event) => mutation.mutate(Number(event.target.value))}
-            className="h-10 min-w-[140px] rounded-q-control border border-q-border bg-q-surface px-3 text-sm"
-          >
-            <option value="0">关闭</option>
-            <option value="3">3 分钟</option>
-            <option value="5">5 分钟</option>
-            <option value="15">15 分钟</option>
-            <option value="30">30 分钟</option>
-            <option value="60">60 分钟</option>
-          </select>
-        </SettingRow>
-      </div>
-    </>
-  );
-}
-
-function DataSection() {
-  const queryClient = useQueryClient();
-  const [message, setMessage] = useState<string | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
   const clearMutation = useMutation({
     mutationFn: clearLocalCache,
     onSuccess: () => {
@@ -463,20 +457,43 @@ function DataSection() {
       setMessage(ipcErrorMessage(error, "清除缓存失败"));
     },
   });
+  const minutes = settings?.refreshIntervalMinutes ?? 15;
 
   return (
     <>
       <SectionHeader
-        title="数据与关于"
-        description="危险操作只出现在这里。清除缓存不会删除 API Key、Cookie 或本机 Codex 登录。"
+        title="刷新与数据"
+        description="控制平台额度自动同步，并管理本机保存的额度快照和刷新记录。"
       />
+      {refreshMutation.error ? <ErrorText error={refreshMutation.error} fallback="保存刷新间隔失败" /> : null}
+      <div className="glass-panel flex flex-col gap-4 p-5">
+        <SettingRow
+          title="平台额度刷新间隔"
+          description="仅刷新已配置的数据来源；重置雷达按手动检查或悬浮详情触发策略运行"
+        >
+          <select
+            value={String(minutes)}
+            onChange={(event) => refreshMutation.mutate(Number(event.target.value))}
+            disabled={refreshMutation.isPending}
+            className="h-10 min-w-[140px] rounded-q-control border border-q-border bg-q-surface px-3 text-sm"
+          >
+            <option value="0">关闭自动刷新</option>
+            <option value="3">3 分钟</option>
+            <option value="5">5 分钟</option>
+            <option value="15">15 分钟</option>
+            <option value="30">30 分钟</option>
+            <option value="60">60 分钟</option>
+          </select>
+        </SettingRow>
+      </div>
       <div className="glass-panel flex flex-col gap-4 p-5">
         <SettingRow
           title="清除本地缓存"
-          description="删除额度快照与刷新历史，不影响凭据。下次刷新会重新拉取真实值。"
+          description="删除额度快照与刷新历史；不会删除 API Key、Cookie、平台配置或本机 Codex 登录"
         >
           <Button
             variant="secondary"
+            className="text-q-danger hover:text-q-danger"
             onClick={() => {
               setMessage(null);
               setConfirmClear(true);
@@ -518,22 +535,6 @@ function DataSection() {
           </div>
         </div>
       )}
-      <div className="glass-panel flex flex-col gap-3 p-5">
-        <div className="flex items-center gap-2 text-sm font-medium text-q-text-primary">
-          <Info size={16} aria-hidden />
-          关于
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-q-text-secondary">版本</span>
-          <span className="font-medium text-q-text-primary" data-selectable="true">
-            0.1.0
-          </span>
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-q-text-secondary">第三方许可</span>
-          <span className="text-q-text-primary">见仓库 THIRD_PARTY_NOTICES.md</span>
-        </div>
-      </div>
     </>
   );
 }
