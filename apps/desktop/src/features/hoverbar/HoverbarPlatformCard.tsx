@@ -569,9 +569,8 @@ function sectionFromAccount(
     .filter((item) => isQuotaWindow(item.capabilityId))
     .sort((left, right) => compareWindowIds(left.capabilityId, right.capabilityId))
     .map(toWindowMetric);
-  // 今日/本月消费、模型行与缓存命中率目前只有 DeepSeek 官方用量来源产出；有真实现身才渲染对应结构
-  const hasDeepseekExtras =
-    own.some((item) => DEEPSEEK_EXTRA_IDS.has(item.capabilityId))
+  // 今日/本月消费与缓存命中率由平台消费来源产出（DeepSeek 网页用量、Kimi 控制台会话）；有真实现身才渲染对应结构
+  const hasFinanceExtras = own.some((item) => DEEPSEEK_EXTRA_IDS.has(item.capabilityId))
     || own.some((item) => DEEPSEEK_MODEL_IDS.has(item.capabilityId));
   const models = own
     .filter((item) => DEEPSEEK_MODEL_IDS.has(item.capabilityId))
@@ -604,11 +603,11 @@ function sectionFromAccount(
     windows,
     credits: financeOf(own, "credits"),
     balance: financeOf(own, "balance"),
-    spend: hasDeepseekExtras
+    spend: hasFinanceExtras
       ? { today: financeOf(own, "today_spend"), month: financeOf(own, "month_spend") }
       : { today: null, month: null },
     models,
-    cacheHit: hasDeepseekExtras ? cacheOf(own, "cache_hit_rate") : null,
+    cacheHit: hasFinanceExtras ? cacheOf(own, "cache_hit_rate") : null,
     staleNote,
   };
 }

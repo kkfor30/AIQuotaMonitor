@@ -9,6 +9,7 @@ pub mod deepseek;
 pub mod glm;
 pub mod grok;
 pub mod kimi;
+pub mod kimi_console;
 pub mod mimo;
 pub mod money;
 
@@ -50,6 +51,7 @@ fn source_definitions(platform_id: &str) -> Vec<SourceDefinition> {
         "kimi" => vec![
             one(coding_plan::KIMI_SOURCE_ID, "api_key", "Coding Plan"),
             one(kimi::BALANCE_SOURCE_ID, "api_key", "个人余额"),
+            one(kimi_console::CONSOLE_SOURCE_ID, "web_session", "控制台消费"),
         ],
         "glm" => vec![
             one(coding_plan::GLM_SOURCE_ID, "api_key", "Coding Plan"),
@@ -211,6 +213,24 @@ fn kimi_templates() -> Vec<CapabilityTemplate> {
         "balance",
         kimi::BALANCE_SOURCE_ID,
         "账户余额",
+        "money",
+    ));
+    templates.push(template(
+        "today_spend",
+        kimi_console::CONSOLE_SOURCE_ID,
+        "今日消费",
+        "money",
+    ));
+    templates.push(template(
+        "month_spend",
+        kimi_console::CONSOLE_SOURCE_ID,
+        "本月消费",
+        "money",
+    ));
+    templates.push(template(
+        "total_spend",
+        kimi_console::CONSOLE_SOURCE_ID,
+        "总消费",
         "money",
     ));
     templates
@@ -984,6 +1004,8 @@ fn missing_capability_ok(
     capability.capability_id == "credits"
         || capability.capability_id == "plan_level"
         || capability.capability_id == "total_spend"
+        || capability.capability_id == "today_spend"
+        || capability.capability_id == "month_spend"
         || capability.capability_id.starts_with("quota_window_")
 }
 
@@ -1005,7 +1027,7 @@ fn access_mode(source_id: &str, source_type: &str) -> String {
         | kimi::BALANCE_SOURCE_ID
         | glm::WEB_BALANCE_SOURCE_ID
         | mimo::SOURCE_ID => "personal_balance".into(),
-        deepseek::WEB_SOURCE_ID => "web_usage".into(),
+        deepseek::WEB_SOURCE_ID | kimi_console::CONSOLE_SOURCE_ID => "web_usage".into(),
         _ if source_type == "local_cli" || source_type == "oauth" => "local_cli".into(),
         _ => "personal_balance".into(),
     }
@@ -1031,6 +1053,12 @@ fn credential_input(source_id: &str, source_type: &str) -> Option<CredentialInpu
             help_text: "查询个人账户余额，不是 Coding Plan Key。官方接口为 api.moonshot.cn/v1/users/me/balance。先验证再保存。".into(),
             secret_kind: "api_key".into(),
         }),
+        kimi_console::CONSOLE_SOURCE_ID => Some(CredentialInputViewModel {
+            label: "Kimi 网页会话 rtoken".into(),
+            placeholder: "粘贴 rtoken，或使用网页登录".into(),
+            help_text: "官方 API 不提供今日/本月消费，此来源读取 platform.kimi.com 控制台内部接口。登录窗口会自动捕获会话；手动粘贴可 在控制台页 F12 → Application → Local Storage → rtoken 复制。只进入 Windows Credential Manager。".into(),
+            secret_kind: "bearer_token".into(),
+        }),
         glm::WEB_BALANCE_SOURCE_ID => Some(CredentialInputViewModel {
             label: "GLM 网页登录 Cookie".into(),
             placeholder: "粘贴包含 bigmodel_token_production 的 Cookie，或使用网页登录".into(),
@@ -1054,17 +1082,25 @@ fn credential_input(source_id: &str, source_type: &str) -> Option<CredentialInpu
 }
 
 fn kimi_access_summary(sources: &[SourceSummaryViewModel]) -> String {
-    let coding = sources.iter().any(|source| {
-        source.adapter_id == coding_plan::KIMI_SOURCE_ID && source.credential_configured
-    });
-    let balance = sources
-        .iter()
-        .any(|source| source.adapter_id == kimi::BALANCE_SOURCE_ID && source.credential_configured);
-    match (coding, balance) {
-        (true, true) => "Coding Plan + 个人余额".into(),
-        (true, false) => "Coding Plan".into(),
-        (false, true) => "个人余额".into(),
-        (false, false) => "尚未接入".into(),
+    let configured = |adapter_id: &str| {
+        sources
+            .iter()
+            .any(|source| source.adapter_id == adapter_id && source.credential_configured)
+    };
+    let mut parts = Vec::new();
+    if configured(coding_plan::KIMI_SOURCE_ID) {
+        parts.push("Coding Plan");
+    }
+    if configured(kimi::BALANCE_SOURCE_ID) {
+        parts.push("个人余额");
+    }
+    if configured(kimi_console::CONSOLE_SOURCE_ID) {
+        parts.push("控制台消费");
+    }
+    if parts.is_empty() {
+        "尚未接入".into()
+    } else {
+        parts.join(" + ")
     }
 }
 

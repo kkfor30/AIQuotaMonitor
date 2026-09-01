@@ -8,7 +8,7 @@
 //! 验证成功后写入 Windows Credential Manager。
 
 use crate::domain::refresh::SourceRefreshOutput;
-use crate::providers::{deepseek, glm, mimo};
+use crate::providers::{deepseek, glm, kimi_console, mimo};
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use crate::storage::vault;
@@ -290,6 +290,34 @@ const MIMO_CAPTURE_SCRIPT: &str = r#"
 })();
 "#;
 
+/// Kimi 控制台：登录后 localStorage 写入 rtoken（刷新 token），标题侧信道交给原生 watcher。
+const KIMI_CAPTURE_SCRIPT: &str = r#"
+(function() {
+  function deliver(token) {
+    if (!token || typeof token !== 'string') return;
+    token = String(token).trim().replace(/^Bearer\s+/i, '');
+    if (token.length < 20 || token.length > 4096 || /\s/.test(token)) return;
+    if (/^(null|undefined)$/i.test(token)) return;
+    if (window.__aiqm_kimi_token__ === token) return;
+    window.__aiqm_kimi_token__ = token;
+    try {
+      if (!document.title.startsWith('AIQM_KIMI_TOKEN:')) {
+        document.title = 'AIQM_KIMI_TOKEN:' + token;
+      }
+    } catch (_) {}
+  }
+  function scanStores() {
+    try { deliver(localStorage.getItem('rtoken')); } catch (_) {}
+    try { deliver(sessionStorage.getItem('rtoken')); } catch (_) {}
+  }
+  if (!window.__aiqm_kimi_hook__) {
+    window.__aiqm_kimi_hook__ = true;
+    setInterval(scanStores, 800);
+  }
+  scanStores();
+})();
+"#;
+
 const TEMPLATES: &[LoginTemplate] = &[
     LoginTemplate {
         source_id: deepseek::WEB_SOURCE_ID,
@@ -335,6 +363,21 @@ const TEMPLATES: &[LoginTemplate] = &[
         isolated_profile: true,
         status_open: "请在登录窗口完成 MiMo 登录。同步成功后会自动验证并保存网页余额会话。",
         timeout_message: "MiMo 网页登录等待超时，请关闭后重试。",
+    },
+    LoginTemplate {
+        source_id: kimi_console::CONSOLE_SOURCE_ID,
+        window_label: "kimi-console-login",
+        window_title: "Kimi 控制台登录",
+        login_url: "https://platform.kimi.com/console/account",
+        allowed_host_suffixes: &["kimi.com", "moonshot.cn", "moonshot.ai"],
+        init_script: KIMI_CAPTURE_SCRIPT,
+        title_prefix: "AIQM_KIMI_TOKEN:",
+        cookie_host_suffix: None,
+        cookie_required: None,
+        cookie_min_len: 0,
+        isolated_profile: true,
+        status_open: "请在登录窗口完成 Kimi 控制台登录。捕获到网页会话后会自动验证并保存今日/本月消费来源。",
+        timeout_message: "Kimi 控制台登录等待超时，请关闭后重试或手动粘贴 rtoken。",
     },
 ];
 
@@ -1534,10 +1577,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registers_deepseek_glm_and_mimo_login() {
+    fn registers_deepseek_glm_mimo_and_kimi_login() {
         assert!(is_web_login_source(deepseek::WEB_SOURCE_ID));
         assert!(is_web_login_source(glm::WEB_BALANCE_SOURCE_ID));
         assert!(is_web_login_source(mimo::SOURCE_ID));
+        assert!(is_web_login_source(kimi_console::CONSOLE_SOURCE_ID));
         assert!(!is_web_login_source("kimi-balance-api"));
     }
 
