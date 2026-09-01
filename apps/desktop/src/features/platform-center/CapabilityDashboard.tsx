@@ -5,7 +5,7 @@
  * - WindowQuotaSection 窗口额度（quota_window_*）：额度卡 auto-fit，剩余/已使用/重置/采集 + 进度条；
  * - FinanceSection 资金账户（balance / today_spend / month_spend / total_spend）：连续资金面板，
  *   余额主值 + 消费次级行，金额右对齐 tabular（money / money-secondary，不套额度三段色）；
- * - SubscriptionSection 订阅信息（credits）：与余额分开，仅展示接口实际返回值；
+ * - CreditBalanceSection 额外额度（credits）：与订阅计划、资金余额分开，展示套餐外可用额度；
  * - ModelUsageSection 模型用量（model_usage_*）：紧凑模型行列表，V4 系列模型使用独立身份图标与语义副标题；
  * - EfficiencySection 调用与缓存效率（cache_hit_rate / *_cache_hit_rate / request_count / prompt_tokens /
  *   response_tokens / cache_hit_tokens / cache_miss_tokens）：仪表标题 + 命中率主值固定主蓝进度条（非额度语义），
@@ -18,7 +18,6 @@
 import type { ReactNode } from "react";
 import {
   Activity,
-  BadgeDollarSign,
   Boxes,
   CalendarClock,
   CalendarDays,
@@ -328,17 +327,17 @@ function FinanceSection({ capabilities }: { capabilities: CapabilitySnapshotView
   );
 }
 
-/* ————————————————— 订阅信息模块（Credits） ————————————————— */
+/* ————————————————— 额外额度模块（Credits） ————————————————— */
 
-function SubscriptionSection({ capability }: { capability: CapabilitySnapshotViewModel }) {
+function CreditBalanceSection({ capability }: { capability: CapabilitySnapshotViewModel }) {
   const missing = isMissing(capability);
   const line = freshnessLine(capability);
   return (
-    <ModulePanel icon={BadgeDollarSign} title="订阅信息">
+    <ModulePanel icon={Coins} title="额外额度">
       <div className="flex min-w-0 flex-col gap-1 border-t border-q-border pt-3">
         <div className="flex min-w-0 items-baseline justify-between gap-3">
           <span className="flex min-w-0 items-center gap-2">
-            <Coins size={14} aria-hidden className="shrink-0 text-q-text-muted" />
+            <CircleDollarSign size={14} aria-hidden className="shrink-0 text-q-text-muted" />
             <span className="truncate text-xs text-q-text-muted">{capability.displayName}</span>
             {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
           </span>
@@ -351,8 +350,8 @@ function SubscriptionSection({ capability }: { capability: CapabilitySnapshotVie
             {missing ? "未获取" : primaryText(capability)}
           </span>
         </div>
-        <p className="truncate text-[11px] text-q-text-muted" title={capability.value.secondary ?? undefined}>
-          {capability.value.secondary ?? "仅展示接口实际返回值"}
+        <p className="truncate text-[11px] text-q-text-muted" title="套餐内额度用尽后用于继续使用 Codex">
+          套餐内额度用尽后用于继续使用 Codex
         </p>
         {line && (
           <p className="text-[11px]" style={{ color: line.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}>
@@ -592,7 +591,7 @@ function OtherCapabilitySection({ capabilities }: { capabilities: CapabilitySnap
 /* ————————————————— 组合入口 ————————————————— */
 
 /**
- * 账号能力组合渲染：窗口额度 → 资金账户 → 订阅信息 → 模型用量 → 调用效率 → 趋势 → 其他。
+ * 账号能力组合渲染：窗口额度 → 资金账户 → 额外额度 → 模型用量 → 调用效率 → 趋势 → 其他。
  * 只渲染账号真实拥有的模块；没有的能力不渲染、不补空卡。
  * 布局与容器宽度联动（wide 由 UsageView 的 useContainerWidth 驱动）：
  * - wide：资金全宽一行 → 模型用量 | 调用与缓存效率 双列等高互撑（行均分高度，不留面板外空白）；
@@ -635,7 +634,7 @@ export function CapabilityDashboard({
         </div>
       )}
 
-      {credits && <SubscriptionSection capability={credits} />}
+      {credits && <CreditBalanceSection capability={credits} />}
       {trend && <UsageTrend capability={trend} />}
       {groups.other.length > 0 && <OtherCapabilitySection capabilities={groups.other} />}
     </div>

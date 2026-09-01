@@ -732,7 +732,7 @@ fn append_plan_and_credits(
             display_name: "Credits 余额".into(),
             value_kind: "credits".into(),
             primary_value: Some(credits),
-            secondary_value: Some("仅展示额度接口实际返回值".into()),
+            secondary_value: Some("套餐内额度用尽后用于继续使用 Codex".into()),
             progress: None,
             trend: vec![],
             window_seconds: None,
