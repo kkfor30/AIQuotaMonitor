@@ -369,7 +369,8 @@ function SubscriptionSection({ capability }: { capability: CapabilitySnapshotVie
 function ModelUsageSection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
   return (
     <ModulePanel icon={Cpu} title="模型用量">
-      <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
+      {/* flex-1：双列等高时行均分剩余高度（单列时行高由 min-h 决定），面板外不留空白 */}
+      <div className="flex min-w-0 flex-1 flex-col gap-2 border-t border-q-border pt-3">
         {capabilities.map((capability) => {
           const missing = isMissing(capability);
           const line = freshnessLine(capability);
@@ -379,7 +380,7 @@ function ModelUsageSection({ capabilities }: { capabilities: CapabilitySnapshotV
             return (
               <div
                 key={`${capability.sourceId}-${capability.capabilityId}`}
-                className="flex min-h-[64px] min-w-0 flex-col justify-center gap-0.5 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
+                className="flex min-h-[64px] min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
               >
                 <div className="flex min-w-0 items-baseline justify-between gap-3">
                   <span className="flex min-w-0 items-center gap-2">
@@ -412,7 +413,7 @@ function ModelUsageSection({ capabilities }: { capabilities: CapabilitySnapshotV
           return (
             <div
               key={`${capability.sourceId}-${capability.capabilityId}`}
-              className="flex min-h-[64px] min-w-0 flex-col justify-center gap-1 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
+              className="flex min-h-[64px] min-w-0 flex-1 flex-col justify-center gap-1 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
             >
               <div className="flex min-w-0 items-center gap-3">
                 <span
@@ -516,7 +517,7 @@ function EfficiencySection({ capabilities }: { capabilities: CapabilitySnapshotV
 
       {/* 分模型命中率行：图标统一小靶心，模型名靠文字区分；未调用不画空条 */}
       {modelRates.length > 0 && (
-        <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-2 border-t border-q-border pt-3">
           {modelRates.map((capability) => {
             const missing = capability.freshness === "missing";
             const primary = capability.value.primary;
@@ -526,7 +527,7 @@ function EfficiencySection({ capabilities }: { capabilities: CapabilitySnapshotV
             return (
               <div
                 key={`${capability.sourceId}-${capability.capabilityId}`}
-                className="flex min-h-[64px] min-w-0 flex-col justify-center gap-1 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
+                className="flex min-h-[64px] min-w-0 flex-1 flex-col justify-center gap-1 rounded-[12px] bg-q-surface-muted px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--q-border)]"
               >
                 <div className="flex min-w-0 items-center gap-2.5">
                   <TargetRingIcon size={15} className="shrink-0" />
@@ -593,23 +594,44 @@ function OtherCapabilitySection({ capabilities }: { capabilities: CapabilitySnap
 /**
  * 账号能力组合渲染：窗口额度 → 资金账户 → 订阅信息 → 模型用量 → 调用效率 → 趋势 → 其他。
  * 只渲染账号真实拥有的模块；没有的能力不渲染、不补空卡。
+ * 布局与容器宽度联动（wide 由 UsageView 的 useContainerWidth 驱动）：
+ * - wide：资金全宽一行 → 模型用量 | 调用与缓存效率 双列等高互撑（行均分高度，不留面板外空白）；
+ * - 非 wide：全部单列，行高由内容决定。
  */
-export function CapabilityDashboard({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+export function CapabilityDashboard({
+  capabilities,
+  wide = false,
+}: {
+  capabilities: CapabilitySnapshotViewModel[];
+  wide?: boolean;
+}) {
   const groups = groupCapabilities(capabilities);
   const credits = groups.credits[0] ?? null;
   const trend = groups.trend[0] ?? null;
   if (capabilities.length === 0) {
     return <p className="px-1 text-xs text-q-text-muted">该账号暂无额度数据。</p>;
   }
+  const hasUsagePanels = groups.model_usage.length > 0 || groups.efficiency.length > 0;
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {groups.window.length > 0 && <WindowQuotaSection capabilities={groups.window} />}
 
-      {(groups.finance.length > 0 || groups.model_usage.length > 0 || groups.efficiency.length > 0) && (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] items-start gap-4">
+      {(groups.finance.length > 0 || hasUsagePanels) && (
+        <div className="flex min-w-0 flex-col gap-4">
           {groups.finance.length > 0 && <FinanceSection capabilities={groups.finance} />}
-          {groups.model_usage.length > 0 && <ModelUsageSection capabilities={groups.model_usage} />}
-          {groups.efficiency.length > 0 && <EfficiencySection capabilities={groups.efficiency} />}
+          {hasUsagePanels && (
+            wide ? (
+              <div className="grid grid-cols-2 items-stretch gap-4">
+                {groups.model_usage.length > 0 && <ModelUsageSection capabilities={groups.model_usage} />}
+                {groups.efficiency.length > 0 && <EfficiencySection capabilities={groups.efficiency} />}
+              </div>
+            ) : (
+              <div className="flex min-w-0 flex-col gap-4">
+                {groups.model_usage.length > 0 && <ModelUsageSection capabilities={groups.model_usage} />}
+                {groups.efficiency.length > 0 && <EfficiencySection capabilities={groups.efficiency} />}
+              </div>
+            )
+          )}
         </div>
       )}
 

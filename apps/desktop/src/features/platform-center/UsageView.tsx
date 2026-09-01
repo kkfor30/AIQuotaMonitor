@@ -81,7 +81,7 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
           {accountSections.map(({ account, plan, capabilities }) => (
             <section key={account.accountId} className="flex min-w-0 flex-col gap-3">
               <AccountHeader account={account} plan={plan} />
-              <CapabilityDashboard capabilities={capabilities} />
+              <CapabilityDashboard capabilities={capabilities} wide={wide} />
             </section>
           ))}
         </div>
@@ -89,7 +89,7 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
         // 单账号平台同样展示账户头（套餐徽章挂在账户名旁，订阅计划不单独成卡）
         <div className="flex min-w-0 flex-col gap-3">
           <AccountHeader account={platform.accounts[0]} plan={accountSections[0]?.plan} />
-          <CapabilityDashboard capabilities={accountSections[0]?.capabilities ?? []} />
+          <CapabilityDashboard capabilities={accountSections[0]?.capabilities ?? []} wide={wide} />
         </div>
       )}
     </div>
