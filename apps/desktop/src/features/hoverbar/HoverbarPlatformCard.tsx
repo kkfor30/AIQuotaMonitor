@@ -4,7 +4,8 @@
  * 各账户分区的分组头行（首分区同构、无分隔线），别名过长只在本行内截断；
  * 每个账号只聚合自己的 Source 与 Capability；
  * 窗口行统一为「窗口名称 → 细进度条 → 剩余百分比 → 重置时间」（数值型 remainingPercent）；
- * 资金组合组：宽停靠（顶部/底部 420px）合并为「个人余额 | 今日消费 | 本月消费」一块三列，
+ * 额外余额（credits）按账号独立展示；资金组合组在宽停靠（顶部/底部 420px）合并为
+ * 「个人余额 | 今日消费 | 本月消费」一块三列，
  * 左右侧 300px 拆回余额独占行 + 今日/本月双列（CSS 按 data-edge 切换）；
  * DeepSeek 模型行为 V4 Flash / V4 Flash Vision / V4 Pro 三条独立身份行
  * （晶体翼 / 光圈 / 神经旋涡图标方块 + 语义副标题，宽停靠「语义 · 本月 Token」、侧边只留语义）；
@@ -13,7 +14,7 @@
  * stale 保留真实值与进度色，仅以低饱和蓝灰缓存提示；
  * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
-import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Radar, RefreshCw, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Coins, Radar, RefreshCw, Wallet } from "lucide-react";
 import {
   FlashCrystalIcon,
   ProCoreIcon,
@@ -42,7 +43,7 @@ import { hoverbarProviderVisual } from "./provider-visuals";
 const DEEPSEEK_EXTRA_IDS = new Set<string>(["today_spend", "month_spend", "cache_hit_rate"]);
 const DEEPSEEK_MODEL_ORDER = ["model_usage_v4_flash", "model_usage_v4_flash_vision", "model_usage_v4_pro"] as const;
 const DEEPSEEK_MODEL_IDS = new Set<string>(DEEPSEEK_MODEL_ORDER);
-const ALLOWED_IDS = new Set<string>(["balance", "plan_level", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
+const ALLOWED_IDS = new Set<string>(["balance", "credits", "plan_level", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
 const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
 
 /**
@@ -90,6 +91,7 @@ type HoverbarSection = {
   plan: string | null;
   status: PlatformAggregateStatus;
   windows: HoverbarWindow[];
+  credits: HoverbarFinance | null;
   balance: HoverbarFinance | null;
   spend: { today: HoverbarFinance | null; month: HoverbarFinance | null };
   models: HoverbarModel[];
@@ -239,11 +241,12 @@ function GroupHead({
   );
 }
 
-/** 一个账户分区的数据体：窗口额度行 → 资金组合（余额+消费） → 模型行 → 总缓存块 → 缓存提示。 */
+/** 一个账户分区的数据体：窗口额度行 → 额外余额 → 资金组合 → 模型行 → 总缓存块 → 缓存提示。 */
 function SectionBody({ section }: { section: HoverbarSection }) {
   const hasSpend = section.spend.today !== null || section.spend.month !== null;
   if (
     section.windows.length === 0
+    && !section.credits
     && !section.balance
     && !hasSpend
     && section.models.length === 0
@@ -256,6 +259,7 @@ function SectionBody({ section }: { section: HoverbarSection }) {
       {section.windows.map((item) => (
         <QuotaLine key={item.id} item={item} />
       ))}
+      {section.credits ? <CreditsBar credits={section.credits} /> : null}
       {(section.balance || hasSpend) && (
         /* 资金组合组：宽停靠（顶部/底部 420px）合并为一块三列，侧边 300px 拆回独立卡片（CSS 切换） */
         <div className="hb-finance-group">
@@ -335,6 +339,25 @@ function BalanceBar({ balance }: { balance: HoverbarFinance }) {
         data-selectable="true"
       >
         {missing ? "暂不可用" : balance.value}
+      </span>
+    </div>
+  );
+}
+
+/** Codex 额外余额：沿用财务条结构，但按账号独立归属，不与个人余额或其他账号合并。 */
+function CreditsBar({ credits }: { credits: HoverbarFinance }) {
+  const missing = credits.freshness === "missing" || credits.value === null;
+  return (
+    <div className="hb-balance-bar hb-credits-bar">
+      <Coins size={14} aria-hidden />
+      <span className="hb-balance-label">额外余额</span>
+      <span
+        className="hb-balance-amount"
+        data-missing={missing || undefined}
+        data-freshness={credits.freshness}
+        data-selectable="true"
+      >
+        {missing ? "暂不可用" : credits.value}
       </span>
     </div>
   );
@@ -544,6 +567,7 @@ function buildSections(platform: PlatformSummaryViewModel): HoverbarSection[] {
 function isEmptySection(section: HoverbarSection): boolean {
   return (
     section.windows.length === 0
+    && section.credits === null
     && section.balance === null
     && section.spend.today === null
     && section.spend.month === null
@@ -601,6 +625,7 @@ function sectionFromAccount(
     plan: planOf(own),
     status: account.status,
     windows,
+    credits: financeOf(own, "credits"),
     balance: financeOf(own, "balance"),
     spend: hasDeepseekExtras
       ? { today: financeOf(own, "today_spend"), month: financeOf(own, "month_spend") }

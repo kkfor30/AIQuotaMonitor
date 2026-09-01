@@ -289,7 +289,7 @@ fn openai_templates(
                 "percent",
             ));
         }
-        templates.push(template("credits", &source.id, "Credits", "credits"));
+        templates.push(template("credits", &source.id, "额外余额", "credits"));
         templates.push(template("plan_level", &source.id, "订阅计划", "text"));
     }
     Ok(templates)

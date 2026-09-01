@@ -4,13 +4,12 @@
 //! 回退到 ChatGPT WHAM。认证只读本机 Codex OAuth，不复制到本项目数据库或 Vault。
 
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
-use crate::providers::money::format_percent;
+use crate::providers::money::{decimal_from_json, format_percent};
 use reqwest::{Client, StatusCode};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, ChildStdout, Command};
@@ -725,11 +724,13 @@ fn append_plan_and_credits(
     let credits = body
         .get("credits")
         .and_then(|value| value.get("balance"))
-        .and_then(decimal_text);
+        .and_then(decimal_from_json)
+        // app-server / WHAM 返回内部 Credits 数量；官方计费页按 25 Credits = US$1 展示余额。
+        .map(|value| format!("US${:.2}", value / Decimal::from(25)));
     if let Some(credits) = credits {
         capabilities.push(CapabilityData {
             capability_id: "credits".into(),
-            display_name: "Credits 余额".into(),
+            display_name: "额外余额".into(),
             value_kind: "credits".into(),
             primary_value: Some(credits),
             secondary_value: Some("套餐内额度用尽后用于继续使用 Codex".into()),
@@ -764,17 +765,6 @@ fn number(value: Option<&Value>) -> Option<f64> {
         Value::String(text) => text.trim().parse().ok(),
         _ => None,
     }
-}
-
-fn decimal_text(value: &Value) -> Option<String> {
-    let text = match value {
-        Value::String(text) => text.clone(),
-        Value::Number(number) => number.to_string(),
-        _ => return None,
-    };
-    Decimal::from_str(&text)
-        .ok()
-        .map(|value| value.normalize().to_string())
 }
 
 /// 结构化重置时间：ISO 字符串或秒/毫秒时间戳统一为 epoch 毫秒。
