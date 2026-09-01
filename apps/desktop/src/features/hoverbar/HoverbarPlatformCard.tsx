@@ -14,7 +14,7 @@
  * stale 保留真实值与进度色，仅以低饱和蓝灰缓存提示；
  * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
-import { AlertTriangle, CheckCircle2, ChevronRight, CircleX, Coins, Radar, RefreshCw, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, CircleX, Radar, RefreshCw, Wallet } from "lucide-react";
 import {
   FlashCrystalIcon,
   ProCoreIcon,
@@ -349,10 +349,10 @@ function CreditsBar({ credits }: { credits: HoverbarFinance }) {
   const missing = credits.freshness === "missing" || credits.value === null;
   return (
     <div className="hb-balance-bar hb-credits-bar">
-      <Coins size={14} aria-hidden />
-      <span className="hb-balance-label">额外余额</span>
+      <CircleDollarSign size={15} aria-hidden />
+      <span className="hb-credits-label">额外余额</span>
       <span
-        className="hb-balance-amount"
+        className="hb-credits-amount"
         data-missing={missing || undefined}
         data-freshness={credits.freshness}
         data-selectable="true"

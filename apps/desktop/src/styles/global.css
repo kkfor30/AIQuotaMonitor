@@ -850,6 +850,41 @@ html.hoverbar-window #root {
   font-weight: 650;
 }
 
+/* Codex 额外余额：与个人余额区分，使用中性正文色，避免主蓝金额抢占窗口额度层级。 */
+.hb-credits-bar > svg {
+  color: var(--q-hoverbar-muted-strong);
+  opacity: 0.8;
+}
+
+.hb-credits-label {
+  flex: none;
+  color: var(--q-hoverbar-muted-strong);
+  font-size: 12px;
+  font-weight: 640;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.hb-credits-amount {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  color: var(--q-hoverbar-ink);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-credits-amount[data-missing] {
+  color: var(--q-hoverbar-muted);
+  font-size: 12px;
+  font-weight: 620;
+}
+
 /* DeepSeek 次级消费双列：等宽单元，层级低于余额主值 */
 .hb-spend-grid {
   display: grid;
