@@ -31,10 +31,10 @@ import { compactPercentText } from "@/lib/format";
 import { capabilityRemainingPercent, quotaTone, quotaToneColor } from "@/components/ui/QuotaProgress";
 import {
   formatHoverbarClock,
+  radarAiStripLine,
   radarDecisionBadge,
   radarDecisionStripLine,
   radarDecisionStripLineCompact,
-  radarDecisionSynthesis,
   radarSourceLine,
 } from "./hoverbar-state";
 import { hoverbarProviderVisual } from "./provider-visuals";
@@ -468,10 +468,15 @@ function RadarStrip({
   radarRefreshing: boolean;
   radarRefreshError: string | null;
 }) {
-  // 判断先行：不再平铺 CodexRadar/AI/本机三行同级判断，收敛为“结论 + 综合”两行；
-  // 三路证据的完整分层展示在悬浮雷达详情页。
+  // 判断先行：摘要页收敛为 当前判断 → 最近一次真实重置 → AI 状态；
+  // landed_observed/user_confirmed 时主行已表达本机观察/确认，不重复显示同义的重置行。
   const decision = radar.decision;
   const badge = radarDecisionBadge(decision);
+  const recentResetLine =
+    decision.status === "landed_observed" || decision.status === "user_confirmed"
+      ? null
+      : decision.recentSummaryText;
+  const staleLine = radar.sourceStatus === "stale" ? radarSourceLine(radar) : null;
   return (
     <footer className="hb-radar-strip">
       <div className="hb-radar-strip-head">
@@ -509,11 +514,18 @@ function RadarStrip({
       {radarRefreshError ? (
         <p className="hb-radar-strip-error">{radarRefreshError}</p>
       ) : (
-        <p className="hb-radar-strip-row-text" data-selectable="true">
-          {radarDecisionSynthesis(decision, radar)}
-        </p>
+        <>
+          {recentResetLine ? (
+            <p className="hb-radar-strip-row-text" data-selectable="true">
+              {recentResetLine}
+            </p>
+          ) : null}
+          <p className="hb-radar-strip-row-text" data-selectable="true">
+            {radarAiStripLine(radar.aiAssessment)}
+          </p>
+        </>
       )}
-      <p className="hb-radar-strip-note">{radarSourceLine(radar)}</p>
+      {staleLine ? <p className="hb-radar-strip-note">{staleLine}</p> : null}
     </footer>
   );
 }

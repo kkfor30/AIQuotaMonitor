@@ -80,7 +80,10 @@ Codex Radar 来源失败时保留最后成功的 Tibo 快照并标记 stale；�
 - 额度状态统一文案：unscheduled_reset=观察到额度重置、possible_reset=疑似额度刷新、scheduled=计划内窗口刷新、no_change=未见变化、unavailable=暂无法验证；possible_reset 不得显示为“已重置”，也不得更新“最近一次重置”。
 - 当前判断依据引用只能是当前分析 citations ∩ newPostIds（radar_analyses 持久化 new/event_context/historical 三组 post id，SQLite v11）；历史上下文引用只允许出现在“最近一次重置”历史区。
 - CodexRadar 公告持久化：本次未解析到公告时不清空最后一次公告，仅标记非当前；isCurrent=true 显示“CodexRadar 公告/更新 …”，否则“CodexRadar 最近公告/上次出现于 …”，从未有过显示“当前无公告”。帖子同步正常时禁止显示“暂未同步来源内容”。
-- 主窗口信号摘要层级固定：重置判断+本机额度验证双卡 → CodexRadar 公告卡 → AI 分析大卡（结论/分析/判断依据/查看分析细节，删除静态图例）→ 最近一次重置（默认折叠）→ 检查历史（默认折叠）。
+- 主窗口信号摘要层级固定（UI V3）：动态范围公开显示在三个雷达 Tab 同一行（复用 analysisPrefs.rangeKey，同时控制 Tibo 列表与 AI 上下文，AI 关闭时仍可设置，AI 配置区不再重复提供范围入口）→ 重置判断+本机额度验证等宽双卡 → CodexRadar 公告全宽细条 → AI 分析全宽卡（结论/分析/正向依据同级排版，无装饰方块与左侧色条）→ 最近一次重置（默认折叠，展开只保留真实时间/确认方式/最终状态/当时结论/当时分析）→ 检查历史（默认折叠，紧凑列表）。
+- AI 状态文案统一：covered=已分析（仅表示当前输入边界已有成功分析）、pending=待分析、failed=分析失败、disabled=AI 未启用、historical=历史分析、无成功结果=未分析。AI 关闭或历史态时，确定性判断与 Tibo 数据继续展示，旧结果只能作为历史结果折叠查看；切换动态范围后，旧范围分析不得继续标成当前“已分析”。
+- AI 正向依据只展示当前分析 citations ∩ newPostIds 的帖子（信号类型、发布时间、可读摘要、代码解析出的北京时间、原帖链接），不显示裸帖子 ID；没有当前引用时显示“本轮没有引用重置相关帖子。”
+- 悬浮摘要条收敛为：当前判断 → 最近一次真实重置 → AI 状态 → 查看详情入口；本机观察/用户确认已由判断行表达时不再重复同义状态行。悬浮详情页顺序固定：重置判断 → 公告 → AI 分析 → 本机验证 → Tibo 动态 → 最近一次重置，顶部工具栏 sticky 且 420/300px 停靠无横向溢出。
 
 ### 设置
 
@@ -146,6 +149,6 @@ MVP 不做：
 
 - `docs/ui-design/platform-center-v4/`
 - `docs/ui-design/2026-08-27-product-shell-v5/`
-- `docs/ui-design/2026-09-02-gpt-radar-ui-v3/`：GPT 重置雷达 UI V3 最终参考稿、状态规范、实施方案与执行 Prompt；当前仅归档设计，代码实现状态以路线图为准。
+- `docs/ui-design/2026-09-02-gpt-radar-ui-v3/`：GPT 重置雷达 UI V3 最终参考稿、状态规范、实施方案与执行 Prompt；React/CSS 已按该规范实施，细节以路线图为准。
 
 每个目录的 `README.md` 包含页面职责、交互和数据边界。

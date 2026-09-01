@@ -202,6 +202,51 @@ export function radarDecisionBadge(decision: RadarDecision): string {
   return decision.stripBadge;
 }
 
+/**
+ * AI 状态统一文案（主窗口与悬浮页共用）：
+ * covered→已分析（仅表示当前输入边界已有成功分析）、pending→待分析、
+ * failed→分析失败、disabled→AI 未启用、historical→历史分析、无成功结果→未分析。
+ */
+export function radarAiStatusLabel(ai: { enabled: boolean; state: string } | null | undefined): string {
+  if (!ai || !ai.enabled || ai.state === "disabled") return "AI 未启用";
+  switch (ai.state) {
+    case "covered":
+      return "已分析";
+    case "pending":
+      return "待分析";
+    case "failed":
+      return "分析失败";
+    case "historical":
+      return "历史分析";
+    default:
+      return "未分析";
+  }
+}
+
+/** 悬浮摘要条的 AI 行：与状态标签同语义，但带 AI 前缀（历史分析除外）。 */
+export function radarAiStripLine(ai: { enabled: boolean; state: string } | null | undefined): string {
+  if (!ai || !ai.enabled || ai.state === "disabled") return "AI 未启用";
+  switch (ai.state) {
+    case "covered":
+      return "AI 已分析";
+    case "pending":
+      return "AI 待分析";
+    case "failed":
+      return "AI 分析失败";
+    case "historical":
+      return "历史分析";
+    default:
+      return "AI 尚未分析";
+  }
+}
+
+/** 帖子发布时间对应的北京时间（epoch 确定性换算，UTC+8）：`MM-DD HH:mm`。 */
+export function radarBeijingTimeLabel(postedAt: number): string {
+  const beijing = new Date(postedAt + 8 * 60 * 60 * 1000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(beijing.getUTCMonth() + 1)}-${pad(beijing.getUTCDate())} ${pad(beijing.getUTCHours())}:${pad(beijing.getUTCMinutes())}`;
+}
+
 /** 决策时间文案：精确时间只来自 Rust 结构化字段，不由前端或 AI 推算。 */
 export function radarDecisionTimeText(decision: RadarDecision): string {
   return decision.timeText;
@@ -214,11 +259,6 @@ export function radarDecisionStripLine(decision: RadarDecision): string {
 
 export function radarDecisionStripLineCompact(decision: RadarDecision): string {
   return decision.stripPrimaryCompact;
-}
-
-/** 摘要条综合行：来源/AI/本机三路收敛为一行，不再平铺三条同级判断。 */
-export function radarDecisionSynthesis(decision: RadarDecision, _radar?: RadarSnapshot): string {
-  return decision.stripSecondary;
 }
 
 /** 详情页「最新动态是否影响判断」行：无关新帖不覆盖事件分析。 */
@@ -402,7 +442,7 @@ export function quotaBadgeLabel(status: string, attribution: string, lastResetOb
       : "疑似额度刷新";
   }
   if (lastResetObservedAt != null && (status === "unscheduled_reset" || status === "no_change")) {
-    return `已重置 · ${formatHoverbarClock(lastResetObservedAt)} 观察`;
+    return `观察到额度重置于 ${formatHoverbarClock(lastResetObservedAt)}`;
   }
   return quotaStatusLabel(status, attribution);
 }

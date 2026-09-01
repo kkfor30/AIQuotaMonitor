@@ -407,6 +407,7 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         &groups,
         &checks,
         prefs.analyze,
+        &prefs.range_key,
     )?;
     let decision = build_decision(
         database,
@@ -638,6 +639,7 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
 }
 
 /// AI 评估：拆分“事件为什么成立”（eventAnalysis）与“最新帖子是否改变判断”（latestDeltaAnalysis）。
+/// `range_key` 为当前所选动态范围：旧范围的成功分析只能标 historical，不得标成当前 covered。
 fn build_ai_assessment(
     database: &Database,
     latest_success: Option<&RadarAnalysisView>,
@@ -645,6 +647,7 @@ fn build_ai_assessment(
     groups: &ClassifiedPosts,
     checks: &[RadarCheckView],
     enabled: bool,
+    range_key: &str,
 ) -> Result<RadarAiAssessmentView, String> {
     let covers_latest = groups.new_posts.is_empty();
     let latest_delta = latest_success.cloned().map(|mut analysis| {
@@ -670,10 +673,10 @@ fn build_ai_assessment(
         "failed"
     } else if !groups.new_posts.is_empty() {
         "pending"
-    } else if latest_delta
-        .as_ref()
-        .is_some_and(|analysis| analysis.analysis_mode.as_deref() == Some("historical_replay"))
-    {
+    } else if latest_delta.as_ref().is_some_and(|analysis| {
+        analysis.analysis_mode.as_deref() == Some("historical_replay")
+            || analysis.range_key != range_key
+    }) {
         "historical"
     } else if latest_delta.is_some() {
         "covered"
@@ -950,7 +953,7 @@ fn decision_time_text(
         ),
         "landed_observed" => observed_at.map_or_else(
             || "本机已观察到额度重置".into(),
-            |at| format!("本机于 {} 观察到额度重置", format_clock(at)),
+            |at| format!("观察到额度重置于 {}", format_clock(at)),
         ),
         "user_confirmed" => user_confirmed_at.map_or_else(
             || "用户已确认额度重置".into(),
@@ -963,7 +966,7 @@ fn decision_time_text(
 fn delta_impact_line(ai: &RadarAiAssessmentView, enabled: bool, pending: i64) -> String {
     if !enabled {
         if pending > 0 {
-            return format!("AI 已关闭 · 此后新增 {pending} 条待分析");
+            return format!("AI 未启用 · 此后新增 {pending} 条待分析");
         }
         return "AI 未启用".into();
     }
@@ -1012,7 +1015,7 @@ fn strip_copy(
     let analyzed = latest_delta.is_some();
     let ai_token = if !ai_enabled {
         if pending > 0 {
-            format!("AI 已关闭 · 此后新增 {pending} 条待分析")
+            format!("AI 未启用 · 此后新增 {pending} 条待分析")
         } else {
             "AI 未启用".into()
         }

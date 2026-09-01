@@ -1928,19 +1928,9 @@ html.hoverbar-window #root {
   font-size: 13px;
 }
 
-/* AI 分析卡：左侧主蓝强调线 + 轻微冰蓝底。 */
+/* AI 分析卡：轻微主蓝底提示层次（UI V3：无左侧色条、无装饰方块）。 */
 .radar-ai-card {
   background: color-mix(in srgb, var(--q-primary) 2.5%, transparent);
-}
-
-.radar-ai-card::before {
-  content: "";
-  position: absolute;
-  inset-block: 14px;
-  left: 0;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: color-mix(in srgb, var(--q-primary) 58%, transparent);
 }
 
 .hb-ai-card {
@@ -1971,11 +1961,13 @@ html.hoverbar-window #root {
 .radar-collapse-scroll {
   max-height: 320px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 
 .radar-history-scroll {
   max-height: 360px;
+  overscroll-behavior: contain;
 }
 
 .radar-collapse-trigger {
