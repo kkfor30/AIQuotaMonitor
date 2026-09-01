@@ -163,7 +163,8 @@ impl RefreshCoordinator {
             return codex::local_auth_available().then_some(None);
         }
         if source.adapter_id == grok::SOURCE_ID {
-            return grok::local_auth_available().then_some(None);
+            // Grok 即使未登录也参与检测，才能区分「未安装 CLI」和「已安装但未登录」。
+            return Some(None);
         }
         if source.adapter_id == claude::SOURCE_ID {
             // Claude 始终参与刷新：未登录时由 adapter 返回真实 auth_required 错误，

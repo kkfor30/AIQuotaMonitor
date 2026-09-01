@@ -50,6 +50,10 @@ pub fn local_auth_available() -> bool {
     read_access_token().is_some()
 }
 
+pub fn cli_available() -> bool {
+    resolve_grok_program().is_ok()
+}
+
 fn grok_home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join(".grok"))
 }
@@ -181,6 +185,14 @@ fn resolve_grok_program() -> Result<std::path::PathBuf, String> {
     } else {
         &["grok"]
     };
+    if let Some(home) = grok_home() {
+        for name in names {
+            let candidate = home.join("bin").join(name);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
     if let Some(path_var) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path_var) {
             for name in names {
@@ -530,6 +542,14 @@ pub(crate) fn extract_http_url(line: &str) -> Option<&str> {
 
 pub async fn fetch(client: &Client) -> SourceRefreshOutput {
     let Some(mut auth) = read_auth() else {
+        if !cli_available() {
+            return SourceRefreshOutput::failure(RefreshError::new(
+                "cli_not_installed",
+                "未检测到 Grok CLI。请前往官方安装页完成安装后，再点击「重新检测」",
+                true,
+                false,
+            ));
+        }
         return SourceRefreshOutput::failure(RefreshError::new(
             "auth_required",
             format!("未检测到本机 Grok CLI 登录。{RELOGIN_HINT}"),

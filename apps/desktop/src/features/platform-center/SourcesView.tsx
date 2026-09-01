@@ -50,6 +50,8 @@ const SOURCE_TYPE_ICON: Record<string, LucideIcon> = {
   oauth: ShieldCheck,
 };
 
+const GROK_INSTALL_URL = "https://docs.x.ai/build/overview";
+
 /** 来源行操作（V7 矩阵）：CLI 可检测刷新，Codex 额外账号另可重触发官方登录；API Key / Web 只编辑。 */
 function sourceAction(source: SourceSummaryViewModel): "edit" | "refresh" | null {
   if (source.supportsCliLogin || source.sourceType === "local_cli") return "refresh";
@@ -279,6 +281,7 @@ export function SourcesView({
                       onEdit={() => setEditingSourceId(source.sourceId)}
                       onRefresh={() => refreshMutation.mutate()}
                       onRelogin={() => reloginMutation.mutate(source.sourceId)}
+                      onOpenGrokInstall={() => void openExternalUrl(GROK_INSTALL_URL)}
                     />
                   ))}
                 </div>
@@ -536,6 +539,7 @@ function SourceRow({
   onEdit,
   onRefresh,
   onRelogin,
+  onOpenGrokInstall,
 }: {
   source: SourceSummaryViewModel;
   focused: boolean;
@@ -544,6 +548,7 @@ function SourceRow({
   onEdit: () => void;
   onRefresh: () => void;
   onRelogin: () => void;
+  onOpenGrokInstall: () => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -551,15 +556,23 @@ function SourceRow({
   }, [focused]);
   const Icon = SOURCE_TYPE_ICON[source.sourceType] ?? KeyRound;
   const action = sourceAction(source);
+  const grokCliMissing = source.adapterId === "grok-cli-local" && source.errorCode === "cli_not_installed";
   // 可重触发官方登录的范围：额外 Codex 账号、本机 Grok 与本机 Claude（token 失效后
   // 平台内重登 = 后台跑官方 CLI 登录，完成后自动校验并刷新）；本机 Codex 只检测，
   // 避免覆盖本机 CLI 登录。口径与来源行动作一致：CLI 检测看 supportsCliLogin 或
   // local_cli 类型（Grok 的 supportsCliLogin 为 false，只靠 local_cli 进入「检测并刷新」）。
   const canRelogin =
-    (source.supportsCliLogin || source.sourceType === "local_cli")
-    && (source.accountKind !== "local"
-        || source.adapterId === "grok-cli-local"
-        || source.adapterId === "claude-code-local");
+    source.adapterId === "grok-cli-local"
+      ? !grokCliMissing && (source.credentialConfigured || source.errorCode === "auth_required")
+      : (source.supportsCliLogin || source.sourceType === "local_cli")
+        && (source.accountKind !== "local" || source.adapterId === "claude-code-local");
+  const sourceHint = grokCliMissing
+    ? "未安装 Grok CLI · 请前往官方页面安装"
+    : source.credentialConfigured && source.errorMessage
+      ? source.errorMessage
+      : source.errorCode === "auth_required" && source.errorMessage
+        ? source.errorMessage
+        : "凭据待配置";
 
   return (
     <div
@@ -587,12 +600,11 @@ function SourceRow({
             <span
               className={cn(
                 "truncate text-[10px] leading-3.5",
-                source.credentialConfigured && source.errorMessage ? "text-q-warning" : "text-q-text-muted",
+                grokCliMissing ? "text-q-text-muted" : source.credentialConfigured && source.errorMessage ? "text-q-warning" : "text-q-text-muted",
               )}
-              title={source.credentialConfigured && source.errorMessage ? source.errorMessage : "凭据待配置"}
+              title={sourceHint}
             >
-              {/* 已配置但待配置态（如本机 CLI token 失效）：展示后端真实原因（引导 grok login 等），不再吞成笼统文案 */}
-              {source.credentialConfigured && source.errorMessage ? source.errorMessage : "凭据待配置"}
+              {sourceHint}
             </span>
           )}
         </span>
@@ -606,7 +618,25 @@ function SourceRow({
       </span>
       <span className="tabular-nums text-q-text-secondary">{formatDateTime(source.lastSuccessAt)}</span>
       <span className="justify-self-end text-nowrap">
-        {action === "refresh" && (
+        {grokCliMissing ? (
+          <>
+            <button
+              type="button"
+              onClick={onOpenGrokInstall}
+              className="cursor-pointer text-xs font-medium text-q-primary transition-colors hover:text-q-primary-hover"
+            >
+              官方安装
+            </button>
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="ml-2 cursor-pointer text-xs font-medium text-q-text-secondary transition-colors hover:text-q-primary disabled:opacity-60"
+            >
+              {refreshing ? "检测中…" : "重新检测"}
+            </button>
+          </>
+        ) : action === "refresh" && (
           <button
             type="button"
             onClick={onRefresh}
@@ -616,7 +646,7 @@ function SourceRow({
             {refreshing ? "检测中…" : "检测并刷新"}
           </button>
         )}
-        {action === "refresh" && canRelogin && (
+        {!grokCliMissing && action === "refresh" && canRelogin && (
           <button
             type="button"
             onClick={onRelogin}
