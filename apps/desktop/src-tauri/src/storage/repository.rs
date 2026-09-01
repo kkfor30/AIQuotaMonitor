@@ -86,6 +86,8 @@ pub struct TiboPostRecord {
     pub translated_text: Option<String>,
     pub translated_at: Option<i64>,
     pub translation_source: Option<String>,
+    /// NULL：从未成功参与生命周期实时分析；有值后只能作为上下文或历史。
+    pub lifecycle_consumed_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +161,8 @@ pub struct RadarEventRecord {
     pub expected_at: Option<i64>,
     pub expires_at: Option<i64>,
     pub state_revision: i64,
+    /// 用户确认额度已重置的时间；与 observation.user_confirmed_at（重置卡归因）不是同一字段。
+    pub user_confirmed_reset_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -987,8 +991,8 @@ impl Database {
         for post in posts {
             transaction
                 .execute(
-                    "INSERT INTO tibo_posts(id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                    "INSERT INTO tibo_posts(id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source, lifecycle_consumed_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
                      ON CONFLICT(id) DO UPDATE SET
                         url = excluded.url, text = excluded.text, posted_at = excluded.posted_at, kind = excluded.kind,
                         tibo_lane = excluded.tibo_lane, explicit_reset = excluded.explicit_reset,
@@ -1002,7 +1006,8 @@ impl Database {
                         post.id, post.url, post.text, post.posted_at, post.kind, post.tibo_lane,
                         i64::from(post.explicit_reset), post.verification_status, i64::from(post.is_reply),
                         post.replies, post.reposts, post.likes, post.extra_json, synced_at,
-                        post.translated_text, post.translated_at, post.translation_source
+                        post.translated_text, post.translated_at, post.translation_source,
+                        post.lifecycle_consumed_at
                     ],
                 )
                 .map_err(|err| format!("写入雷达动态失败: {err}"))?;
@@ -1016,7 +1021,7 @@ impl Database {
         let connection = self.connect()?;
         let mut statement = connection
             .prepare(
-                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source
+                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source, lifecycle_consumed_at
                  FROM tibo_posts ORDER BY posted_at DESC LIMIT ?1",
             )
             .map_err(|err| format!("准备雷达动态查询失败: {err}"))?;
@@ -1044,6 +1049,28 @@ impl Database {
             .map_err(|err| format!("保存雷达翻译失败: {err}"))?;
         if changed == 0 {
             return Err(format!("雷达动态 {post_id} 不存在"));
+        }
+        Ok(())
+    }
+
+    /// 成功完成实时分析后标记本批新增帖子；已消费的帖子保持原时间。
+    pub fn mark_tibo_posts_consumed(
+        &self,
+        post_ids: &[String],
+        consumed_at: i64,
+    ) -> Result<(), String> {
+        if post_ids.is_empty() {
+            return Ok(());
+        }
+        let connection = self.connect()?;
+        for post_id in post_ids {
+            connection
+                .execute(
+                    "UPDATE tibo_posts SET lifecycle_consumed_at = ?2
+                     WHERE id = ?1 AND lifecycle_consumed_at IS NULL",
+                    params![post_id, consumed_at],
+                )
+                .map_err(|err| format!("标记雷达帖子已消费失败: {err}"))?;
         }
         Ok(())
     }
@@ -1168,7 +1195,7 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision
+                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at
                  FROM radar_events WHERE closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 1",
                 [],
                 map_radar_event,
@@ -1238,7 +1265,7 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision
+                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at
                  FROM radar_events WHERE closed_at IS NULL ORDER BY updated_at DESC LIMIT 1",
                 [],
                 map_radar_event,
@@ -1251,7 +1278,7 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision
+                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at
                  FROM radar_events WHERE id = ?1",
                 params![event_id],
                 map_radar_event,
@@ -1264,13 +1291,13 @@ impl Database {
         let connection = self.connect()?;
         connection
             .execute(
-                "INSERT INTO radar_events(id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                "INSERT INTO radar_events(id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 params![
                     event.id, event.phase, event.title, event.summary, event.first_signal_at,
                     event.latest_evidence_at, event.claimed_landed_at, event.observed_reset_at,
                     event.closed_at, event.close_reason, event.expected_at, event.expires_at,
-                    event.state_revision, epoch_ms(), epoch_ms(),
+                    event.state_revision, event.user_confirmed_reset_at, epoch_ms(), epoch_ms(),
                 ],
             )
             .map(|_| ())
@@ -1283,12 +1310,14 @@ impl Database {
             .execute(
                 "UPDATE radar_events SET phase = ?2, title = ?3, summary = ?4, latest_evidence_at = ?5,
                  claimed_landed_at = ?6, observed_reset_at = ?7, closed_at = ?8, close_reason = ?9,
-                 expected_at = ?10, expires_at = ?11, state_revision = ?12, updated_at = ?13
+                 expected_at = ?10, expires_at = ?11, state_revision = ?12, user_confirmed_reset_at = ?13,
+                 updated_at = ?14
                  WHERE id = ?1",
                 params![
                     event.id, event.phase, event.title, event.summary, event.latest_evidence_at,
                     event.claimed_landed_at, event.observed_reset_at, event.closed_at, event.close_reason,
-                    event.expected_at, event.expires_at, event.state_revision, epoch_ms(),
+                    event.expected_at, event.expires_at, event.state_revision, event.user_confirmed_reset_at,
+                    epoch_ms(),
                 ],
             )
             .map(|_| ())
@@ -1599,6 +1628,7 @@ fn map_tibo_post(row: &rusqlite::Row<'_>) -> rusqlite::Result<TiboPostRecord> {
         translated_text: row.get(14)?,
         translated_at: row.get(15)?,
         translation_source: row.get(16)?,
+        lifecycle_consumed_at: row.get(17)?,
     })
 }
 
@@ -1653,6 +1683,7 @@ fn map_radar_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarEventRecord
         expected_at: row.get(10)?,
         expires_at: row.get(11)?,
         state_revision: row.get(12)?,
+        user_confirmed_reset_at: row.get(13)?,
     })
 }
 

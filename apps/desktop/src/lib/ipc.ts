@@ -173,6 +173,7 @@ export type RadarSnapshot = {
   aiAssessment: RadarAiAssessment;
   decision: RadarDecision;
   quotaVerifications: QuotaVerification[];
+  analysisGroups: RadarAnalysisGroups;
 };
 
 export type RadarAnalysisPrefs = {
@@ -209,6 +210,7 @@ export type RadarPost = {
   translationSource: string | null;
   summary: string | null;
   analysis: string | null;
+  lifecycleConsumedAt: number | null;
 };
 
 export type RadarCheck = {
@@ -295,11 +297,12 @@ export type RadarEvent = {
   temporalStatus: string;
   timeline: RadarEventNode[];
   postIds: string[];
+  userConfirmedResetAt: number | null;
 };
 
 export type RadarAiAssessment = {
   enabled: boolean;
-  /** covered：latestDeltaAnalysis 已覆盖所选范围内最新帖子；其余 disabled | pending | failed | not_analyzed */
+  /** disabled | pending | failed | covered | historical */
   state: string;
   /** 当前（或最近）事件的最新成功分析：本轮事件为什么成立。 */
   eventAnalysis: RadarAnalysis | null;
@@ -319,24 +322,51 @@ export type RadarRecentEvent = {
   closedAt: number | null;
   postIds: string[];
   analysis: RadarAnalysis | null;
+  claimedLandedAt: number | null;
+  userConfirmedResetAt: number | null;
+  /** observed | user_confirmed | claimed */
+  confirmationSource: string | null;
 };
 
 /** Rust 推导的综合判断；React 只消费不二次判断。 */
 export type RadarDecision = {
-  /** no_signal | watching | upcoming | expected_time_passed | landed_claimed | landed_observed */
+  /** no_signal | watching | upcoming | expected_time_passed | landed_claimed | landed_observed | user_confirmed */
   status: string;
   activeEventId: string | null;
   headline: string;
+  timeText: string;
+  verificationHint: string | null;
+  observationPeriodText: string | null;
   expectedAt: number | null;
   observedAt: number | null;
-  /** landed_observed 的 24 小时观察期截止时间。 */
+  claimedAt: number | null;
+  userConfirmedAt: number | null;
   observationExpiresAt: number | null;
-  /** unknown | expected | passed | claimed | observed */
+  /** unknown | expected | passed | claimed | observed | confirmed */
   timeKind: string;
   signalLevel: string | null;
   recentEvent: RadarRecentEvent | null;
   relevantPostIds: string[];
+  keyCitationIds: string[];
   latestIrrelevantUpdateAt: number | null;
+  canConfirmReset: boolean;
+  canUndoConfirm: boolean;
+  pendingUnconsumedCount: number;
+  sourceHasDirectSignal: boolean;
+  stripBadge: string;
+  stripPrimary: string;
+  stripPrimaryCompact: string;
+  stripSecondary: string;
+  recentSummaryText: string | null;
+  deltaImpactText: string;
+};
+
+export type RadarAnalysisGroups = {
+  mode: string;
+  newPostIds: string[];
+  eventContextIds: string[];
+  historicalContextIds: string[];
+  pendingUnconsumedCount: number;
 };
 
 export type QuotaWindowPoint = {
@@ -392,6 +422,14 @@ export async function confirmRadarQuotaChange(input: {
     observationId: input.observationId,
     confirmedAt: input.confirmedAt,
   });
+}
+
+export async function confirmRadarUserReset(): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("confirm_radar_user_reset");
+}
+
+export async function undoRadarUserReset(): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("undo_radar_user_reset");
 }
 
 export async function runRadarCheck(input: {

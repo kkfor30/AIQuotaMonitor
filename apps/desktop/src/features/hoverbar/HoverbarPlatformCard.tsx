@@ -34,6 +34,7 @@ import {
   formatHoverbarClock,
   radarDecisionBadge,
   radarDecisionStripLine,
+  radarDecisionStripLineCompact,
   radarDecisionSynthesis,
   radarSourceLine,
 } from "./hoverbar-state";
@@ -498,8 +499,13 @@ function RadarStrip({
           </button>
         </div>
       </div>
-      <p className="hb-radar-strip-row-text" data-selectable="true">
-        {radarRefreshing ? "正在同步 CodexRadar…" : radarDecisionStripLine(decision)}
+      <p className="hb-radar-strip-row-text hb-radar-strip-primary" data-selectable="true">
+        <span className="hb-radar-strip-full">
+          {radarRefreshing ? "正在同步 CodexRadar…" : radarDecisionStripLine(decision)}
+        </span>
+        <span className="hb-radar-strip-compact">
+          {radarRefreshing ? "正在同步…" : radarDecisionStripLineCompact(decision)}
+        </span>
       </p>
       {radarRefreshError ? (
         <p className="hb-radar-strip-error">{radarRefreshError}</p>
@@ -508,7 +514,7 @@ function RadarStrip({
           {radarDecisionSynthesis(decision, radar)}
         </p>
       )}
-      <p className="hb-radar-strip-note">{radarSourceLine(radar)} · 仅为推测，不代表官方结论</p>
+      <p className="hb-radar-strip-note">{radarSourceLine(radar)}</p>
     </footer>
   );
 }

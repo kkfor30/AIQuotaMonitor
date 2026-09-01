@@ -99,6 +99,7 @@ fn parse_one_post(chunk: &str, synced_at: i64) -> Option<TiboPostRecord> {
         translated_text: translation.clone(),
         translated_at: translation.as_ref().map(|_| synced_at),
         translation_source: translation.as_ref().map(|_| "codexradar".into()),
+        lifecycle_consumed_at: None,
     })
 }
 

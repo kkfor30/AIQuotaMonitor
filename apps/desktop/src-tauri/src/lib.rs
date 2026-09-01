@@ -144,6 +144,8 @@ pub fn run() {
             commands::radar_commands::add_radar_custom_model,
             commands::radar_commands::delete_radar_custom_model,
             commands::radar_commands::confirm_radar_quota_change,
+            commands::radar_commands::confirm_radar_user_reset,
+            commands::radar_commands::undo_radar_user_reset,
             commands::settings_commands::get_app_settings,
             commands::settings_commands::set_app_theme,
             commands::settings_commands::set_refresh_interval,

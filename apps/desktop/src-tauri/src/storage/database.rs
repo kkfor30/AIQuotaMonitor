@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 9;
+const CURRENT_SCHEMA_VERSION: i64 = 10;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -128,6 +128,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 9 {
         migrate_v9(&transaction)?;
+    }
+    if previous_version < 10 {
+        migrate_v10(&transaction)?;
     }
     transaction
         .commit()
@@ -523,6 +526,47 @@ fn migrate_v9(transaction: &Transaction<'_>) -> Result<(), String> {
         .map_err(|err| format!("执行 SQLite v9 迁移失败: {err}"))
 }
 
+fn migrate_v10(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            ALTER TABLE tibo_posts ADD COLUMN lifecycle_consumed_at INTEGER;
+            ALTER TABLE radar_events ADD COLUMN user_confirmed_reset_at INTEGER;
+
+            UPDATE tibo_posts
+            SET lifecycle_consumed_at = (
+                SELECT MIN(a.created_at)
+                FROM radar_analyses a
+                WHERE a.error_message IS NULL
+                  AND a.from_posted_at IS NOT NULL
+                  AND a.to_posted_at IS NOT NULL
+                  AND tibo_posts.posted_at >= a.from_posted_at
+                  AND tibo_posts.posted_at <= a.to_posted_at
+            )
+            WHERE lifecycle_consumed_at IS NULL
+              AND EXISTS (
+                SELECT 1 FROM radar_analyses a
+                WHERE a.error_message IS NULL
+                  AND a.from_posted_at IS NOT NULL
+                  AND a.to_posted_at IS NOT NULL
+                  AND tibo_posts.posted_at >= a.from_posted_at
+                  AND tibo_posts.posted_at <= a.to_posted_at
+              );
+
+            UPDATE tibo_posts
+            SET lifecycle_consumed_at = (
+                SELECT MIN(e.added_at) FROM radar_event_evidence e WHERE e.post_id = tibo_posts.id
+            )
+            WHERE lifecycle_consumed_at IS NULL
+              AND EXISTS (SELECT 1 FROM radar_event_evidence e WHERE e.post_id = tibo_posts.id);
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (10, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v10 迁移失败: {err}"))
+}
+
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {
     let now = epoch_ms();
     let transaction = connection
@@ -661,7 +705,7 @@ mod tests {
         let version: i64 = connection
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get(0))
             .expect("version");
-        assert_eq!(version, 9);
+        assert!(version >= 9);
         drop(connection);
         let _ = fs::remove_file(path);
     }

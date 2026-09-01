@@ -197,124 +197,52 @@ export function shouldShowRadarTemporalBadge(
   return !TEMPORAL_IMPLIED_BY_PHASE[phase ?? ""]?.has(temporalStatus);
 }
 
-function joinTokens(tokens: Array<string | null | undefined>): string {
-  return tokens.filter((token) => Boolean(token && token.trim())).join(" · ");
-}
-
 /** 决策状态徽章：悬浮摘要条与详情页「重置判断」卡共用。 */
 export function radarDecisionBadge(decision: RadarDecision): string {
-  switch (decision.status) {
-    case "landed_observed":
-      return "已观察到";
-    case "landed_claimed":
-      return "待本机验证";
-    case "expected_time_passed":
-      return "等待验证";
-    case "upcoming":
-      return decision.signalLevel === "strong"
-        ? "强信号"
-        : decision.signalLevel === "weak"
-          ? "弱信号"
-          : "预计重置";
-    case "watching":
-      return "观察中";
-    default:
-      return "暂无新信号";
-  }
+  return decision.stripBadge;
 }
 
 /** 决策时间文案：精确时间只来自 Rust 结构化字段，不由前端或 AI 推算。 */
 export function radarDecisionTimeText(decision: RadarDecision): string {
-  switch (decision.timeKind) {
-    case "expected":
-      return decision.expectedAt
-        ? `北京时间 ${formatHoverbarClock(decision.expectedAt)} 左右`
-        : "时间尚未明确";
-    case "passed":
-      return decision.expectedAt
-        ? `原预告 ${formatHoverbarClock(decision.expectedAt)}`
-        : "原预告时间已过";
-    case "claimed":
-      return "等待本机额度验证";
-    case "observed":
-      return decision.observedAt
-        ? `观察于 ${formatHoverbarClock(decision.observedAt)}`
-        : "等待观察时间";
-    default:
-      return decision.status === "no_signal" ? "暂时无法判断" : "时间尚未明确";
-  }
+  return decision.timeText;
 }
 
 /** 摘要条主行：第一屏直接回答“什么时候重置”。 */
 export function radarDecisionStripLine(decision: RadarDecision): string {
-  if (decision.status === "landed_observed" && decision.observedAt) {
-    return `本机于 ${formatHoverbarClock(decision.observedAt)} 观察到额度刷新`;
-  }
-  if (decision.status === "no_signal") return "下一次重置：暂时无法判断";
-  if (
-    decision.status === "upcoming" &&
-    decision.timeKind === "expected" &&
-    decision.expectedAt
-  ) {
-    return `预计北京时间 ${formatHoverbarClock(decision.expectedAt)} 左右`;
-  }
-  return decision.headline;
+  return decision.stripPrimary;
+}
+
+export function radarDecisionStripLineCompact(decision: RadarDecision): string {
+  return decision.stripPrimaryCompact;
 }
 
 /** 摘要条综合行：来源/AI/本机三路收敛为一行，不再平铺三条同级判断。 */
-export function radarDecisionSynthesis(decision: RadarDecision, radar: RadarSnapshot): string {
-  const ai = radar.aiAssessment;
-  const confidence = ai.eventAnalysis?.confidence ?? null;
-  const aiToken = !ai.enabled
-    ? "AI 未启用"
-    : confidence === "high"
-      ? "AI 高把握"
-      : confidence === "medium"
-        ? "AI 中等把握"
-        : confidence === "low"
-          ? "AI 低把握"
-          : null;
-  const latestIrrelevant = ai.enabled && ai.latestDeltaAnalysis?.eventRelation === "none";
-  switch (decision.status) {
-    case "landed_observed":
-      return decision.observationExpiresAt
-        ? `24 小时观察期至 ${formatHoverbarClock(decision.observationExpiresAt)}`
-        : "等待观察期结束";
-    case "landed_claimed":
-      return joinTokens(["来源称已重置", "等待本机额度验证"]);
-    case "expected_time_passed":
-      return joinTokens([
-        decision.expectedAt ? `原预告 ${formatHoverbarClock(decision.expectedAt)}` : null,
-        "本机待验证",
-      ]);
-    case "upcoming":
-      return joinTokens([
-        decision.timeKind === "expected" ? "来源明确预告" : null,
-        aiToken,
-        "本机待验证",
-      ]);
-    case "watching":
-      return joinTokens([aiToken, "暂无明确时间"]);
-    default:
-      return joinTokens([
-        latestIrrelevant ? "最新动态无关" : null,
-        decision.recentEvent?.observedResetAt
-          ? `最近一次 ${formatHoverbarClock(decision.recentEvent.observedResetAt)} 观察到刷新`
-          : null,
-        "本机未观察到新变化",
-      ]);
-  }
+export function radarDecisionSynthesis(decision: RadarDecision, _radar?: RadarSnapshot): string {
+  return decision.stripSecondary;
 }
 
 /** 详情页「最新动态是否影响判断」行：无关新帖不覆盖事件分析。 */
 export function radarDeltaImpactLine(radar: RadarSnapshot): string {
-  const ai = radar.aiAssessment;
-  if (!ai.enabled) return "AI 未启用：仅展示来源与本机事实。";
-  const latest = ai.latestDeltaAnalysis;
-  if (!latest) return "最新动态尚未分析。";
-  if (latest.eventRelation === "none") return "最新动态已分析：与重置无关，不影响当前判断。";
-  if (!latest.coversLatest) return "有更新动态待分析，当前判断可能变化。";
-  return "最新动态已核对，未改变当前判断。";
+  return radar.decision.deltaImpactText;
+}
+
+export function radarConfirmationSourceLabel(source: string | null | undefined): string {
+  switch (source) {
+    case "observed":
+      return "本机观察确认";
+    case "user_confirmed":
+      return "用户人工确认";
+    case "claimed":
+      return "仅来源声称，未验证";
+    default:
+      return "已结束";
+  }
+}
+
+export function sourceRelationLabel(post: { explicitReset: boolean; filter: string }): string {
+  if (post.explicitReset || post.filter === "signal") return "直接信号";
+  if (post.filter === "related") return "间接信号";
+  return "无关信号";
 }
 
 /** 最近事件的关闭原因文案。 */
@@ -328,6 +256,8 @@ export function radarCloseReasonLabel(reason: string | null | undefined): string
       return "超时未获本机验证";
     case "claimed_unverified":
       return "声称落地未获验证";
+    case "invalid_historical_replay":
+      return "历史重放已关闭";
     case "timeout":
       return "观察期超时关闭";
     default:
@@ -360,6 +290,34 @@ export function radarQuotaSummaryLine(
  * compact：左右 300px 窄停靠的短文案（自定义区间缩写为 `8.31-9.1`，避免挤压头部）。
  * 未知取值按后端默认 `3d` 回显。
  */
+export function radarRangeBounds(rangeKey: string | null | undefined): { start: number; end: number } {
+  const key = rangeKey?.trim() || "3d";
+  const custom = /^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(key);
+  if (custom) {
+    return {
+      start: Date.parse(`${custom[1]}T00:00:00`),
+      end: Date.parse(`${custom[2]}T23:59:59.999`),
+    };
+  }
+  if (key === "today") {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return { start: start.getTime(), end: Number.MAX_SAFE_INTEGER };
+  }
+  const relative = /^(\d{1,3})d$/.exec(key);
+  const days = relative ? Number(relative[1]) : 7;
+  const safeDays = Number.isInteger(days) && days >= 1 && days <= 365 ? days : 7;
+  return { start: Date.now() - safeDays * 24 * 60 * 60 * 1000, end: Number.MAX_SAFE_INTEGER };
+}
+
+export function postsInRadarRange<T extends { postedAt: number }>(
+  posts: readonly T[],
+  rangeKey: string | null | undefined,
+): T[] {
+  const { start, end } = radarRangeBounds(rangeKey);
+  return posts.filter((post) => post.postedAt >= start && post.postedAt <= end);
+}
+
 export function formatRadarRangeLabel(rangeKey: string | null | undefined, compact = false): string {
   const key = rangeKey?.trim() || "3d";
   if (key === "today") return "当天";

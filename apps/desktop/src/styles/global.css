@@ -1237,6 +1237,7 @@ html.hoverbar-window #root {
   gap: 5px;
   margin-top: 2px;
   padding: 9px 11px;
+  overflow: hidden;
   border-radius: 12px;
   background: color-mix(in srgb, var(--q-hoverbar-primary) 7%, var(--q-hoverbar-empty-bg));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 90%, transparent);
@@ -1426,10 +1427,64 @@ html.hoverbar-window #root {
 
 /* 雷达二级页（设计稿 13）：同一悬浮窗口内切换，复用窄版宽度。 */
 .hb-radar-page {
+  position: relative;
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 8px;
+}
+
+.hb-source-tag,
+.hb-ai-cited-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.hb-source-tag {
+  color: var(--q-hoverbar-muted);
+  background: color-mix(in srgb, var(--q-hoverbar-muted) 12%, transparent);
+}
+
+.hb-source-tag[data-signal="reset"],
+.hb-source-tag[data-signal="signal"] {
+  color: var(--q-hoverbar-warning);
+  background: color-mix(in srgb, var(--q-hoverbar-warning) 14%, transparent);
+}
+
+.hb-source-tag[data-signal="related"] {
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 12%, transparent);
+}
+
+.hb-ai-cited-tag {
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 12%, transparent);
+}
+
+.hb-confirm-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, #000 42%, transparent);
+}
+
+.hb-confirm-dialog {
+  width: min(100%, 280px);
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--q-hoverbar-panel-bg);
+  box-shadow: inset 0 0 0 1px var(--q-hoverbar-card-border);
 }
 
 .hb-radar-top {
@@ -1717,6 +1772,7 @@ html.hoverbar-window #root {
 .hb-radar-strip-row-text {
   min-width: 0;
   margin: 3px 0 0;
+  overflow-wrap: anywhere;
   color: var(--q-hoverbar-ink);
   font-size: 11px;
   font-weight: 600;
@@ -1775,6 +1831,11 @@ html.hoverbar-window #root {
 .radar-phase-badge[data-phase="no_signal"] {
   color: var(--q-hoverbar-muted);
   background: color-mix(in srgb, var(--q-hoverbar-muted) 13%, transparent);
+}
+
+.radar-phase-badge[data-phase="user_confirmed"] {
+  color: var(--q-hoverbar-success);
+  background: color-mix(in srgb, var(--q-hoverbar-success) 14%, transparent);
 }
 
 /* 雷达二级页：事件卡头 / 两路判断 / 本机额度验证 / 时间线。 */
@@ -2278,7 +2339,7 @@ html.hoverbar-window #root {
   align-self: flex-end;
 }
 
-/* 左右侧停靠：头部「重置雷达 + 操作」保单行；阶段徽章放不下，事件阶段在详情页首卡展示。 */
+/* 左右侧 300px：三行摘要，徽章保留、标题收起，不缩小核心字号。 */
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-head {
   flex-wrap: nowrap;
@@ -2286,13 +2347,28 @@ html.hoverbar-window #root {
 }
 
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head > svg,
-.hb-detail-root[data-edge="right"] .hb-radar-strip-head > svg {
+.hb-detail-root[data-edge="right"] .hb-radar-strip-head > svg,
+.hb-detail-root[data-edge="left"] .hb-radar-strip-title,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-title,
+.hb-detail-root[data-edge="left"] .hb-radar-strip-note,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-note,
+.hb-detail-root[data-edge="left"] .hb-radar-strip-refresh,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-refresh {
   display: none;
 }
 
-.hb-detail-root[data-edge="left"] .hb-radar-strip-head .radar-phase-badge,
-.hb-detail-root[data-edge="right"] .hb-radar-strip-head .radar-phase-badge {
+.hb-radar-strip-compact {
   display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-strip-full,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-full {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-strip-compact,
+.hb-detail-root[data-edge="right"] .hb-radar-strip-compact {
+  display: inline;
 }
 
 /* 左右侧停靠：验证卡详细前后值收进内部滚动。 */

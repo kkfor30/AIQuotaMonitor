@@ -162,3 +162,29 @@ pub fn confirm_radar_quota_change(
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
 }
+
+/// 用户确认额度已重置：写入事件观察期，不判断官方重置或重置卡。
+#[tauri::command]
+pub fn confirm_radar_user_reset(
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main", "hoverbar-detail"])?;
+    let snapshot = radar::confirm_user_reset(&database)?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
+}
+
+/// 撤销人工确认额度已重置。
+#[tauri::command]
+pub fn undo_radar_user_reset(
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main", "hoverbar-detail"])?;
+    let snapshot = radar::undo_user_reset(&database)?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
+}

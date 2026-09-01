@@ -26,7 +26,7 @@ SQLite 存配置、`secret_ref`、快照、刷新历史和排序；API Key、Tok
 
 ## D007：AI 分析必须可选
 
-GPT 雷达的 AI 默认关闭，只接收 Codex Radar 同步的 Tibo 英文原文和必要的发布时间、原帖链接元数据。用户可另存一份语义提示（默认含仪表盘/里程碑等措辞），作为分析时的额外说明，但不能替代原文，也不得把凭据或上游中文解读塞进模型输入。AI 是解释器而不是证据来源，每个输出必须引用实际原文；没有真实原文或分析失败时不得生成结论。关闭 AI 后仍可查看来源内容，但状态显示“未分析”。AI 凭据不得进入前端 ViewModel、日志或 SQLite 明文字段。
+GPT 雷达的 AI 默认关闭，只接收 Codex Radar 同步的 Tibo 英文原文和必要的发布时间、原帖链接元数据。用户可另存一份语义提示（默认含仪表盘/里程碑等措辞），作为分析时的额外说明，但不能替代原文，也不得把凭据或上游中文解读塞进模型输入。AI 是解释器而不是证据来源，每个输出必须引用实际原文；没有真实原文或分析失败时不得生成结论。AI 开关只控制是否运行新分析：关闭时仍同步来源并展示来源标签，不得显示“暂无信号”；历史分析保留并标注时间。AI 凭据不得进入前端 ViewModel、日志或 SQLite 明文字段。
 
 ## D008：迁移代码保留来源
 
@@ -42,4 +42,8 @@ V1 不直接访问 X，使用独立的 `CodexRadarSource` 从 `https://codexrada
 
 ## D011：时间解析与事件状态确定性优先
 
-帖内时间声明（6pm PST 等）由 Rust `time_claims`（time-v1）规则解析为北京时间，AI 只做语义判断不做算术；无法确定日期/时区/am pm 时降级 ambiguous，禁止输出精确北京时间。事件状态推进与关闭由确定性代码完成（`reconcile_event_state`：额度观察推进 landed_observed、expected 过期仅改文案、超时关闭、historical_replay 不改事件）；分析结论带 temporal_phase/valid_until 时效字段，事件状态变更使缓存键失效。额度重置观察固化为 `quota_reset_observations` 记录，用户确认按 observation 归因 user_confirmed，不修改快照。
+帖内时间声明（6pm PST 等）由 Rust `time_claims`（time-v1）规则解析为北京时间，AI 只做语义判断不做算术；无法确定日期/时区/am pm 时降级 ambiguous，禁止输出精确北京时间。事件状态推进与关闭由确定性代码完成（`reconcile_event_state`：额度观察推进 landed_observed、expected 过期仅改文案、超时关闭、historical_replay 不改事件）；分析结论带 temporal_phase/valid_until 时效字段，事件状态变更使缓存键失效。额度重置观察固化为 `quota_reset_observations` 记录，observation 上的用户确认只改重置卡归因，不推进事件。
+
+## D012：雷达生命周期消费与用户确认重置
+
+帖子用 `lifecycle_consumed_at` 标记是否已成功参与实时分析。用户时间范围只控制展示和 AI 背景，不得用来判断“是否新增”。只有 NEW POSTS 可以创建或推进事件；EVENT CONTEXT / HISTORICAL CONTEXT 不能作为新事件的唯一依据。事件证据只收录被 citations 引用的新增帖和必要事件上下文，不得把整批时间窗帖子写入 `radar_event_evidence`。`radar_events.user_confirmed_reset_at` 记录“用户确认额度已重置”，进入 24 小时观察期，可撤销；本机 `observed_reset_at` 优先于用户确认。提示词版本 radar-v15。
