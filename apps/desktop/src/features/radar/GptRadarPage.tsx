@@ -826,7 +826,7 @@ function SignalSummaryView({
                           ? "部分完成"
                           : "分析失败"}
                   </StatusBadge>
-                  <span className="shrink-0 tabular-nums text-q-text-muted">{check.postCount} 条</span>
+                  <span className="shrink-0 tabular-nums text-q-text-muted">同步 {check.postCount} 条</span>
                   {check.errorMessage && (
                     <span className="min-w-0 flex-1 truncate text-q-danger" title={check.errorMessage}>
                       {check.errorMessage}
