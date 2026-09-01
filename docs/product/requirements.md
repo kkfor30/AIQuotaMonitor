@@ -146,5 +146,6 @@ MVP 不做：
 
 - `docs/ui-design/platform-center-v4/`
 - `docs/ui-design/2026-08-27-product-shell-v5/`
+- `docs/ui-design/2026-09-02-gpt-radar-ui-v3/`：GPT 重置雷达 UI V3 最终参考稿、状态规范、实施方案与执行 Prompt；当前仅归档设计，代码实现状态以路线图为准。
 
 每个目录的 `README.md` 包含页面职责、交互和数据边界。
