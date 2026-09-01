@@ -1914,11 +1914,6 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-/* 无标题的操作行（本机验证头部只保留“查看账号详情”时右对齐）。 */
-.hb-radar-card-head-end {
-  justify-content: flex-end;
-}
-
 .hb-notice-empty .hb-radar-card-title,
 .hb-notice-empty .hb-radar-meta {
   margin: 0;
@@ -2080,6 +2075,30 @@ html.hoverbar-window #root {
   text-align: left;
 }
 
+/* 标题不允许换行（300px 侧边时 meta 收缩省略，标题保持完整）。 */
+.hb-radar-card-toggle-title {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* 本机验证摘要行：文字左侧自适应，操作按钮右侧固定。 */
+.hb-quota-summary-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hb-quota-summary-row .hb-radar-subheadline {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hb-quota-summary-row .hb-radar-post-button {
+  flex: none;
+  margin-top: 1px;
+}
+
 .hb-radar-card-toggle-meta {
   min-width: 0;
   flex: 1 1 auto;
@@ -2158,15 +2177,23 @@ html.hoverbar-window #root {
 
 .hb-quota-row-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 4px 6px;
 }
 
+/* 账号名不允许被 flex 压缩成逐字换行；放不下时状态徽章整体换行。 */
 .hb-quota-row-head b {
+  flex: none;
+  white-space: nowrap;
   font-size: 12px;
   line-height: 16px;
   color: var(--q-hoverbar-ink);
+}
+
+.hb-quota-row-head .hb-quota-status {
+  white-space: nowrap;
 }
 
 .hb-quota-window {

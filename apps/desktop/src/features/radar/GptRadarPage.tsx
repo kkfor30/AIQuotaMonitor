@@ -698,7 +698,7 @@ function SignalSummaryView({
               {!ai || ai.state === "disabled"
                 ? "AI 未启用：来源公告与本机验证不受影响。"
                 : ai.state === "historical"
-                  ? "当前范围还没有成功分析；以下为最近一次历史结果。"
+                  ? "没有针对当前范围的新分析；以下为最近一次历史结果。有新增动态时，下次检查会重新分析。"
                   : "尚未生成分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。"}
             </p>
             {historicalAnalysis?.conclusion ? (

@@ -248,7 +248,7 @@ export function HoverbarRadarDetail({
             <p className="hb-radar-meta">
               {!aiAssessment || !aiAssessment.enabled || aiAssessment.state === "disabled"
                 ? "AI 未启用：来源公告与本机验证不受影响。"
-                : "当前范围还没有成功分析；以下为最近一次历史结果。"}
+                : "没有针对当前范围的新分析；以下为最近一次历史结果。有新增动态时，下次检查会重新分析。"}
             </p>
             {historicalAnalysis?.conclusion ? (
               <>
@@ -290,7 +290,14 @@ export function HoverbarRadarDetail({
       </section>
 
       <section className="hb-radar-card">
-        <div className="hb-radar-card-head hb-radar-card-head-end">
+        <div className="hb-quota-summary-row">
+          <p className="hb-radar-subheadline" data-selectable="true">
+            {waitingVerify
+              ? "本机尚未观察到额度重置"
+              : quotaUnavailable
+                ? "本机暂无法验证"
+                : quotaSummary}
+          </p>
           {verifications.length > 0 ? (
             <button
               type="button"
@@ -302,13 +309,6 @@ export function HoverbarRadarDetail({
             </button>
           ) : null}
         </div>
-        <p className="hb-radar-subheadline" data-selectable="true">
-          {waitingVerify
-            ? "本机尚未观察到额度重置"
-            : quotaUnavailable
-              ? "本机暂无法验证"
-              : quotaSummary}
-        </p>
         {waitingVerify ? <p className="hb-radar-meta">等待本机检测或用户确认</p> : null}
         {quotaUnavailable ? <p className="hb-radar-meta">不影响来源与 AI 判断</p> : null}
         <div className="hb-radar-collapse" data-open={quotaDetailOpen || undefined} aria-hidden={!quotaDetailOpen}>
@@ -380,7 +380,9 @@ export function HoverbarRadarDetail({
               aria-hidden
               className={recentEventOpen ? "hb-rotate-90" : ""}
             />
-            {recentReset ? "最近一次重置" : "最近一次事件"}
+            <span className="hb-radar-card-toggle-title">
+              {recentReset ? "最近一次重置" : "最近一次事件"}
+            </span>
             <span className="hb-radar-card-toggle-meta">
               {recentToggleMeta}
             </span>
