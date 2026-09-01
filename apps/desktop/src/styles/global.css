@@ -2081,22 +2081,13 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-/* 本机验证摘要行：文字左侧自适应，操作按钮右侧固定。 */
-.hb-quota-summary-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+/* 本机验证卡操作行：重试（仅来源不可用时出现）与账号详情并排，文字段落保持整行宽度。 */
+.hb-quota-summary-actions {
+  margin-top: 8px;
 }
 
-.hb-quota-summary-row .hb-radar-subheadline {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.hb-quota-summary-row .hb-radar-post-button {
-  flex: none;
-  margin-top: 1px;
+.hb-quota-summary-actions .hb-quota-retry {
+  margin-top: 0;
 }
 
 .hb-radar-card-toggle-meta {

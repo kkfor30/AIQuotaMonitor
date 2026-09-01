@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BrainCircuit,
+  ChevronDown,
   ChevronRight,
   ExternalLink,
   Heart,
@@ -704,12 +705,17 @@ function SignalSummaryView({
             {historicalAnalysis?.conclusion ? (
               <>
                 <Button
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
                   className="self-start"
                   onClick={() => setHistoryAnalysisOpen((value) => !value)}
                 >
                   {historyAnalysisOpen ? "收起历史分析" : "查看历史分析"}
+                  <ChevronDown
+                    size={13}
+                    aria-hidden
+                    className={cn("transition-transform", historyAnalysisOpen && "rotate-180")}
+                  />
                 </Button>
                 <AnimatedCollapse open={historyAnalysisOpen}>
                   <div className="flex flex-col gap-1.5">

@@ -2074,11 +2074,20 @@ async fn run_analysis(
     model: Option<&str>,
 ) -> Result<(), String> {
     let inputs = collect_delta_inputs(database, range_key)?;
-    if inputs.mode != "historical_replay" && inputs.delta.is_empty() {
-        return Ok(());
-    }
     if inputs.delta.is_empty() && inputs.context.is_empty() && inputs.historical.is_empty() {
         return Ok(());
+    }
+    // 无新增帖子的 live_delta：默认跳过，不为同样内容重复调用模型；
+    // 但最近一次成功分析属于其他动态范围时，对当前范围补一次历史解释
+    // （提示词已约束：无新增帖子只生成历史解释，不创建或推进事件），
+    // 避免切换范围后无论刷新多少次都只有旧范围分析。
+    if inputs.mode != "historical_replay" && inputs.delta.is_empty() {
+        let same_range_analyzed = database
+            .latest_radar_analysis()?
+            .is_some_and(|record| record.range_key == range_key);
+        if same_range_analyzed {
+            return Ok(());
+        }
     }
     let user_prompt = load_analysis_prefs(database)?.user_prompt;
     let joined = |posts: &[TiboPostView]| {

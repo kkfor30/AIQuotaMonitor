@@ -290,25 +290,13 @@ export function HoverbarRadarDetail({
       </section>
 
       <section className="hb-radar-card">
-        <div className="hb-quota-summary-row">
-          <p className="hb-radar-subheadline" data-selectable="true">
-            {waitingVerify
-              ? "本机尚未观察到额度重置"
-              : quotaUnavailable
-                ? "本机暂无法验证"
-                : quotaSummary}
-          </p>
-          {verifications.length > 0 ? (
-            <button
-              type="button"
-              className="hb-radar-post-button"
-              onClick={() => setQuotaDetailOpen((open) => !open)}
-            >
-              {quotaDetailOpen ? "收起账号详情" : "查看账号详情"}
-              <ChevronDown size={12} aria-hidden className={quotaDetailOpen ? "hb-rotate-180" : ""} />
-            </button>
-          ) : null}
-        </div>
+        <p className="hb-radar-subheadline" data-selectable="true">
+          {waitingVerify
+            ? "本机尚未观察到额度重置"
+            : quotaUnavailable
+              ? "本机暂无法验证"
+              : quotaSummary}
+        </p>
         {waitingVerify ? <p className="hb-radar-meta">等待本机检测或用户确认</p> : null}
         {quotaUnavailable ? <p className="hb-radar-meta">不影响来源与 AI 判断</p> : null}
         <div className="hb-radar-collapse" data-open={quotaDetailOpen || undefined} aria-hidden={!quotaDetailOpen}>
@@ -320,8 +308,8 @@ export function HoverbarRadarDetail({
             )}
           </div>
         </div>
-        <div className="hb-radar-post-actions">
-          {onRetryQuota ? (
+        <div className="hb-radar-post-actions hb-quota-summary-actions">
+          {onRetryQuota && quotaUnavailable ? (
             <button
               type="button"
               className="hb-quota-retry"
@@ -332,9 +320,14 @@ export function HoverbarRadarDetail({
               {quotaRefreshing ? "正在获取…" : "重试获取额度"}
             </button>
           ) : null}
-          {decision?.canConfirmReset ? (
-            <button type="button" className="hb-radar-post-button" onClick={() => setConfirmOpen(true)}>
-              确认额度已重置
+          {verifications.length > 0 ? (
+            <button
+              type="button"
+              className="hb-radar-post-button"
+              onClick={() => setQuotaDetailOpen((open) => !open)}
+            >
+              {quotaDetailOpen ? "收起账号详情" : "查看账号详情"}
+              <ChevronDown size={12} aria-hidden className={quotaDetailOpen ? "hb-rotate-180" : ""} />
             </button>
           ) : null}
         </div>
