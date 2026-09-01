@@ -116,6 +116,11 @@ pub fn assess_quota_verifications(
         }
         let observations = database
             .quota_reset_observations(Some(&source.id), event.map(|value| value.id.as_str()))?;
+        // “已重置”事实只来自计划外重置观察或用户人工确认；单纯 possible_reset
+        // （如 5h 窗口正常轮换因 reset_at 顺延被误判）不得冒充重置时间。
+        let reset_fact = observations.iter().find(|value| {
+            value.classification.as_str() == "unscheduled_reset" || value.user_confirmed_at.is_some()
+        });
         if let Some(observation) = observations.iter().find(|value| {
             matches!(
                 value.classification.as_str(),
@@ -123,7 +128,7 @@ pub fn assess_quota_verifications(
             )
         }) {
             view.observation_id = Some(observation.id);
-            view.last_reset_observed_at = Some(observation.observed_at);
+            view.last_reset_observed_at = reset_fact.map(|value| value.observed_at);
             view.temporal_correlation = observation.temporal_correlation.clone();
             if observation.user_confirmed_at.is_some() {
                 view.attribution = "user_confirmed".into();
