@@ -1397,10 +1397,16 @@ html.hoverbar-window #root {
 }
 
 .hb-radar-top {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 8px;
+  padding: 3px 0 6px;
+  background: var(--q-hoverbar-panel-bg);
+  box-shadow: 0 8px 14px -14px var(--q-hoverbar-panel-shadow);
 }
 
 .hb-radar-back {
