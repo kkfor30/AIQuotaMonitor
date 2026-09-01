@@ -1101,72 +1101,12 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-/* 资金组合组：默认（无停靠语境）子元素保持独立卡片；顶部/底部 420px 合并为一块三列 */
+/* 资金组合组：四个停靠方向统一堆叠布局——余额胶囊行 + 今日/本月双胶囊（不随 420px 宽停靠变三列） */
 .hb-finance-group {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 8px;
-}
-
-.hb-detail-root[data-edge="top"] .hb-finance-group,
-.hb-detail-root[data-edge="bottom"] .hb-finance-group {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr);
-  align-items: center;
-  gap: 0;
-  padding: 9px 12px;
-  border-radius: 11px;
-  background: var(--q-hoverbar-empty-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
-}
-
-.hb-detail-root[data-edge="top"] .hb-finance-group .hb-balance-bar,
-.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-balance-bar {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.hb-detail-root[data-edge="top"] .hb-finance-group .hb-balance-bar > svg,
-.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-balance-bar > svg {
-  display: none;
-}
-
-.hb-detail-root[data-edge="top"] .hb-finance-group .hb-balance-amount,
-.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-balance-amount {
-  flex: none;
-  text-align: left;
-  font-size: 17px;
-  line-height: 21px;
-}
-
-.hb-detail-root[data-edge="top"] .hb-finance-group .hb-spend-grid,
-.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-spend-grid {
-  gap: 0;
-}
-
-.hb-detail-root[data-edge="top"] .hb-finance-group .hb-spend-cell,
-.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-spend-cell {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 0 0 0 12px;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  border-left: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
-}
-
-.hb-detail-root[data-edge="top"] .hb-finance-group .hb-spend-value,
-.hb-detail-root[data-edge="bottom"] .hb-finance-group .hb-spend-value {
-  text-align: left;
-  font-size: 14px;
-  line-height: 18px;
 }
 
 /* 缓存命中率进度行：非剩余额度语义，固定主色填充，不套三段色阶 */

@@ -4,9 +4,8 @@
  * 各账户分区的分组头行（首分区同构、无分隔线），别名过长只在本行内截断；
  * 每个账号只聚合自己的 Source 与 Capability；
  * 窗口行统一为「窗口名称 → 细进度条 → 剩余百分比 → 重置时间」（数值型 remainingPercent）；
- * 额外余额（credits）按账号独立展示；资金组合组在宽停靠（顶部/底部 420px）合并为
- * 「个人余额 | 今日消费 | 本月消费」一块三列，
- * 左右侧 300px 拆回余额独占行 + 今日/本月双列（CSS 按 data-edge 切换）；
+ * 额外余额（credits）按账号独立展示；资金组合组在四个停靠方向统一为
+ * 余额独占行 + 今日/本月双胶囊的堆叠布局；
  * DeepSeek 模型行为 V4 Flash / V4 Flash Vision / V4 Pro 三条独立身份行
  * （晶体翼 / 光圈 / 神经旋涡图标方块 + 语义副标题，宽停靠「语义 · 本月 Token」、侧边只留语义）；
  * 模型列表后为总缓存命中率独立全宽块（靶心图标 + 细主蓝进度条 + 后端 secondary 说明），
@@ -261,7 +260,7 @@ function SectionBody({ section }: { section: HoverbarSection }) {
       ))}
       {section.credits ? <CreditsBar credits={section.credits} /> : null}
       {(section.balance || hasSpend) && (
-        /* 资金组合组：宽停靠（顶部/底部 420px）合并为一块三列，侧边 300px 拆回独立卡片（CSS 切换） */
+        /* 资金组合组：四个停靠方向统一堆叠布局（余额胶囊行 + 今日/本月双胶囊） */
         <div className="hb-finance-group">
           {section.balance ? <BalanceBar balance={section.balance} /> : null}
           {hasSpend ? (
