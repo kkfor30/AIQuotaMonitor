@@ -925,7 +925,10 @@ fn real_platform(
 fn is_web_login_source(source_id: &str) -> bool {
     matches!(
         source_id,
-        deepseek::WEB_SOURCE_ID | glm::WEB_BALANCE_SOURCE_ID | mimo::SOURCE_ID
+        deepseek::WEB_SOURCE_ID
+            | glm::WEB_BALANCE_SOURCE_ID
+            | mimo::SOURCE_ID
+            | kimi_console::CONSOLE_SOURCE_ID
     )
 }
 
