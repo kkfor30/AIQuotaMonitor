@@ -1057,10 +1057,10 @@ fn credential_input(source_id: &str, source_type: &str) -> Option<CredentialInpu
             secret_kind: "api_key".into(),
         }),
         kimi_console::CONSOLE_SOURCE_ID => Some(CredentialInputViewModel {
-            label: "Kimi 网页会话 rtoken".into(),
-            placeholder: "粘贴 rtoken，或使用网页登录".into(),
-            help_text: "官方 API 不提供今日/本月消费，此来源读取 platform.kimi.com 控制台内部接口。登录窗口会自动捕获会话；手动粘贴可 在控制台页 F12 → Application → Local Storage → rtoken 复制。只进入 Windows Credential Manager。".into(),
-            secret_kind: "bearer_token".into(),
+            label: "Kimi 网页会话 Cookie".into(),
+            placeholder: "粘贴完整 Cookie，或使用网页登录".into(),
+            help_text: "官方 API 不提供今日/本月消费，此来源读取 platform.kimi.com 控制台内部接口（Cookie 会话）。登录窗口会自动读取；手动粘贴可在控制台页 F12 → Network → 任一 api 请求 → Request Headers → Cookie 复制完整值。只进入 Windows Credential Manager。".into(),
+            secret_kind: "cookie".into(),
         }),
         glm::WEB_BALANCE_SOURCE_ID => Some(CredentialInputViewModel {
             label: "GLM 网页登录 Cookie".into(),

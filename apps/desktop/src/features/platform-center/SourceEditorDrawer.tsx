@@ -60,7 +60,7 @@ function webLoginCopy(adapterId: string): string {
     return "将打开隔离的 MiMo 登录窗口并读取含 httpOnly 的 Cookie。登录成功后自动验证并保存，清除凭据会退出该平台网页登录态。";
   }
   if (adapterId === "kimi-console-session") {
-    return "AIQuotaMonitor 将打开一个独立的 Kimi 控制台登录窗口。在该窗口完成登录后，系统会自动读取网页会话、验证并保存今日/本月消费来源，无需手动复制粘贴。";
+    return "AIQuotaMonitor 将打开一个独立的 Kimi 控制台登录窗口。在该窗口完成登录后，系统会自动检测登录态、读取会话 Cookie 并保存今日/本月消费来源，无需手动复制粘贴。";
   }
   return "将打开独立的 DeepSeek 用量页登录窗口。登录成功后自动捕获会话，请再点「验证并保存」完成保存；清除凭据会退出网页登录态。";
 }

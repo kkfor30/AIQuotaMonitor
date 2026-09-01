@@ -2,14 +2,17 @@
 //!
 //! 官方余额 API（api.moonshot.cn）不含任何消费字段；今日消费/本月消费/总消费
 //! 来自 platform.kimi.com 控制台内部接口（接口与字段逆向自控制台前端，2026-09）：
-//! 1. GET /api?endpoint=refreshToken，header `Msh-Authorization: {rtoken}` 换 access_token；
-//! 2. GET /api?endpoint=userInfo 取组织 oid（organizations[0].organization.id）；
-//! 3. GET /api?endpoint=organizationAccountInfo&oid=… 读 today_consume（今日消费）、
-//!    use（总消费）；cur/voucher_cur 是余额，归 kimi-balance-api，此处不产出；
-//! 4. GET /api?endpoint=organizationMonthlyBills&oid=… 当月记录 recharge_fee+voucher_fee
-//!    为本月消费（与控制台同口径）；当月无账单记录时控制台显示“-”，此处不产出能力。
+//! - 登录态为 Cookie 会话（localStorage 无 token，httpOnly Cookie 由登录窗原生捕获）；
+//!   业务接口 `GET /api?endpoint=…` 用 Cookie 直接鉴权；
+//! - 备用鉴权：access token 直接 Bearer；或 rtoken 经
+//!   `GET /api?endpoint=refreshToken`（header `Msh-Authorization: {rtoken}`）换 access_token；
+//! - `userInfo` 取组织 oid（organizations[0].organization.id）；
+//! - `organizationAccountInfo&oid=…` 读 today_consume（今日消费）、use（总消费）；
+//!   cur/voucher_cur 是余额，归 kimi-balance-api，此处不产出；
+//! - `organizationMonthlyBills&oid=…` 当月记录 recharge_fee+voucher_fee 为本月消费
+//!   （与控制台同口径）；当月无账单记录时控制台显示“-”，此处不产出能力。
 //! 金额单位为 1e-5 元（控制台除以 100000 后保留 5 位小数），全链路 Decimal。
-//! rtoken 存 Windows Credential Manager；若平台轮换 refresh_token 导致失效，需重新登录捕获。
+//! 凭据（Cookie/rtoken）只进 Windows Credential Manager；会话失效需重新登录捕获。
 
 use super::money::{decimal_from_json, format_cny, pick_decimal, WEB_UA};
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
@@ -23,6 +26,12 @@ pub const CONSOLE_SOURCE_ID: &str = "kimi-console-session";
 const CONSOLE_ORIGIN: &str = "https://platform.kimi.com";
 const CN_TZ_SECS: i32 = 8 * 3600;
 
+/// 控制台鉴权：Cookie 会话（登录窗捕获）或 Bearer token（手动粘贴 access token/rtoken）。
+enum ConsoleAuth {
+    Cookie(String),
+    Bearer(String),
+}
+
 pub async fn fetch(client: &Client, secret: &str) -> SourceRefreshOutput {
     match fetch_inner(client, secret).await {
         Ok(capabilities) => SourceRefreshOutput::success(capabilities),
@@ -34,8 +43,8 @@ async fn fetch_inner(
     client: &Client,
     secret: &str,
 ) -> Result<Vec<CapabilityData>, RefreshError> {
-    let rtoken = secret.trim().trim_start_matches("Bearer ").trim();
-    if rtoken.is_empty() {
+    let secret = secret.trim();
+    if secret.is_empty() {
         return Err(RefreshError::new(
             "auth_required",
             "Kimi 网页会话未配置",
@@ -43,14 +52,36 @@ async fn fetch_inner(
             false,
         ));
     }
-    let access_token = refresh_access_token(client, rtoken).await?;
-    let oid = discover_organization_id(client, &access_token).await?;
+    if is_cookie_header(secret) {
+        let auth = ConsoleAuth::Cookie(secret.to_string());
+        return fetch_consumptions(client, &auth).await;
+    }
+    // 纯 token：先当 access_token 试探 userInfo，被拒再按 rtoken 走 refreshToken 换取。
+    let token = match fetch_console_json(
+        client,
+        &ConsoleAuth::Bearer(secret.to_string()),
+        "/api?endpoint=userInfo",
+    )
+    .await
+    {
+        Ok(_) => secret.to_string(),
+        Err(error) if error.auth_required => refresh_access_token(client, secret).await?,
+        Err(error) => return Err(error),
+    };
+    fetch_consumptions(client, &ConsoleAuth::Bearer(token)).await
+}
+
+async fn fetch_consumptions(
+    client: &Client,
+    auth: &ConsoleAuth,
+) -> Result<Vec<CapabilityData>, RefreshError> {
+    let oid = discover_organization_id(client, auth).await?;
 
     let mut capabilities = Vec::new();
     let mut last_error = None;
     match fetch_console_json(
         client,
-        &access_token,
+        auth,
         &format!("/api?endpoint=organizationAccountInfo&oid={oid}"),
     )
     .await
@@ -68,7 +99,7 @@ async fn fetch_inner(
     }
     match fetch_console_json(
         client,
-        &access_token,
+        auth,
         &format!("/api?endpoint=organizationMonthlyBills&oid={oid}"),
     )
     .await
@@ -96,6 +127,11 @@ async fn fetch_inner(
     }
     // 单接口失败保留另一接口的成功数据（能力级部分成功）。
     Ok(capabilities)
+}
+
+/// 完整 Cookie 头（含分号分隔的多对键值）按 Cookie 会话处理；单对值可能是 padded token，不视为 Cookie。
+fn is_cookie_header(secret: &str) -> bool {
+    secret.contains('=') && secret.contains(';')
 }
 
 /// 用 rtoken 换短期 access_token；401/业务 401 视为会话过期。
@@ -156,9 +192,9 @@ async fn refresh_access_token(client: &Client, rtoken: &str) -> Result<String, R
 /// userInfo.organizations[].organization.id 取第一个组织（控制台默认组织）。
 async fn discover_organization_id(
     client: &Client,
-    access_token: &str,
+    auth: &ConsoleAuth,
 ) -> Result<String, RefreshError> {
-    let body = fetch_console_json(client, access_token, "/api?endpoint=userInfo").await?;
+    let body = fetch_console_json(client, auth, "/api?endpoint=userInfo").await?;
     let data = body.get("data").unwrap_or(&body);
     let organizations = data.get("organizations").and_then(Value::as_array).ok_or_else(
         || {
@@ -186,10 +222,10 @@ async fn discover_organization_id(
 
 async fn fetch_console_json(
     client: &Client,
-    access_token: &str,
+    auth: &ConsoleAuth,
     path: &str,
 ) -> Result<Value, RefreshError> {
-    let response = console_get(client, path, Some(access_token)).await?;
+    let response = console_get(client, path, auth).await?;
     let status = response.status();
     let body: Value = response.json().await.map_err(|_| {
         RefreshError::new(
@@ -214,7 +250,7 @@ async fn fetch_console_json(
 async fn console_get(
     client: &Client,
     path: &str,
-    access_token: Option<&str>,
+    auth: &ConsoleAuth,
 ) -> Result<reqwest::Response, RefreshError> {
     let mut request = client
         .get(format!("{CONSOLE_ORIGIN}{path}"))
@@ -223,9 +259,10 @@ async fn console_get(
         .header("Origin", CONSOLE_ORIGIN)
         .header("Referer", format!("{CONSOLE_ORIGIN}/console/account"))
         .timeout(Duration::from_secs(15));
-    if let Some(access_token) = access_token {
-        request = request.bearer_auth(access_token);
-    }
+    request = match auth {
+        ConsoleAuth::Bearer(token) => request.bearer_auth(token),
+        ConsoleAuth::Cookie(cookie) => request.header("Cookie", cookie),
+    };
     request.send().await.map_err(|error| {
         RefreshError::new(
             "network_error",
@@ -363,6 +400,14 @@ mod tests {
             "data": [ { "date": previous, "recharge_fee": 100000, "voucher_fee": 0 } ]
         });
         assert!(current_month_amount(&only_previous).is_none());
+    }
+
+    #[test]
+    fn classifies_cookie_headers_vs_tokens() {
+        assert!(is_cookie_header("Hm_lvt=abc; session_id=xyz; moonshot-theme=dark"));
+        // JWT / API Key / rtoken 都没有「=…;」组合，按 token 处理
+        assert!(!is_cookie_header("eyJhbGciOiJIUzI1NiJ9.payload.sig"));
+        assert!(!is_cookie_header("km/KD4EfN5tDqXoapbetnJGdB3abl8SAENjhgk"));
     }
 
     #[test]
