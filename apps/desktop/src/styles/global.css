@@ -637,6 +637,7 @@ html.hoverbar-window #root {
 .sort-row-dragging {
   z-index: 20;
   cursor: grabbing;
+  will-change: transform;
   box-shadow: var(--q-shadow-lg);
   outline: 1px solid var(--q-border-selected);
   background: var(--q-surface-solid);

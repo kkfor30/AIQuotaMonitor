@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GripVertical, Info, Monitor, Palette, RefreshCw } from "lucide-react";
+import { Info, Monitor, Palette, RefreshCw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -248,9 +248,17 @@ function HoverbarSettingsSection() {
   const mode = settings?.hoverbarSortMode === "smart" ? "smart" : "manual";
   const byId = new Map(platforms.map((platform) => [platform.providerId, platform]));
 
-  // 垂直列表拖拽排序：被拖行跟随指针，其余行按目标位让位；松手一次性提交顺序。
-  // 与主窗口卡组同款思路：拖拽期间零渲染（样式命令式写入），capture 丢失也不会挂起。
-  type RowDrag = { id: string; startIndex: number; startY: number; target: number; step: number };
+  // 整条平台行均可拖动；用初始行中心计算目标位，避免拖动时读取已变换节点造成跳位。
+  type RowDrag = {
+    id: string;
+    startIndex: number;
+    startY: number;
+    target: number;
+    centers: number[];
+    latestY: number;
+    frame: number | null;
+    dragging: boolean;
+  };
   const rowDrag = useRef<RowDrag | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const commitRef = useRef<(next: string[]) => void>(() => {});
@@ -265,13 +273,36 @@ function HoverbarSettingsSection() {
       if (!el) continue;
       const shift =
         nextTarget > state.startIndex && i > state.startIndex && i <= nextTarget
-          ? -state.step
+          ? -(state.centers[i] - state.centers[i - 1])
           : nextTarget < state.startIndex && i >= nextTarget && i < state.startIndex
-            ? state.step
+            ? state.centers[i + 1] - state.centers[i]
             : 0;
-      el.style.transition = "transform 160ms cubic-bezier(0.2, 0.78, 0.24, 1)";
-      el.style.transform = shift !== 0 ? `translateY(${shift}px, 0)` : "translateY(0px, 0)";
+      el.style.transition = "transform 150ms cubic-bezier(0.2, 0.78, 0.24, 1)";
+      el.style.transform = shift !== 0 ? `translate3d(0, ${shift}px, 0)` : "translate3d(0, 0, 0)";
     }
+  };
+
+  const paintRowDrag = () => {
+    const state = rowDrag.current;
+    if (!state) return;
+    state.frame = null;
+    const row = rowRefs.current.get(state.id);
+    if (!row) return;
+    const dy = state.latestY - state.startY;
+    if (!state.dragging && Math.abs(dy) < 4) return;
+    state.dragging = true;
+    row.classList.add("sort-row-dragging");
+    row.style.transition = "none";
+    row.style.transform = `translate3d(0, ${dy}px, 0)`;
+    row.style.zIndex = "20";
+
+    const draggedCenter = state.centers[state.startIndex] + dy;
+    const target = state.centers.reduce(
+      (closest, center, index) =>
+        Math.abs(center - draggedCenter) < Math.abs(state.centers[closest] - draggedCenter) ? index : closest,
+      state.startIndex,
+    );
+    applyRowShifts(state, target);
   };
 
   const onRowPointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
@@ -279,34 +310,42 @@ function HoverbarSettingsSection() {
     const row = rowRefs.current.get(id);
     const index = order.indexOf(id);
     if (!row || index < 0 || rowDrag.current) return;
-    const rowH = row.getBoundingClientRect().height;
-    const nextRow = rowRefs.current.get(order[index + 1] ?? "") ?? rowRefs.current.get(order[index - 1] ?? "");
-    const step = Math.max(
-      rowH + 4,
-      nextRow ? Math.abs(nextRow.getBoundingClientRect().top - row.getBoundingClientRect().top) : rowH + 8,
-    );
-    rowDrag.current = { id, startIndex: index, startY: event.clientY, target: index, step };
+    event.preventDefault();
+    const centers = order.map((providerId) => {
+      const bounds = rowRefs.current.get(providerId)?.getBoundingClientRect();
+      return bounds ? bounds.top + bounds.height / 2 : 0;
+    });
+    rowDrag.current = {
+      id,
+      startIndex: index,
+      startY: event.clientY,
+      target: index,
+      centers,
+      latestY: event.clientY,
+      frame: null,
+      dragging: false,
+    };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const onRowPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const state = rowDrag.current;
-    const row = state ? rowRefs.current.get(state.id) : null;
-    if (!state || !row) return;
-    const dy = event.clientY - state.startY;
-    if (Math.abs(dy) < 4 && state.target === state.startIndex) return;
-    row.classList.add("sort-row-dragging");
-    row.style.transition = "none";
-    row.style.transform = "translateY(" + dy + "px, 0)";
-    row.style.zIndex = "20";
-    const rawTarget = Math.max(0, Math.min(order.length - 1, state.startIndex + Math.round(dy / state.step)));
-    applyRowShifts(state, rawTarget);
+    if (!state) return;
+    state.latestY = event.clientY;
+    if (state.frame === null) {
+      state.frame = window.requestAnimationFrame(paintRowDrag);
+    }
   };
 
   const settleRowDrag = (commit: boolean) => {
     const state = rowDrag.current;
-    rowDrag.current = null;
     if (!state) return;
+    if (state.frame !== null) {
+      window.cancelAnimationFrame(state.frame);
+      state.frame = null;
+      paintRowDrag();
+    }
+    rowDrag.current = null;
     const row = rowRefs.current.get(state.id);
     if (row) {
       row.style.transition = "";
@@ -319,7 +358,7 @@ function HoverbarSettingsSection() {
       el.style.transform = "";
       el.style.zIndex = "";
     }
-    if (!commit || state.target === state.startIndex) return;
+    if (!commit || !state.dragging || state.target === state.startIndex) return;
     const next = [...order];
     const moved = next.splice(state.startIndex, 1)[0];
     if (!moved) return;
@@ -397,7 +436,7 @@ function HoverbarSettingsSection() {
         <div>
           <p className="text-sm font-medium text-q-text-primary">平台顺序</p>
           <p className="mt-0.5 text-xs leading-relaxed text-q-text-secondary">
-            按住平台行拖动调整顺序。待配置平台仍会保留顺序，但只在完成接入后出现在悬浮详情里。
+            按住任意平台条目即可拖动调整顺序。待配置平台仍会保留顺序，但只在完成接入后出现在悬浮详情里。
           </p>
           <div className="mt-3 space-y-2" data-sort-rows>
             {order.length === 0 && (
@@ -417,10 +456,10 @@ function HoverbarSettingsSection() {
                   onPointerMove={onRowPointerMove}
                   onPointerUp={() => settleRowDrag(true)}
                   onPointerCancel={() => settleRowDrag(false)}
-                  className="flex cursor-grab select-none items-center gap-3 rounded-q-control border border-q-border bg-q-surface-muted px-3 py-2"
-                  title="拖动调整顺序"
+                  onLostPointerCapture={() => settleRowDrag(true)}
+                  className="flex cursor-grab touch-none select-none items-center gap-3 rounded-q-control border border-q-border bg-q-surface-muted px-3 py-2"
+                  title="按住任意位置拖动调整顺序"
                 >
-                  <GripVertical size={15} aria-hidden className="shrink-0 text-q-text-muted" />
                   <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <PlatformMark providerId={id} size={30} />
                     <div className="min-w-0">
