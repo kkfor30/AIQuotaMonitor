@@ -2153,14 +2153,9 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
-/* 最近一次重置：不再自成卡片壳，改为融入页面的轻量折叠条（上下细分隔线）。 */
-.hb-radar-recent-strip {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 2px;
-  border-block: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+/* 最近一次重置：恢复卡片壳，但收紧上下内边距让单行折叠头垂直居中。 */
+.hb-radar-card-compact {
+  padding-block: 7px;
 }
 
 /* 本机验证卡操作行：重试（仅来源不可用时出现）与账号详情并排，文字段落保持整行宽度。 */
