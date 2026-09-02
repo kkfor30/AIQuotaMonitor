@@ -40,7 +40,6 @@ import type { RadarModelOption, RadarPost, RadarSnapshot } from "@/lib/ipc";
 import {
   formatRadarRangeLabel,
   humanizeRadarPostRefs,
-  postsInRadarRange,
   quotaBadgeLabel,
   quotaCorrelationLabel,
   radarAiStatusLabel,
@@ -138,7 +137,8 @@ export function GptRadarPage() {
   const checkCancelled = checkMutation.error
     ? ipcErrorMessage(checkMutation.error, "检查失败").includes("已终止")
     : false;
-  const posts = postsInRadarRange(data?.posts ?? [], rangeKey).slice().sort((a, b) => b.postedAt - a.postedAt);
+  // Tibo 动态是浏览视图：展示同步到的全部帖子，不受动态范围过滤（范围只控制 AI 分析与判断）。
+  const posts = (data?.posts ?? []).slice().sort((a, b) => b.postedAt - a.postedAt);
   const visible = posts.filter((post) => {
     if (filter === "all") return true;
     if (filter === "signal") return post.explicitReset || post.filter === "signal";
@@ -279,7 +279,7 @@ export function GptRadarPage() {
       {tab === "tibo" && (
         <TiboFeedView
           posts={visible}
-          rangeLabel={formatRadarRangeLabel(rangeKey)}
+          rangeLabel="全部"
           totalCount={posts.length}
           signalCount={posts.filter((p) => p.explicitReset || p.filter === "signal").length}
           relatedCount={posts.filter((p) => p.filter === "related").length}
