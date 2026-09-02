@@ -1196,13 +1196,8 @@ function AiAnalysisView({
         <section className="glass-panel flex flex-col gap-4 p-4">
           <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">分析配置</h2>
           <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-q-text-primary">立即检查时同时运行 AI 分析</p>
-              <p className="mt-1 text-[13px] leading-relaxed text-q-text-secondary">
-                默认关闭；关闭后仅同步与展示来源内容。分析范围使用雷达顶部的「动态范围」，AI 关闭时也可以调整。
-              </p>
-            </div>
-            <Switch checked={analyze} onCheckedChange={onAnalyzeChange} label="立即检查时同时运行 AI 分析" />
+            <p className="text-sm font-medium text-q-text-primary">是否开启 AI 分析</p>
+            <Switch checked={analyze} onCheckedChange={onAnalyzeChange} label="是否开启 AI 分析" />
           </div>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium text-q-text-primary">分析模型</span>

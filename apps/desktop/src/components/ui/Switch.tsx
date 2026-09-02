@@ -21,7 +21,7 @@ export function Switch({
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "relative h-6 w-11 cursor-pointer rounded-full border transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50",
+        "relative h-6 w-11 shrink-0 cursor-pointer rounded-full border transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50",
         checked
           ? "border-transparent bg-q-primary"
           : "border-q-border-strong bg-q-neutral-soft",
