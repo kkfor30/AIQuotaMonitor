@@ -2119,7 +2119,7 @@ html.hoverbar-window #root {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
 }
 
-/* 折叠区（最近一次事件 / 验证详情）开关行。 */
+/* 折叠区（最近一次事件 / 验证详情）开关行：单箭头（左侧旋转指示），紧凑行高。 */
 .hb-radar-card-toggle {
   display: flex;
   width: 100%;
@@ -2131,9 +2131,9 @@ html.hoverbar-window #root {
   background: none;
   color: var(--q-hoverbar-ink);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
-  line-height: 18px;
+  line-height: 17px;
   text-align: left;
 }
 

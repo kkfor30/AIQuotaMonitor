@@ -373,7 +373,6 @@ export function HoverbarRadarDetail({
             <span className="hb-radar-card-toggle-meta">
               {recentToggleMeta}
             </span>
-            <ChevronDown size={13} aria-hidden className={recentEventOpen ? "hb-rotate-180" : ""} />
           </button>
           <div className="hb-radar-collapse" data-open={recentEventOpen || undefined} aria-hidden={!recentEventOpen}>
             <div className="hb-radar-collapse-inner hb-radar-recent-body">
