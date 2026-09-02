@@ -324,7 +324,7 @@ export function HoverbarRadarDetail({
           {verifications.length > 0 ? (
             <button
               type="button"
-              className="hb-radar-post-button"
+              className="hb-ai-detail-toggle"
               onClick={() => setQuotaDetailOpen((open) => !open)}
             >
               {quotaDetailOpen ? "收起账号详情" : "查看账号详情"}
