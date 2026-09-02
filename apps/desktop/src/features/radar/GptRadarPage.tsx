@@ -182,17 +182,6 @@ export function GptRadarPage() {
         <p className="min-w-0 flex-1 truncate text-[12.5px] text-q-text-secondary">
           手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译；AI 分析默认关闭，只使用英文原文。
         </p>
-        {radarChecking ? (
-          <Button variant="ghost" size="sm" className="shrink-0" onClick={() => void cancelRadarCheck()}>
-            <RefreshCw size={14} aria-hidden className="animate-spin" />
-            终止检查
-          </Button>
-        ) : (
-          <Button size="sm" className="shrink-0" onClick={() => checkMutation.mutate()}>
-            <RefreshCw size={14} aria-hidden />
-            立即检查
-          </Button>
-        )}
       </header>
       {checkMutation.error && !checkCancelled && (
         <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
@@ -200,29 +189,42 @@ export function GptRadarPage() {
         </p>
       )}
 
-      {/* 分段 Tab + 动态范围（同一行公开可见；范围同时控制 Tibo 列表与 AI 上下文） */}
+      {/* 分段 Tab + 立即检查 + 动态范围（同一行公开可见；范围同时控制 Tibo 列表与 AI 上下文） */}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div
-          role="tablist"
-          className="inline-flex w-fit items-center gap-1 rounded-q-pill border border-q-border bg-q-surface-muted p-1"
-        >
-          {RADAR_TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === item.id}
-              onClick={() => setTab(item.id)}
-              data-active={tab === item.id}
-              className={cn(
-                "cursor-pointer rounded-q-pill px-4 py-1.5 text-[13px] font-medium transition-colors duration-150",
-                "text-q-text-secondary hover:text-q-text-primary",
-                "data-[active=true]:bg-[var(--q-chip-active-bg)] data-[active=true]:text-[var(--q-chip-active-text)] data-[active=true]:shadow-q-sm",
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
+        <div className="flex min-w-0 items-center gap-3">
+          <div
+            role="tablist"
+            className="inline-flex w-fit items-center gap-1 rounded-q-pill border border-q-border bg-q-surface-muted p-1"
+          >
+            {RADAR_TABS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.id}
+                onClick={() => setTab(item.id)}
+                data-active={tab === item.id}
+                className={cn(
+                  "cursor-pointer rounded-q-pill px-4 py-1.5 text-[13px] font-medium transition-colors duration-150",
+                  "text-q-text-secondary hover:text-q-text-primary",
+                  "data-[active=true]:bg-[var(--q-chip-active-bg)] data-[active=true]:text-[var(--q-chip-active-text)] data-[active=true]:shadow-q-sm",
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          {radarChecking ? (
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => void cancelRadarCheck()}>
+              <RefreshCw size={14} aria-hidden className="animate-spin" />
+              终止检查
+            </Button>
+          ) : (
+            <Button size="sm" className="shrink-0" onClick={() => checkMutation.mutate()}>
+              <RefreshCw size={14} aria-hidden />
+              立即检查
+            </Button>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[13px] font-medium text-q-text-secondary">动态范围：</span>
