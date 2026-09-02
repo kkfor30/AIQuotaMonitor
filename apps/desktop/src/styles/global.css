@@ -1932,18 +1932,18 @@ html.hoverbar-window #root {
   container-type: inline-size;
 }
 
-/* 两张状态卡等高横排（判断 / 本机验证）；容器不足两列时换行，不裁剪内容。 */
+/* 两张状态卡顶对齐横排（判断 / 本机验证），各卡按内容自适应高度，避免等高拉伸留白；容器不足两列时换行。 */
 .radar-status-grid {
   display: grid;
   min-width: 0;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
   gap: 16px;
-  align-items: stretch;
+  align-items: start;
 }
 
-/* 本机验证账号列表：默认展开，多账号时卡内滚动，不把页面无限撑高。 */
+/* 本机验证账号列表：默认展开，多账号时卡内滚动限高，不把页面无限撑高。 */
 .radar-verification-scroll {
-  max-height: 340px;
+  max-height: 280px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
