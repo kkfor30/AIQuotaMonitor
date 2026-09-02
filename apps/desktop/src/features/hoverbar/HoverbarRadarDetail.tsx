@@ -94,12 +94,6 @@ export function HoverbarRadarDetail({
   const rangePosts = postsInRadarRange(knownPosts, rangeKey).slice().sort((a, b) => b.postedAt - a.postedAt);
   const verifications = radar?.quotaVerifications ?? [];
   const quotaSummary = radarQuotaSummaryLine(verifications);
-  const citedIds = new Set([
-    ...(decision?.currentKeyCitationIds ?? []),
-    ...(decision?.historicalCitationIds ?? []),
-    ...(radar?.aiAssessment.latestDeltaAnalysis?.citations ?? []),
-    ...(radar?.aiAssessment.eventAnalysis?.citations ?? []),
-  ]);
   // 当前分析选择规则：有活动事件优先 eventAnalysis，无活动事件只读 latestDeltaAnalysis。
   const aiAssessment = radar?.aiAssessment ?? null;
   const aiAnalysis = aiAssessment?.eventAnalysis ?? aiAssessment?.latestDeltaAnalysis ?? null;
@@ -346,7 +340,6 @@ export function HoverbarRadarDetail({
             <RadarPostItem
               key={post.id}
               post={post}
-              cited={citedIds.has(post.id)}
               translating={translate.isPending && translate.variables === post.id}
               onTranslate={() => translate.mutate(post.id)}
             />
@@ -624,12 +617,10 @@ function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
 
 function RadarPostItem({
   post,
-  cited,
   translating,
   onTranslate,
 }: {
   post: RadarPost;
-  cited: boolean;
   translating: boolean;
   onTranslate: () => void;
 }) {
@@ -640,7 +631,6 @@ function RadarPostItem({
         <span className="hb-source-tag" title="来源分类" data-signal={post.explicitReset ? "reset" : post.filter}>
           {sourceRelationLabel(post)}
         </span>
-        {cited ? <span className="hb-ai-cited-tag">AI 已引用</span> : null}
         <span className="hb-radar-post-time">{formatHoverbarClock(post.postedAt)}</span>
       </div>
       <p className="hb-radar-post-text" data-selectable="true">
