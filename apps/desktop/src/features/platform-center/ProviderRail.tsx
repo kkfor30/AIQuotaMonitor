@@ -166,7 +166,7 @@ export function ProviderRail({
                   type="button"
                   aria-label={`移除 ${platform.displayName}`}
                   title="移除平台"
-                  className="mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-q-text-muted opacity-0 transition-opacity hover:bg-q-danger-soft hover:text-q-danger group-hover:opacity-100"
+                  className="absolute right-1.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md bg-q-surface text-q-text-muted shadow-q-sm hover:bg-q-danger-soft hover:text-q-danger group-hover:flex"
                   onClick={(event) => {
                     event.stopPropagation();
                     onRemove(platform.providerId);
