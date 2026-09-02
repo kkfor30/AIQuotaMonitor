@@ -1218,7 +1218,6 @@ pub async fn translate_post(
     let target = resolve_chat_target(database, source_id, None)?;
     let body = json!({
         "model": target.model,
-        "temperature": 0.1,
         "messages": [
             {"role": "system", "content": "Translate the user's English post into Simplified Chinese. Output only the translation itself, keep numbers, URLs and code unchanged."},
             {"role": "user", "content": post.text}
@@ -2219,7 +2218,6 @@ async fn run_analysis_inner(
     }));
     let body = json!({
         "model": target.model,
-        "temperature": 0.1,
         "stream": false,
         "messages": messages
     });
