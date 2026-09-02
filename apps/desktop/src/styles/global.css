@@ -1375,8 +1375,7 @@ html.hoverbar-window #root {
   gap: 8px;
 }
 
-.hb-source-tag,
-.hb-ai-cited-tag {
+.hb-source-tag {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -1386,9 +1385,6 @@ html.hoverbar-window #root {
   font-weight: 700;
   line-height: 15px;
   white-space: nowrap;
-}
-
-.hb-source-tag {
   color: var(--q-hoverbar-ink);
   background: color-mix(in srgb, var(--q-hoverbar-muted) 16%, transparent);
 }
@@ -1401,11 +1397,6 @@ html.hoverbar-window #root {
 }
 
 .hb-source-tag[data-signal="related"] {
-  color: var(--q-hoverbar-primary);
-  background: color-mix(in srgb, var(--q-hoverbar-primary) 12%, transparent);
-}
-
-.hb-ai-cited-tag {
   color: var(--q-hoverbar-primary);
   background: color-mix(in srgb, var(--q-hoverbar-primary) 12%, transparent);
 }
