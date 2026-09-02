@@ -332,28 +332,26 @@ function FinanceSection({ capabilities }: { capabilities: CapabilitySnapshotView
 function CreditBalanceSection({ capability }: { capability: CapabilitySnapshotViewModel }) {
   const missing = isMissing(capability);
   const line = freshnessLine(capability);
+  const note = line
+    ? `套餐内额度用尽后用于继续使用 Codex · ${line.text}`
+    : "套餐内额度用尽后用于继续使用 Codex";
   return (
     <ModulePanel icon={Coins} title="额外额度">
-      <div className="flex min-w-0 flex-col gap-1 border-t border-q-border pt-3">
-        <div className="flex min-w-0 items-baseline justify-between gap-3">
-          {capability.freshness !== "fresh" ? <FreshnessTag freshness={capability.freshness} /> : <span aria-hidden />}
+      <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-t border-q-border pt-3">
+        <span className="flex shrink-0 items-baseline gap-2">
           <span
-            className="min-w-0 shrink-0 truncate text-right text-[16px] leading-6 text-q-text-primary"
+            className="text-[18px] leading-6 text-q-text-primary"
             style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
             data-selectable="true"
             data-missing={missing || undefined}
           >
             {missing ? "未获取" : primaryText(capability)}
           </span>
-        </div>
-        <p className="truncate text-[11px] text-q-text-muted" title="套餐内额度用尽后用于继续使用 Codex">
-          套餐内额度用尽后用于继续使用 Codex
+          {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
+        </span>
+        <p className="min-w-0 truncate text-[11px] text-q-text-muted" title={note}>
+          {note}
         </p>
-        {line && (
-          <p className="text-[11px]" style={{ color: line.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}>
-            {line.text}
-          </p>
-        )}
       </div>
     </ModulePanel>
   );
