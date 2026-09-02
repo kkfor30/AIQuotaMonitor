@@ -191,7 +191,7 @@ export function GptRadarPage() {
 
       {/* 分段 Tab + 立即检查 + 动态范围（同一行公开可见；范围同时控制 Tibo 列表与 AI 上下文） */}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           <div
             role="tablist"
             className="inline-flex w-fit items-center gap-1 rounded-q-pill border border-q-border bg-q-surface-muted p-1"
@@ -226,7 +226,8 @@ export function GptRadarPage() {
             </Button>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        {/* 动态范围：不贴窗口右缘；自定义展开时在组内换行，不挤压左侧 Tab */}
+        <div className="ml-auto mr-4 flex max-w-full flex-wrap items-center justify-end gap-2">
           <span className="text-[13.5px] font-medium text-q-text-secondary">动态范围：</span>
           {QUICK_RANGES.map((range) => (
             <button
@@ -1197,13 +1198,12 @@ function AiAnalysisView({
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <p className="text-sm font-medium text-q-text-primary">立即检查时同时运行 AI 分析</p>
-              <p className="mt-0.5 text-[13px] leading-relaxed text-q-text-secondary">默认关闭；关闭后仅同步与展示来源内容。</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-q-text-secondary">
+                默认关闭；关闭后仅同步与展示来源内容。分析范围使用雷达顶部的「动态范围」，AI 关闭时也可以调整。
+              </p>
             </div>
             <Switch checked={analyze} onCheckedChange={onAnalyzeChange} label="立即检查时同时运行 AI 分析" />
           </div>
-          <p className="text-[13px] leading-relaxed text-q-text-secondary">
-            分析范围使用雷达顶部的「动态范围」，AI 关闭时也可以调整。
-          </p>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium text-q-text-primary">分析模型</span>
             <select
