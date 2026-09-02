@@ -37,7 +37,7 @@ export function StatusBadge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-q-pill px-2.5 py-[3px] text-xs font-medium ${TONE_CLASS[tone]}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-q-pill px-2.5 py-[3px] text-xs font-medium ${TONE_CLASS[tone]}`}
     >
       <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${DOT_CLASS[tone]}`} />
       {withIcon && icon}

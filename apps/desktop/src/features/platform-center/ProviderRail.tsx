@@ -146,7 +146,7 @@ export function ProviderRail({
                 type="button"
                 onClick={() => onSelect(platform.providerId)}
                 aria-current={selected ? "true" : undefined}
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-2.5 py-2.5 text-left"
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-2 py-2.5 text-left"
               >
                 <PlatformMark providerId={platform.providerId} />
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
