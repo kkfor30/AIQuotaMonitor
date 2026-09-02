@@ -556,54 +556,54 @@ function SignalSummaryView({
               <p className="text-[12.5px] leading-relaxed text-q-text-secondary" data-selectable="true">
                 {quotaSummary}
               </p>
-              <div className="radar-verification-scroll flex flex-col gap-1.5">
-                {verifications.map((item) => (
-                    <div
-                      key={item.sourceId}
-                      className="flex flex-col gap-1 rounded-q-control border border-q-border bg-q-surface-strong px-2.5 py-1.5"
-                    >
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <b className="whitespace-nowrap text-[12.5px] text-q-text-primary">{item.accountName}</b>
-                        <StatusBadge tone={quotaTone(item.status)}>
-                          {quotaBadgeLabel(item.status, item.attribution, item.lastResetObservedAt)}
-                        </StatusBadge>
-                        {item.attribution === "user_confirmed" ? (
-                          <span className="text-[11px] text-q-text-muted">用户已确认重置卡</span>
-                        ) : null}
-                        {quotaCorrelationLabel(item.temporalCorrelation) ? (
-                          <span className="text-[11px] text-q-text-muted">{quotaCorrelationLabel(item.temporalCorrelation)}</span>
-                        ) : null}
-                      </div>
-                      {item.status === "unavailable" && (
-                        <p className="text-[11px] leading-relaxed text-q-text-muted">
-                          当前网络无法获取 Codex 额度，不影响来源与 AI 判断。
-                        </p>
-                      )}
-                      {item.note && <p className="text-[11px] text-q-text-muted">{item.note}</p>}
-                      <p className="text-[11px] text-q-text-muted">
-                        {item.windowLabel ? `${item.windowLabel} · ` : ""}
-                        {item.lastSuccessAt ? `上次成功 ${formatTime(item.lastSuccessAt)}` : "尚无成功快照"}
-                      </p>
-                      {["unscheduled_reset", "possible_reset"].includes(item.status) &&
-                        item.observationId != null &&
-                        item.attribution !== "user_confirmed" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="self-start"
-                            disabled={confirmCard.isPending}
-                            onClick={() =>
-                              confirmCard.mutate({
-                                observationId: item.observationId ?? 0,
-                                confirmedAt: Date.now(),
-                              })
-                            }
-                          >
-                            确认这是我手动使用的重置卡
-                          </Button>
-                        )}
+              <div className="radar-verification-scroll flex flex-col">
+                {verifications.map((item, index) => (
+                  <div
+                    key={item.sourceId}
+                    className={cn("flex flex-col gap-1 py-2", index > 0 && "border-t border-q-border/60")}
+                  >
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <b className="whitespace-nowrap text-[13px] text-q-text-primary">{item.accountName}</b>
+                      <StatusBadge tone={quotaTone(item.status)}>
+                        {quotaBadgeLabel(item.status, item.attribution, item.lastResetObservedAt)}
+                      </StatusBadge>
+                      {item.attribution === "user_confirmed" ? (
+                        <span className="text-[11px] text-q-text-muted">用户已确认重置卡</span>
+                      ) : null}
+                      {quotaCorrelationLabel(item.temporalCorrelation) ? (
+                        <span className="text-[11px] text-q-text-muted">{quotaCorrelationLabel(item.temporalCorrelation)}</span>
+                      ) : null}
                     </div>
-                  ))}
+                    {item.status === "unavailable" && (
+                      <p className="text-[11.5px] leading-relaxed text-q-text-secondary">
+                        当前网络无法获取 Codex 额度，不影响来源与 AI 判断。
+                      </p>
+                    )}
+                    {item.note && <p className="text-[11.5px] leading-relaxed text-q-text-secondary">{item.note}</p>}
+                    <p className="text-[11.5px] tabular-nums text-q-text-muted">
+                      {item.windowLabel ? `${item.windowLabel} · ` : ""}
+                      {item.lastSuccessAt ? `上次成功 ${formatCompactTime(item.lastSuccessAt)}` : "尚无成功快照"}
+                    </p>
+                    {["unscheduled_reset", "possible_reset"].includes(item.status) &&
+                      item.observationId != null &&
+                      item.attribution !== "user_confirmed" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="self-start"
+                          disabled={confirmCard.isPending}
+                          onClick={() =>
+                            confirmCard.mutate({
+                              observationId: item.observationId ?? 0,
+                              confirmedAt: Date.now(),
+                            })
+                          }
+                        >
+                          确认这是我手动使用的重置卡
+                        </Button>
+                      )}
+                  </div>
+                ))}
               </div>
             </>
           )}
