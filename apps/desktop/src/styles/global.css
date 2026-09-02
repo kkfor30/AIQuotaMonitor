@@ -1689,6 +1689,11 @@ html.hoverbar-window #root {
   font-weight: 650;
 }
 
+/* 账号刷新结果说明（如“本次刷新未见进一步变化…”）：字号不变，仅加粗以示结果性信息。 */
+.hb-radar-meta-strong {
+  font-weight: 600;
+}
+
 .hb-radar-error {
   margin: 7px 0 0;
   color: var(--q-hoverbar-danger);
