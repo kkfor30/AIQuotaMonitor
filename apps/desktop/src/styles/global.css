@@ -1932,7 +1932,7 @@ html.hoverbar-window #root {
   container-type: inline-size;
 }
 
-/* 两张状态卡等高横排（判断+最近重置 / 本机验证）；容器不足两列时换行，不裁剪内容。 */
+/* 两张状态卡等高横排（判断 / 本机验证）；容器不足两列时换行，不裁剪内容。 */
 .radar-status-grid {
   display: grid;
   min-width: 0;
@@ -1941,30 +1941,13 @@ html.hoverbar-window #root {
   align-items: stretch;
 }
 
-/* 主体双栏：左 AI 分析约 60%，右 公告 + Tibo 预览约 40%；窄容器退为单栏且公告前置。 */
-.radar-workspace-grid {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 16px;
-  align-items: start;
-}
-
-@container (max-width: 1020px) {
-  .radar-workspace-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  /* 拆开右栏容器，把公告排到 AI 卡之前，避免窄窗口时公告沉底。 */
-  .radar-workspace-side {
-    display: contents;
-  }
-
-  .radar-workspace-grid .radar-notice-card {
-    order: -1;
-  }
+/* 本机验证账号列表：默认展开，多账号时卡内滚动，不把页面无限撑高。 */
+.radar-verification-scroll {
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding-right: 2px;
 }
 
 /* AI 卡标题右侧的文字折叠开关（UI V4：不再用正文底部孤立按钮）。 */

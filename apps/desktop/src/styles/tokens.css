@@ -34,8 +34,8 @@
 
   /* 文字：深墨蓝体系，辅助文字保持可读对比 */
   --q-text-primary: #142536;
-  --q-text-secondary: #2e4056;
-  --q-text-muted: #4e6078;
+  --q-text-secondary: #233248;
+  --q-text-muted: #3f5068;
   --q-text-inverse: #ffffff;
 
   /* 主操作（蓝） */
@@ -110,7 +110,7 @@
   --q-hoverbar-card-border: rgba(110, 160, 188, 0.28);
   --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.9);
   --q-hoverbar-ink: #122a3d;
-  --q-hoverbar-muted: #3c5871;
+  --q-hoverbar-muted: #2f4b64;
   --q-hoverbar-muted-strong: #1e4157;
   --q-hoverbar-money: #0a66ff;
   --q-hoverbar-money-secondary: #1467d6;
@@ -165,8 +165,8 @@
     --q-border-strong: rgba(160, 191, 211, 0.27);
     --q-border-selected: rgba(91, 156, 255, 0.55);
     --q-text-primary: #f6fafd;
-    --q-text-secondary: #d3dee8;
-    --q-text-muted: #b2c2d1;
+    --q-text-secondary: #dbe4ec;
+    --q-text-muted: #bcc9d6;
     --q-primary: #5b9cff;
     --q-primary-hover: #75adff;
     --q-primary-soft: rgba(91, 156, 255, 0.16);
@@ -211,7 +211,7 @@
     --q-hoverbar-card-border: rgba(160, 191, 211, 0.26);
     --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.07);
     --q-hoverbar-ink: #f6fafd;
-    --q-hoverbar-muted: #bacdda;
+    --q-hoverbar-muted: #c4d4e0;
     --q-hoverbar-muted-strong: #d5e5f0;
     --q-hoverbar-money: #d7e5ef;
     --q-hoverbar-money-secondary: #b8c9d6;
@@ -248,8 +248,8 @@
   --q-border-strong: rgba(160, 191, 211, 0.27);
   --q-border-selected: rgba(91, 156, 255, 0.55);
   --q-text-primary: #f6fafd;
-  --q-text-secondary: #d3dee8;
-  --q-text-muted: #b2c2d1;
+  --q-text-secondary: #dbe4ec;
+  --q-text-muted: #bcc9d6;
   --q-primary: #5b9cff;
   --q-primary-hover: #75adff;
   --q-primary-soft: rgba(91, 156, 255, 0.16);
@@ -298,7 +298,7 @@
   --q-hoverbar-card-border: rgba(110, 160, 188, 0.28);
   --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.9);
   --q-hoverbar-ink: #122a3d;
-  --q-hoverbar-muted: #3c5871;
+  --q-hoverbar-muted: #2f4b64;
   --q-hoverbar-muted-strong: #1e4157;
   --q-hoverbar-money: #0a66ff;
   --q-hoverbar-money-secondary: #1467d6;
@@ -330,7 +330,7 @@
   --q-hoverbar-card-border: rgba(160, 191, 211, 0.26);
   --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.07);
   --q-hoverbar-ink: #f6fafd;
-  --q-hoverbar-muted: #bacdda;
+  --q-hoverbar-muted: #c4d4e0;
   --q-hoverbar-muted-strong: #d5e5f0;
   --q-hoverbar-money: #d7e5ef;
   --q-hoverbar-money-secondary: #b8c9d6;

@@ -284,7 +284,7 @@ export function GptRadarPage() {
       </div>
 
       {isLoading && <p className="shrink-0 text-sm text-q-text-muted">正在加载雷达数据…</p>}
-      {tab === "signal" && <SignalSummaryView data={data} onOpenTibo={() => setTab("tibo")} />}
+      {tab === "signal" && <SignalSummaryView data={data} />}
       {tab === "tibo" && (
         <TiboFeedView
           posts={visible}
@@ -370,20 +370,10 @@ function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "pri
 
 /* ————————————————— 信号摘要（设计稿 04） ————————————————— */
 
-/** 相对天数文案（最近一次重置卡用）。 */
-function radarRecentRelativeLabel(at: number): string {
-  const days = Math.floor((Date.now() - at) / 86_400_000);
-  if (days <= 0) return "今天";
-  if (days === 1) return "昨天";
-  return `${days} 天前`;
-}
-
 function SignalSummaryView({
   data,
-  onOpenTibo,
 }: {
   data: RadarSnapshot | undefined;
-  onOpenTibo: () => void;
 }) {
   const queryClient = useQueryClient();
   const decision = data?.decision ?? null;
@@ -407,7 +397,6 @@ function SignalSummaryView({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [historyAnalysisOpen, setHistoryAnalysisOpen] = useState(false);
-  const [verificationOpen, setVerificationOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const recentResetAt = recentReset?.observedResetAt ?? recentReset?.userConfirmedResetAt ?? null;
   const recentMeta = recentResetAt
@@ -431,11 +420,6 @@ function SignalSummaryView({
     return { tone: "success" as const, label: "正常" };
   })();
   const quotaSummary = radarQuotaSummaryLine(verifications);
-  // Tibo 最近动态预览：当前范围按 postedAt 倒序取 3 条，只读摘要。
-  const previewPosts = postsInRadarRange(knownPosts, data?.analysisPrefs.rangeKey ?? "3d")
-    .slice()
-    .sort((a, b) => b.postedAt - a.postedAt)
-    .slice(0, 3);
   const confirmCard = useMutation({
     mutationFn: confirmRadarQuotaChange,
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
@@ -502,50 +486,13 @@ function SignalSummaryView({
           ) : (
             <p className="text-xs text-q-text-muted">正在加载重置判断…</p>
           )}
-
-          {/* 最近一次重置：并入判断卡，只认本机观察/用户确认的真实时间；来源声称不冒充重置 */}
-          <div className="mt-auto flex flex-col gap-1 border-t border-q-border/70 pt-2.5">
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] font-semibold text-q-text-secondary">最近一次重置</span>
-              {recentReset ? (
-                <span className="rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success">
-                  本机确认
-                </span>
-              ) : null}
-            </div>
-            {recentResetAt ? (
-              <p className="text-[20px] font-semibold leading-tight tracking-tight text-q-text-primary">
-                <span className="tabular-nums">{formatCompactTime(recentResetAt)}</span>
-                <span className="ml-2 text-[12px] font-medium text-q-text-secondary">
-                  {radarRecentRelativeLabel(recentResetAt)} · {radarConfirmationSourceLabel(recentReset?.confirmationSource)}
-                </span>
-              </p>
-            ) : (
-              <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
-                {recentClosedEvent
-                  ? "暂无已确认的重置；已关闭事件的时间来自来源声称，不作为重置事实。"
-                  : "暂无已确认的重置，等待本机观察或用户确认。"}
-              </p>
-            )}
-          </div>
         </section>
 
-        {/* 本机验证：汇总徽章 + 一句汇总；账号详情默认折叠，归因确认保留 */}
+        {/* 本机验证：汇总徽章 + 一句汇总；账号详情直接展开，多账号时卡内滚动防溢出 */}
         <section className="glass-panel flex flex-col gap-2 p-4">
           <div className="flex items-center gap-2">
             <h2 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">本机验证</h2>
             {quotaOverall ? <StatusBadge tone={quotaOverall.tone}>{quotaOverall.label}</StatusBadge> : null}
-            {verifications.length > 0 ? (
-              <button
-                type="button"
-                className="radar-inline-toggle ml-auto"
-                data-open={verificationOpen || undefined}
-                onClick={() => setVerificationOpen((value) => !value)}
-              >
-                {verificationOpen ? "收起账号详情" : "查看账号详情"}
-                <ChevronDown size={13} aria-hidden />
-              </button>
-            ) : null}
           </div>
           {verifications.length === 0 ? (
             <p className="text-xs text-q-text-muted">未接入 GPT 额度来源。</p>
@@ -554,9 +501,8 @@ function SignalSummaryView({
               <p className="text-[12.5px] leading-relaxed text-q-text-secondary" data-selectable="true">
                 {quotaSummary}
               </p>
-              <AnimatedCollapse open={verificationOpen}>
-                <div className="flex flex-col gap-1.5 pt-1">
-                  {verifications.map((item) => (
+              <div className="radar-verification-scroll flex flex-col gap-1.5">
+                {verifications.map((item) => (
                     <div
                       key={item.sourceId}
                       className="flex flex-col gap-1 rounded-q-control border border-q-border bg-q-surface-strong px-2.5 py-1.5"
@@ -603,54 +549,83 @@ function SignalSummaryView({
                         )}
                     </div>
                   ))}
-                </div>
-              </AnimatedCollapse>
+              </div>
             </>
           )}
         </section>
       </div>
 
-      {/* 60/40 双栏：左 AI 分析主区，右 公告细条 + Tibo 最近动态预览（窄宽自动单栏，无横向滚动） */}
-      <div className="radar-workspace-grid shrink-0">
-        {/* 左栏：AI 分析主卡（结论/分析/正向依据；详情开关在标题右侧） */}
-        <section className="glass-panel flex min-w-0 flex-col gap-3 p-4">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">AI 分析</h2>
-            <span
-              className={
-                !ai || ai.state === "disabled"
-                  ? "rounded-q-pill bg-q-neutral-soft px-2.5 py-1 text-[12px] font-medium text-q-neutral"
-                  : ai.state === "covered"
-                    ? "rounded-q-pill bg-q-success-soft px-2.5 py-1 text-[12px] font-medium text-q-success"
-                    : ai.state === "failed"
-                      ? "rounded-q-pill bg-q-danger-soft px-2.5 py-1 text-[12px] font-medium text-q-danger"
-                      : "rounded-q-pill bg-q-warning-soft px-2.5 py-1 text-[12px] font-medium text-q-warning"
-              }
-            >
-              {aiStatusLabel}
+      {/* CodexRadar 公告：全宽细条；区分 当前公告 / 最近公告 / 当前无公告 / 缓存可能过期；不进入本地 AI 输入 */}
+      <section className="glass-panel radar-notice-card flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
+        <h2 className="whitespace-nowrap text-[14px] font-semibold tracking-tight text-q-text-primary">
+          {notice ? (notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
+        </h2>
+        {notice ? (
+          <span className="rounded-q-pill bg-q-primary-soft px-2 py-0.5 text-[11px] font-medium text-q-primary">
+            {notice.isCurrent ? "当前公告" : "最近公告"}
+          </span>
+        ) : null}
+        <span
+          className={
+            data?.sourceStatus === "fresh"
+              ? "rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success"
+              : data?.sourceStatus === "stale"
+                ? "rounded-q-pill bg-q-warning-soft px-2 py-0.5 text-[11px] font-medium text-q-warning"
+                : "rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral"
+          }
+        >
+          {data?.sourceStatus === "fresh" ? "同步正常" : data?.sourceStatus === "stale" ? "缓存可能过期" : "尚未同步"}
+        </span>
+        {notice ? (
+          <>
+            <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
+              <span className="font-semibold text-q-text-primary">{notice.headline}</span>
+              {notice.lead ? <span> · {notice.lead}</span> : null}
+            </p>
+            <span className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap text-[12px] text-q-text-muted">
+              {notice.isCurrent
+                ? notice.updatedAt
+                  ? `更新 ${formatTime(notice.updatedAt)}`
+                  : "当前公告"
+                : notice.updatedAt
+                  ? `上次出现于 ${formatTime(notice.updatedAt)}`
+                  : "历史公告"}
+              <a
+                href="https://codexradar.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openExternalUrl("https://codexradar.com/").catch(() => {});
+                }}
+              >
+                <ExternalLink size={12} aria-hidden />
+                打开 CodexRadar
+              </a>
             </span>
-            {showCurrentAnalysis ? (
-              <button
-                type="button"
-                className="radar-inline-toggle ml-auto"
-                data-open={analysisOpen || undefined}
-                onClick={() => setAnalysisOpen((value) => !value)}
-              >
-                {analysisOpen ? "收起分析详情" : "查看分析详情"}
-                <ChevronDown size={13} aria-hidden />
-              </button>
-            ) : historicalAnalysis?.conclusion ? (
-              <button
-                type="button"
-                className="radar-inline-toggle ml-auto"
-                data-open={historyAnalysisOpen || undefined}
-                onClick={() => setHistoryAnalysisOpen((value) => !value)}
-              >
-                {historyAnalysisOpen ? "收起历史分析" : "查看历史分析"}
-                <ChevronDown size={13} aria-hidden />
-              </button>
-            ) : null}
-          </div>
+          </>
+        ) : null}
+      </section>
+
+      {/* AI 分析全宽主卡：结论/分析/正向依据；详情开关在正文底部 */}
+      <section className="glass-panel flex shrink-0 flex-col gap-3 p-4">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">AI 分析</h2>
+          <span
+            className={
+              !ai || ai.state === "disabled"
+                ? "rounded-q-pill bg-q-neutral-soft px-2.5 py-1 text-[12px] font-medium text-q-neutral"
+                : ai.state === "covered"
+                  ? "rounded-q-pill bg-q-success-soft px-2.5 py-1 text-[12px] font-medium text-q-success"
+                  : ai.state === "failed"
+                    ? "rounded-q-pill bg-q-danger-soft px-2.5 py-1 text-[12px] font-medium text-q-danger"
+                    : "rounded-q-pill bg-q-warning-soft px-2.5 py-1 text-[12px] font-medium text-q-warning"
+            }
+          >
+            {aiStatusLabel}
+          </span>
+        </div>
         {showCurrentAnalysis && aiReasoning ? (
           <>
             <div className="flex flex-col gap-1.5">
@@ -716,6 +691,15 @@ function SignalSummaryView({
               {aiReasoning.model ?? "未知模型"} · {formatTime(aiReasoning.createdAt)}
               {data?.analysisPrefs.rangeKey ? ` · ${formatRadarRangeLabel(data.analysisPrefs.rangeKey)}` : ""}
             </p>
+            <button
+              type="button"
+              className="radar-inline-toggle self-start"
+              data-open={analysisOpen || undefined}
+              onClick={() => setAnalysisOpen((value) => !value)}
+            >
+              {analysisOpen ? "收起分析详情" : "查看分析详情"}
+              <ChevronDown size={13} aria-hidden />
+            </button>
             <AnimatedCollapse open={analysisOpen}>
               <div className="radar-collapse-scroll flex flex-col gap-2">
                 <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={aiReasoning.support.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
@@ -741,6 +725,15 @@ function SignalSummaryView({
             </p>
             {historicalAnalysis?.conclusion ? (
               <>
+                <button
+                  type="button"
+                  className="radar-inline-toggle self-start"
+                  data-open={historyAnalysisOpen || undefined}
+                  onClick={() => setHistoryAnalysisOpen((value) => !value)}
+                >
+                  {historyAnalysisOpen ? "收起历史分析" : "查看历史分析"}
+                  <ChevronDown size={13} aria-hidden />
+                </button>
                 <AnimatedCollapse open={historyAnalysisOpen}>
                   <div className="flex flex-col gap-1.5">
                     <p className="text-[13px] font-semibold text-q-primary">历史结论</p>
@@ -766,113 +759,6 @@ function SignalSummaryView({
           </>
         )}
       </section>
-
-        {/* 右栏：CodexRadar 公告细条 + Tibo 最近动态预览（窄容器单栏时公告前置） */}
-        <div className="radar-workspace-side flex min-w-0 flex-col gap-4">
-          {/* CodexRadar 公告：细条；区分 当前公告 / 最近公告 / 当前无公告 / 缓存可能过期；不进入本地 AI 输入 */}
-          <section className="glass-panel radar-notice-card flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
-            <h2 className="whitespace-nowrap text-[14px] font-semibold tracking-tight text-q-text-primary">
-              {notice ? (notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
-            </h2>
-            {notice ? (
-              <span className="rounded-q-pill bg-q-primary-soft px-2 py-0.5 text-[11px] font-medium text-q-primary">
-                {notice.isCurrent ? "当前公告" : "最近公告"}
-              </span>
-            ) : null}
-            <span
-              className={
-                data?.sourceStatus === "fresh"
-                  ? "rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success"
-                  : data?.sourceStatus === "stale"
-                    ? "rounded-q-pill bg-q-warning-soft px-2 py-0.5 text-[11px] font-medium text-q-warning"
-                    : "rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral"
-              }
-            >
-              {data?.sourceStatus === "fresh" ? "同步正常" : data?.sourceStatus === "stale" ? "缓存可能过期" : "尚未同步"}
-            </span>
-            {notice ? (
-              <>
-                <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
-                  <span className="font-semibold text-q-text-primary">{notice.headline}</span>
-                  {notice.lead ? <span> · {notice.lead}</span> : null}
-                </p>
-                <span className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap text-[12px] text-q-text-muted">
-                  {notice.isCurrent
-                    ? notice.updatedAt
-                      ? `更新 ${formatTime(notice.updatedAt)}`
-                      : "当前公告"
-                    : notice.updatedAt
-                      ? `上次出现于 ${formatTime(notice.updatedAt)}`
-                      : "历史公告"}
-                  <a
-                    href="https://codexradar.com/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      void openExternalUrl("https://codexradar.com/").catch(() => {});
-                    }}
-                  >
-                    <ExternalLink size={12} aria-hidden />
-                    打开 CodexRadar
-                  </a>
-                </span>
-              </>
-            ) : null}
-          </section>
-
-          {/* Tibo 最近动态预览：只读 3 条（时间 + 来源 + 一行摘要）；不触发翻译，完整列表在 Tibo 动态 Tab */}
-          <section className="glass-panel flex min-w-0 flex-col p-4">
-            <div className="flex items-center gap-2">
-              <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">
-                Tibo 动态
-                <span className="ml-1 text-[12px] font-medium text-q-text-muted">（最近 3 条）</span>
-              </h2>
-              <button type="button" className="radar-inline-toggle ml-auto" onClick={onOpenTibo}>
-                更多
-                <ChevronRight size={13} aria-hidden />
-              </button>
-            </div>
-            {previewPosts.length === 0 ? (
-              <p className="py-3 text-[13px] text-q-text-secondary">当前范围暂无动态。</p>
-            ) : (
-              <ul className="flex flex-col">
-                {previewPosts.map((post, index) => (
-                  <li
-                    key={post.id}
-                    className={cn("flex flex-col gap-1 py-2", index > 0 && "border-t border-q-border/60")}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="shrink-0 tabular-nums text-[11.5px] text-q-text-muted">
-                        {formatCompactTime(post.postedAt)}
-                      </span>
-                      <span
-                        className={
-                          post.explicitReset || post.filter === "signal"
-                            ? "hb-signal-tag hb-signal-tag-direct"
-                            : post.filter === "related"
-                              ? "hb-signal-tag hb-signal-tag-related"
-                              : "hb-signal-tag hb-signal-tag-none"
-                        }
-                      >
-                        {sourceRelationLabel(post)}
-                      </span>
-                    </div>
-                    <p
-                      className="truncate text-[13px] leading-relaxed text-q-text-secondary"
-                      title={post.summary ?? post.translatedText ?? post.text}
-                      data-selectable="true"
-                    >
-                      {post.summary ?? post.translatedText ?? post.text}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-      </div>
 
       {/* 最近一次重置：默认折叠，折叠行突出真实时间；展开只保留 时间/确认方式/最终状态/当时结论/当时分析 */}
       {recentCard ? (
