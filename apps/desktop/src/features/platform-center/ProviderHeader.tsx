@@ -20,21 +20,21 @@ export function ProviderHeader({
   onRemove: () => void;
 }) {
   return (
-    <header className="flex items-start justify-between gap-4 px-1">
-      <div className="flex items-center gap-4">
+    <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-1">
+      <div className="flex min-w-0 items-center gap-4">
         <PlatformMark providerId={platform.providerId} size={56} />
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-3">
-            <h1 className="text-[24px] font-bold tracking-tight text-q-text-primary">
+            <h1 className="min-w-0 truncate text-[24px] font-bold tracking-tight text-q-text-primary">
               {platform.displayName}
             </h1>
             <AggregateStatusBadge status={platform.aggregateStatus} />
           </div>
-          <p className="mt-1 text-[13px] text-q-text-secondary">{platform.accessSummary}</p>
+          <p className="mt-1 truncate text-[13px] text-q-text-secondary">{platform.accessSummary}</p>
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
         <Button
           variant="secondary"
           size="sm"
