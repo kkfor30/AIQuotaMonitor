@@ -63,7 +63,7 @@ export function ProviderRail({
     <aside
       className={cn(
         "mr-3 flex shrink-0 flex-col gap-2 rounded-[18px] border border-q-border bg-q-surface p-3 shadow-q-sm backdrop-blur-xl",
-        icons ? "w-[72px]" : "w-[232px]",
+        icons ? "w-[72px]" : "w-[200px]",
       )}
     >
       {icons ? (

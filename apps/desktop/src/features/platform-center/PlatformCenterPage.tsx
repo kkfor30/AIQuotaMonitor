@@ -153,12 +153,12 @@ export function PlatformCenterPage({
     <div ref={page.ref} className="flex min-h-0 min-w-0 flex-1 p-4 pt-2">
       {page.mode !== "compact" && (
         <ProviderRail
-          mode={page.mode === "medium" ? "icons" : "full"}
+          mode="full"
           platforms={platforms}
           selectedId={platform.providerId}
           onSelect={handleSelect}
           onAdd={() => setAddOpen(true)}
-          onRemove={page.mode === "wide" ? setPendingRemoveId : undefined}
+          onRemove={setPendingRemoveId}
         />
       )}
 
