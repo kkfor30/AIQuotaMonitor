@@ -1558,7 +1558,7 @@ function ListBlock({
   );
 }
 
-/** 引用卡：别名映射回真实 post_id 后，用「时间 · 查看原帖」展示，不暴露原始帖子编号。 */
+/** 引用卡：别名映射回真实 post_id 后，展示帖子原文 + 时间 + 查看原帖，不暴露原始帖子编号。 */
 function CitationList({ citations, posts, compact = false }: { citations: string[]; posts: RadarPost[]; compact?: boolean }) {
   const [linkError, setLinkError] = useState<string | null>(null);
   if (citations.length === 0) return null;
@@ -1580,29 +1580,56 @@ function CitationList({ citations, posts, compact = false }: { citations: string
               key={`${index}-${citation.slice(0, 12)}`}
               className={cn(
                 "flex items-center gap-2 border border-q-border bg-q-surface-strong text-xs leading-relaxed text-q-text-primary",
-                compact ? "rounded-q-pill px-2.5 py-1" : "rounded-q-control px-3 py-2",
+                compact ? "rounded-q-pill px-2.5 py-1" : "flex-col items-stretch rounded-q-control px-3 py-2",
               )}
             >
-              {!compact ? <span className="shrink-0 tabular-nums font-medium text-q-primary">{index + 1}.</span> : null}
-              {post ? (
+              {!compact && post ? (
                 <>
-                  <span className="min-w-0 shrink-0 tabular-nums text-q-text-muted">{citationTimeLabel(post.postedAt)}</span>
-                  <button
-                    type="button"
-                    className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
-                    onClick={() => {
-                      setLinkError(null);
-                      void openExternalUrl(post.url).catch((error) => {
-                        setLinkError(ipcErrorMessage(error, "无法打开原帖"));
-                      });
-                    }}
-                  >
-                    <ExternalLink size={12} aria-hidden />
-                    查看原帖
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 tabular-nums font-medium text-q-primary">{index + 1}.</span>
+                    <span className="shrink-0 tabular-nums text-q-text-muted">{citationTimeLabel(post.postedAt)}</span>
+                    <button
+                      type="button"
+                      className="ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1 text-q-primary hover:underline"
+                      onClick={() => {
+                        setLinkError(null);
+                        void openExternalUrl(post.url).catch((error) => {
+                          setLinkError(ipcErrorMessage(error, "无法打开原帖"));
+                        });
+                      }}
+                    >
+                      <ExternalLink size={12} aria-hidden />
+                      查看原帖
+                    </button>
+                  </div>
+                  <p className="min-w-0 text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                    {post.summary ?? post.translatedText ?? post.text}
+                  </p>
                 </>
               ) : (
-                <span className="min-w-0 text-q-text-muted">引用帖（不在当前同步列表）</span>
+                <>
+                  {!compact ? <span className="shrink-0 tabular-nums font-medium text-q-primary">{index + 1}.</span> : null}
+                  {post ? (
+                    <>
+                      <span className="min-w-0 shrink-0 tabular-nums text-q-text-muted">{citationTimeLabel(post.postedAt)}</span>
+                      <button
+                        type="button"
+                        className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
+                        onClick={() => {
+                          setLinkError(null);
+                          void openExternalUrl(post.url).catch((error) => {
+                            setLinkError(ipcErrorMessage(error, "无法打开原帖"));
+                          });
+                        }}
+                      >
+                        <ExternalLink size={12} aria-hidden />
+                        查看原帖
+                      </button>
+                    </>
+                  ) : (
+                    <span className="min-w-0 text-q-text-muted">引用帖（不在当前同步列表）</span>
+                  )}
+                </>
               )}
             </li>
           );

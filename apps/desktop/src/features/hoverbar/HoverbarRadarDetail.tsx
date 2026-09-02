@@ -496,9 +496,6 @@ function AiReasoningBlock({
     .filter((id) => analysis.newPostIds.includes(id))
     .map((id) => byId.get(id))
     .filter((post): post is RadarPost => Boolean(post));
-  const allCitationPosts = analysis.citations
-    .map((id) => byId.get(id))
-    .filter((post): post is RadarPost => Boolean(post));
   const visible = currentCitationPosts.slice(0, citationLimit);
   const irrelevant = analysis.eventRelation === "none";
   return (
@@ -554,9 +551,6 @@ function AiReasoningBlock({
             <p className="hb-radar-meta" data-selectable="true" key={`uncertain-${index}`}>
               不确定 · {humanizeRadarPostRefs(item, posts)}
             </p>
-          ))}
-          {allCitationPosts.map((post) => (
-            <CitationChip key={`all-${post.id}`} post={post} tag={irrelevant ? "无关信号" : "直接信号"} />
           ))}
         </div>
       </div>
