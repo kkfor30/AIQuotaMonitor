@@ -2158,6 +2158,13 @@ html.hoverbar-window #root {
   padding-block: 7px;
 }
 
+/* 展开区为历史回顾内容：当时分析降一档（12px/500），与周边 11~12px 信息协调，不抢 AI 当前分析的主层级。 */
+.hb-radar-recent-body .hb-radar-copy {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
 /* 本机验证卡操作行：重试（仅来源不可用时出现）与账号详情并排，文字段落保持整行宽度。 */
 .hb-quota-summary-actions {
   margin-top: 8px;
