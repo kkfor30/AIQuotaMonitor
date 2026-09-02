@@ -254,10 +254,12 @@ export function HoverbarRadarDetail({
               <>
                 <button
                   type="button"
-                  className="hb-radar-post-button"
+                  className="hb-ai-detail-toggle"
+                  data-open={historyAnalysisOpen || undefined}
                   onClick={() => setHistoryAnalysisOpen((value) => !value)}
                 >
                   {historyAnalysisOpen ? "收起历史分析" : "查看历史分析"}
+                  <ChevronDown size={12} aria-hidden />
                 </button>
                 <div className="hb-radar-collapse" data-open={historyAnalysisOpen || undefined} aria-hidden={!historyAnalysisOpen}>
                   <div className="hb-radar-collapse-inner hb-radar-recent-body">
@@ -532,8 +534,9 @@ function AiReasoningBlock({
       {currentCitationPosts.length > citationLimit ? (
         <p className="hb-radar-meta">查看全部 {currentCitationPosts.length} 条</p>
       ) : null}
-      <button type="button" className="hb-radar-post-button" onClick={onToggle}>
+      <button type="button" className="hb-ai-detail-toggle" data-open={open || undefined} onClick={onToggle}>
         {open ? "收起分析详情" : "查看分析详情"}
+        <ChevronDown size={12} aria-hidden />
       </button>
       <div className="hb-radar-collapse" data-open={open || undefined} aria-hidden={!open}>
         <div className="hb-radar-collapse-inner hb-ai-detail-body">

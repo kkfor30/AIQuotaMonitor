@@ -1169,7 +1169,7 @@ html.hoverbar-window #root {
   font-size: 11px;
 }
 
-/* GPT 重置信号摘要条（设计稿 12）：与平台额度状态完全独立。 */
+/* GPT 重置信号摘要条（UI V4）：近白实体卡、细灰蓝边框、极轻阴影，不再大面积蓝底。 */
 .hb-radar-strip {
   display: flex;
   flex: none;
@@ -1178,9 +1178,10 @@ html.hoverbar-window #root {
   margin-top: 2px;
   padding: 9px 11px;
   overflow: hidden;
+  border: 1px solid var(--q-hoverbar-card-border);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--q-hoverbar-primary) 7%, var(--q-hoverbar-empty-bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 90%, transparent);
+  background: var(--q-hoverbar-card-bg);
+  box-shadow: 0 1px 2px rgba(16, 42, 67, 0.05);
 }
 
 .hb-radar-strip-head {
@@ -1923,13 +1924,65 @@ html.hoverbar-window #root {
   font-size: 13px;
 }
 
-/* AI 分析卡：轻微主蓝底提示层次（UI V3：无左侧色条、无装饰方块）。 */
-.radar-ai-card {
-  background: color-mix(in srgb, var(--q-primary) 2.5%, transparent);
+/* UI V4：AI 分析卡不再使用大面积浅蓝底，继承 glass-panel 近白实体层。 */
+
+/* ===== GPT 雷达紧凑控制台（UI V4）：三状态卡 + 60/40 双栏 ===== */
+
+.radar-console {
+  container-type: inline-size;
 }
 
-.hb-ai-card {
-  background: color-mix(in srgb, var(--q-hoverbar-primary) 3%, transparent);
+/* 三张状态卡等高横排；容器不足时自动换行，不裁剪内容。 */
+.radar-status-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+/* 主体双栏：左 AI 分析约 60%，右 公告 + Tibo 预览约 40%；窄容器退为单栏。 */
+.radar-workspace-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@container (max-width: 1020px) {
+  .radar-workspace-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* AI 卡标题右侧的文字折叠开关（UI V4：不再用正文底部孤立按钮）。 */
+.radar-inline-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--q-primary);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.radar-inline-toggle:hover {
+  background: color-mix(in srgb, var(--q-primary) 8%, transparent);
+}
+
+.radar-inline-toggle svg {
+  transition: transform 180ms ease;
+}
+
+.radar-inline-toggle[data-open="true"] svg {
+  transform: rotate(180deg);
 }
 
 /* 主窗口雷达折叠区：CSS Grid 支持内容高度动画，不做 JS 测高。 */
@@ -1988,16 +2041,40 @@ html.hoverbar-window #root {
   transform: rotate(90deg);
 }
 
+/* AI 分析内容区（UI V4）：去掉内层蓝底套卡感，改轻分隔线。 */
 .hb-ai-block {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 3px;
   margin-top: 6px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--q-primary) 7%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-primary) 22%, transparent);
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
+}
+
+/* AI 详情开关（UI V4）：右对齐文字 + Chevron，不做整行胶囊按钮。 */
+.hb-ai-detail-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  align-self: flex-end;
+  gap: 3px;
+  padding: 1px 2px;
+  border: 0;
+  background: none;
+  color: var(--q-hoverbar-primary);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 16px;
+}
+
+.hb-ai-detail-toggle svg {
+  transition: transform 180ms ease;
+}
+
+.hb-ai-detail-toggle[data-open="true"] svg {
+  transform: rotate(180deg);
 }
 
 .hb-radar-card-meta {
