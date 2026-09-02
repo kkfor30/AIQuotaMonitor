@@ -173,30 +173,28 @@ export function GptRadarPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 pt-2 pr-2">
-      {/* 页头：单行紧凑条——标题 + 推测声明 + 说明 + 立即检查（压缩纵向占用，把空间留给内容区） */}
-      <header className="glass-panel flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-          <span
-            aria-hidden
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm"
-          >
-            <Radar size={16} aria-hidden />
-          </span>
-          <h1 className="text-[17px] font-semibold tracking-tight text-q-text-primary">GPT 重置雷达</h1>
-          <span className="rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral">
-            仅为推测，不代表官方结论
-          </span>
-          <p className="min-w-0 truncate text-[12.5px] text-q-text-secondary">
-            手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译；AI 分析默认关闭，只使用英文原文。
-          </p>
-        </div>
+      {/* 页头：单行紧凑条——按钮固定右上；窄窗口时仅说明文字收缩截断，布局不随宽度换行 */}
+      <header className="glass-panel flex shrink-0 items-center gap-2.5 px-4 py-2.5">
+        <span
+          aria-hidden
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm"
+        >
+          <Radar size={16} aria-hidden />
+        </span>
+        <h1 className="shrink-0 text-[17px] font-semibold tracking-tight text-q-text-primary">GPT 重置雷达</h1>
+        <span className="shrink-0 rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral">
+          仅为推测，不代表官方结论
+        </span>
+        <p className="min-w-0 flex-1 truncate text-[12.5px] text-q-text-secondary">
+          手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译；AI 分析默认关闭，只使用英文原文。
+        </p>
         {radarChecking ? (
-          <Button variant="ghost" size="sm" onClick={() => void cancelRadarCheck()}>
+          <Button variant="ghost" size="sm" className="shrink-0" onClick={() => void cancelRadarCheck()}>
             <RefreshCw size={14} aria-hidden className="animate-spin" />
             终止检查
           </Button>
         ) : (
-          <Button size="sm" onClick={() => checkMutation.mutate()}>
+          <Button size="sm" className="shrink-0" onClick={() => checkMutation.mutate()}>
             <RefreshCw size={14} aria-hidden />
             立即检查
           </Button>
