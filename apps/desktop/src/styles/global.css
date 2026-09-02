@@ -1675,12 +1675,12 @@ html.hoverbar-window #root {
   line-height: 18px;
 }
 
-/* 正文型说明（判断说明 / AI 分析正文）：比元数据大一号、更实更黑，与 hb-radar-meta 的元信息层级区分。 */
+/* 正文型说明（判断说明 / AI 分析正文）：比元数据大一号、全 ink 色 600 字重，与 hb-radar-meta 的元信息层级区分。 */
 .hb-radar-copy {
   margin: 6px 0 0;
-  color: color-mix(in srgb, var(--q-hoverbar-ink) 90%, transparent);
+  color: var(--q-hoverbar-ink);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 19px;
 }
 
