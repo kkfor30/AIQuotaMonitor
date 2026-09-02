@@ -871,19 +871,19 @@ function AccountCardBody({
   );
 }
 
-/** 窗口行的辅助小字：stale 用低饱和蓝灰提示缓存；其余展示后端重置说明；missing 不显示。 */
+/** 窗口行的辅助小字：紧凑数据说明（11.5px secondary，保持单行与基线位置，不抢占百分比主值）。 */
 function WindowFootnote({ capability }: { capability: CapabilitySnapshotViewModel }) {
   if (capability.freshness === "missing") return null;
   if (capability.freshness === "stale") {
     return (
-      <p className="truncate pl-[52px] text-[10px] leading-3.5 text-q-text-muted">
+      <p className="truncate pl-[52px] text-[11.5px] leading-4 text-q-text-secondary">
         缓存 · 上次成功 {formatTime(capability.lastGoodAt ?? capability.capturedAt)}
       </p>
     );
   }
   if (capability.value.secondary) {
     return (
-      <p className="truncate pl-[52px] text-[10px] leading-3.5 text-q-text-muted" title={capability.value.secondary}>
+      <p className="truncate pl-[52px] text-[11.5px] leading-4 text-q-text-secondary" title={capability.value.secondary}>
         {capability.value.secondary}
       </p>
     );

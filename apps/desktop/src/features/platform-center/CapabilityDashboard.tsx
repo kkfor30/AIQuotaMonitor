@@ -349,8 +349,11 @@ function CreditBalanceSection({ capability }: { capability: CapabilitySnapshotVi
           </span>
           {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
         </span>
-        <p className="min-w-0 truncate text-[11px] text-q-text-muted" title={note}>
-          {note}
+        <p className="min-w-0 truncate text-[12.5px] text-q-text-secondary" title={note}>
+          套餐内额度用尽后用于继续使用 Codex
+          {line ? (
+            <span className="text-[11px] text-q-text-muted"> · {line.text}</span>
+          ) : null}
         </p>
       </div>
     </ModulePanel>

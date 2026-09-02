@@ -179,7 +179,7 @@ export function GptRadarPage() {
         <span className="shrink-0 rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral">
           仅为推测，不代表官方结论
         </span>
-        <p className="min-w-0 flex-1 truncate text-[12.5px] text-q-text-secondary">
+        <p className="min-w-0 flex-1 truncate text-[13px] text-q-text-secondary">
           手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译；AI 分析默认关闭，只使用英文原文。
         </p>
       </header>
@@ -227,7 +227,7 @@ export function GptRadarPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[13px] font-medium text-q-text-secondary">动态范围：</span>
+          <span className="text-[13.5px] font-medium text-q-text-secondary">动态范围：</span>
           {QUICK_RANGES.map((range) => (
             <button
               key={range.id}
@@ -445,17 +445,17 @@ function SignalSummaryView({
               <p className="text-[16px] font-semibold leading-snug text-q-text-primary" data-selectable="true">
                 {decision.headline}
               </p>
-              <p className="text-[12.5px] font-medium text-q-text-secondary">{radarDecisionTimeText(decision)}</p>
-              {observedCauseUnknown ? <p className="text-[12px] text-q-text-secondary">原因未知</p> : null}
+              <p className="text-[13px] leading-relaxed text-q-text-secondary">{radarDecisionTimeText(decision)}</p>
+              {observedCauseUnknown ? <p className="text-[13px] text-q-text-secondary">原因未知</p> : null}
               {decision.verificationHint ? (
-                <p className="text-[12px] leading-relaxed text-q-text-secondary">{decision.verificationHint}</p>
+                <p className="text-[13px] leading-relaxed text-q-text-secondary">{decision.verificationHint}</p>
               ) : null}
               {decision.observationPeriodText ? (
                 <p className="text-[12px] font-medium text-q-success">{decision.observationPeriodText}</p>
               ) : null}
-              {data ? <p className="text-[12px] leading-relaxed text-q-text-secondary">{radarDeltaImpactLine(data)}</p> : null}
+              {data ? <p className="text-[13px] leading-relaxed text-q-text-secondary">{radarDeltaImpactLine(data)}</p> : null}
               {decision.status === "no_signal" && decision.recentSummaryText ? (
-                <p className="text-[11.5px] text-q-text-muted">{decision.recentSummaryText}</p>
+                <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{decision.recentSummaryText}</p>
               ) : null}
               {decision.canConfirmReset || decision.canUndoConfirm ? (
                 <div className="flex flex-wrap items-center gap-2 pt-0.5">
@@ -553,7 +553,7 @@ function SignalSummaryView({
             <p className="text-xs text-q-text-muted">未接入 GPT 额度来源。</p>
           ) : (
             <>
-              <p className="text-[12.5px] leading-relaxed text-q-text-secondary" data-selectable="true">
+              <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
                 {quotaSummary}
               </p>
               <div className="radar-verification-scroll flex flex-col">
@@ -575,11 +575,11 @@ function SignalSummaryView({
                       ) : null}
                     </div>
                     {item.status === "unavailable" && (
-                      <p className="text-[11.5px] leading-relaxed text-q-text-secondary">
+                      <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
                         当前网络无法获取 Codex 额度，不影响来源与 AI 判断。
                       </p>
                     )}
-                    {item.note && <p className="text-[11.5px] leading-relaxed text-q-text-secondary">{item.note}</p>}
+                    {item.note && <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{item.note}</p>}
                     <p className="text-[11.5px] tabular-nums text-q-text-muted">
                       {item.windowLabel ? `${item.windowLabel} · ` : ""}
                       {item.lastSuccessAt ? `上次成功 ${formatCompactTime(item.lastSuccessAt)}` : "尚无成功快照"}
@@ -1197,11 +1197,11 @@ function AiAnalysisView({
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <p className="text-sm font-medium text-q-text-primary">立即检查时同时运行 AI 分析</p>
-              <p className="mt-0.5 text-xs leading-relaxed text-q-text-muted">默认关闭；关闭后仅同步与展示来源内容。</p>
+              <p className="mt-0.5 text-[13px] leading-relaxed text-q-text-secondary">默认关闭；关闭后仅同步与展示来源内容。</p>
             </div>
             <Switch checked={analyze} onCheckedChange={onAnalyzeChange} label="立即检查时同时运行 AI 分析" />
           </div>
-          <p className="text-xs leading-relaxed text-q-text-muted">
+          <p className="text-[13px] leading-relaxed text-q-text-secondary">
             分析范围使用雷达顶部的「动态范围」，AI 关闭时也可以调整。
           </p>
           <label className="flex flex-col gap-1.5 text-sm">
@@ -1231,7 +1231,7 @@ function AiAnalysisView({
             </select>
           </label>
           <CustomModelPanel models={models} selected={selectedModelOption} onAdded={onModelChange} />
-          <p className="text-xs leading-relaxed text-q-text-muted">
+          <p className="text-[13px] leading-relaxed text-q-text-secondary">
             开启 AI 时只分析所选范围内尚未消费的新帖；关闭时仍同步来源，不调用模型，未消费帖子保持待分析。
           </p>
         </section>
@@ -1241,12 +1241,12 @@ function AiAnalysisView({
           <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">本次输入</h2>
           <div className="flex items-start gap-2.5 rounded-q-control border border-q-border bg-q-primary-softer px-3 py-2.5">
             <ShieldCheck size={15} aria-hidden className="mt-0.5 shrink-0 text-q-primary" />
-            <p className="text-xs leading-relaxed text-q-text-secondary">
+            <p className="text-[13px] leading-relaxed text-q-text-secondary">
               只发送英文原文、时间和原帖链接。不发送 CodexRadar 的中文翻译、信号标签或模型语境解读。
             </p>
           </div>
           {analysisInput.length === 0 && contextInput.length === 0 && historicalInput.length === 0 ? (
-            <p className="text-xs leading-relaxed text-q-text-muted">
+            <p className="text-[13px] leading-relaxed text-q-text-secondary">
               当前时间窗内没有可分析的帖子。Tibo 近期没有新动态时，可切换「自定义」扩大时间范围后重试。
             </p>
           ) : (
@@ -1276,7 +1276,7 @@ function AiAnalysisView({
             恢复默认
           </button>
         </div>
-        <p className="text-xs leading-relaxed text-q-text-muted">
+        <p className="text-[13px] leading-relaxed text-q-text-secondary">
           会随每次分析发给模型，用来补充你认为算强重置信号的措辞。不会改变只发送英文原文、时间和链接的限制。留空则不做额外语义引导。
         </p>
         <textarea
@@ -1515,9 +1515,9 @@ function PostGroupPreview({
 }) {
   return (
     <div className="flex min-h-0 flex-col gap-2">
-      <p className="text-xs text-q-text-secondary">
+      <p className="text-[13px] text-q-text-secondary">
         {title} · {posts.length} 条
-        <span className="ml-1.5 text-[11px] text-q-text-muted">{subtitle}</span>
+        <span className="ml-1.5 text-[12px] text-q-text-secondary">{subtitle}</span>
       </p>
       <div className="max-h-52 space-y-1.5 overflow-y-auto pr-0.5">
         {posts.slice(0, 8).map((post) => (

@@ -150,18 +150,18 @@ export function HoverbarRadarDetail({
             <p className="hb-radar-headline" data-selectable="true">
               {decision.headline}
             </p>
-            <p className="hb-radar-meta" data-time-kind={decision.timeKind}>
+            <p className="hb-radar-copy" data-time-kind={decision.timeKind}>
               {radarDecisionTimeText(decision)}
             </p>
-            {decision.verificationHint ? <p className="hb-radar-meta">{decision.verificationHint}</p> : null}
+            {decision.verificationHint ? <p className="hb-radar-copy">{decision.verificationHint}</p> : null}
             {decision.observationPeriodText ? (
               <p className="hb-radar-meta" data-observation="true">
                 {decision.observationPeriodText}
               </p>
             ) : null}
-            {radar ? <p className="hb-radar-meta">{radarDeltaImpactLine(radar)}</p> : null}
+            {radar ? <p className="hb-radar-copy">{radarDeltaImpactLine(radar)}</p> : null}
             {decision.status === "no_signal" && decision.recentSummaryText ? (
-              <p className="hb-radar-meta">{decision.recentSummaryText}</p>
+              <p className="hb-radar-copy">{decision.recentSummaryText}</p>
             ) : null}
             {decision.canConfirmReset ? (
               <button type="button" className="hb-radar-post-button" onClick={() => setConfirmOpen(true)}>
@@ -263,7 +263,7 @@ export function HoverbarRadarDetail({
                     {historicalAnalysis.analysisBasis ? (
                       <>
                         <p className="hb-radar-field-label">历史分析</p>
-                        <p className="hb-radar-meta" data-selectable="true">
+                        <p className="hb-radar-copy" data-selectable="true">
                           {humanizeRadarPostRefs(historicalAnalysis.analysisBasis, knownPosts)}
                         </p>
                       </>
@@ -504,7 +504,7 @@ function AiReasoningBlock({
       {analysis.analysisBasis ? (
         <>
           <p className="hb-radar-field-label">分析</p>
-          <p className="hb-radar-meta" data-selectable="true">
+          <p className="hb-radar-copy" data-selectable="true">
             {humanizeRadarPostRefs(analysis.analysisBasis, posts)}
           </p>
         </>

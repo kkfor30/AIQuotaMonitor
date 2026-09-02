@@ -1674,6 +1674,15 @@ html.hoverbar-window #root {
   line-height: 18px;
 }
 
+/* 正文型说明（判断说明 / AI 分析正文）：比元数据大一号、更实，与 hb-radar-meta 的元信息层级区分。 */
+.hb-radar-copy {
+  margin: 6px 0 0;
+  color: var(--q-hoverbar-muted-strong);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+}
+
 .hb-radar-meta[data-observation="true"] {
   color: var(--q-hoverbar-success);
   font-weight: 650;
