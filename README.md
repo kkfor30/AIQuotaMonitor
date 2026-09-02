@@ -35,6 +35,7 @@ AIQuotaMonitor/
 - 已完成阶段一桌面骨架与阶段二真实额度数据闭环。
 - 已归档平台中心 V4 的三张关键设计稿及前端交接说明。
 - 已归档总览、GPT 重置雷达、设置和悬浮球 V5 的六张设计稿及交接说明。
+- 已归档 GPT 重置雷达紧凑控制台 UI V4 的主窗口/悬浮页最终稿、实施方案与 GLM Prompt。
 - 已完成 `DeepSeekMonitorWindows-final` 与 `cc-switch` 代码审计。
 - 已确定 Tauri 2、React/TypeScript、Rust、SQLite 技术路线。
 - 已接入 SQLite v1、Windows Credential Manager、Source 级刷新协调器和真实 ViewModel。
