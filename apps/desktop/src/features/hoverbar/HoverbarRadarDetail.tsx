@@ -356,7 +356,7 @@ export function HoverbarRadarDetail({
       </section>
 
       {recentCard ? (
-        <section className="hb-radar-card">
+        <section className="hb-radar-recent-strip">
           <button
             type="button"
             className="hb-radar-card-toggle"
