@@ -173,35 +173,31 @@ export function GptRadarPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 pt-2 pr-2">
-      {/* 页头：图标磁贴 + 标题 + 推测声明 + 立即检查 */}
-      <header className="glass-panel flex shrink-0 flex-wrap items-start justify-between gap-3 px-5 py-4">
-        <div className="flex min-w-0 items-start gap-3.5">
+      {/* 页头：单行紧凑条——标题 + 推测声明 + 说明 + 立即检查（压缩纵向占用，把空间留给内容区） */}
+      <header className="glass-panel flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
           <span
             aria-hidden
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm"
           >
-            <Radar size={22} aria-hidden />
+            <Radar size={16} aria-hidden />
           </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-[20px] font-semibold tracking-tight text-q-text-primary">GPT 重置雷达</h1>
-              <span className="rounded-q-pill bg-q-neutral-soft px-2.5 py-1 text-xs text-q-neutral">
-                仅为推测，不代表官方结论
-              </span>
-            </div>
-            <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-q-text-secondary">
-              手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译。我们自己的 AI 分析默认关闭，且只使用英文原文。
-            </p>
-          </div>
+          <h1 className="text-[17px] font-semibold tracking-tight text-q-text-primary">GPT 重置雷达</h1>
+          <span className="rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral">
+            仅为推测，不代表官方结论
+          </span>
+          <p className="min-w-0 truncate text-[12.5px] text-q-text-secondary">
+            手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译；AI 分析默认关闭，只使用英文原文。
+          </p>
         </div>
         {radarChecking ? (
-          <Button variant="ghost" onClick={() => void cancelRadarCheck()}>
-            <RefreshCw size={15} aria-hidden className="animate-spin" />
+          <Button variant="ghost" size="sm" onClick={() => void cancelRadarCheck()}>
+            <RefreshCw size={14} aria-hidden className="animate-spin" />
             终止检查
           </Button>
         ) : (
-          <Button onClick={() => checkMutation.mutate()}>
-            <RefreshCw size={15} aria-hidden />
+          <Button size="sm" onClick={() => checkMutation.mutate()}>
+            <RefreshCw size={14} aria-hidden />
             立即检查
           </Button>
         )}
