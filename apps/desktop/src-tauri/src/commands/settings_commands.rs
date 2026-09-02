@@ -60,12 +60,17 @@ pub fn set_app_theme(
     app: AppHandle,
     database: State<'_, Database>,
 ) -> Result<AppSettingsView, String> {
-    require_label(&window, &["main"])?;
+    // 主题是全局偏好：主窗口标题栏/设置页与悬浮球都允许切换，切换后广播给所有窗口实时跟随。
+    require_label(&window, &["main", "hoverbar", "hoverbar-detail"])?;
     if !matches!(theme.as_str(), "light" | "dark") {
         return Err("不支持的主题".into());
     }
     database.set_setting_string("theme", &theme)?;
     let _ = app.emit("app-settings-changed", ());
+    let _ = app.emit(
+        "app-theme-changed",
+        serde_json::json!({ "theme": theme }),
+    );
     get_app_settings(database)
 }
 

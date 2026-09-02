@@ -4,11 +4,11 @@
  * 迁移来源：DeepSeek-Monitor-Windows/DeepSeekMonitorWindows
  * src/theme-preference.ts 与 src/main.tsx/useUiTheme（提交 afc6fe07，MIT）。
  * 设置页的浅色/深色会覆盖本地偏好；详情内按钮可临时切换，两者只取浅色/深色两档，
- * 不再支持跟随系统。切换会落库并通过 APP_THEME_EVENT 广播，主窗口实时跟随；
- * 其他窗口切换时本悬浮窗也通过同一事件实时跟随。
+ * 不再支持跟随系统。切换统一落库（set_app_theme），由后端广播 app-theme-changed，
+ * 主窗口与其他悬浮窗实时跟随；本窗口也监听同一事件跟随其他窗口的切换。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { emit, listen } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { fetchAppSettings, setAppTheme } from "@/lib/ipc";
 import { APP_THEME_EVENT } from "@/lib/theme";
 
@@ -53,15 +53,14 @@ export function useHoverbarTheme() {
     } catch {
       // 持久化失败不回退或禁用主题切换，只保留本次窗口状态。
     }
-    // 仅用户手动切换时落库并广播；响应其他窗口广播的变更不再转发，避免回环。
+    // 仅用户手动切换时落库（后端会广播给所有窗口）；响应广播的变更不再落库，避免回环。
     if (userAdjustedRef.current) {
-      void setAppTheme(theme)
-        .then(() => emit(APP_THEME_EVENT, { theme }))
-        .catch(() => undefined);
+      userAdjustedRef.current = false;
+      void setAppTheme(theme).catch(() => undefined);
     }
   }, [theme]);
 
-  // 主窗口标题栏/设置页切换主题时，本悬浮窗实时跟随。
+  // 主窗口标题栏/设置页/其他悬浮窗切换主题时，本悬浮窗通过后端广播实时跟随。
   useEffect(() => {
     const unlisten = listen<{ theme?: string }>(APP_THEME_EVENT, (event) => {
       const next = event.payload?.theme;

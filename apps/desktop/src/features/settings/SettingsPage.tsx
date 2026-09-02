@@ -142,7 +142,7 @@ function GeneralSection() {
   const themeMutation = useMutation({
     mutationFn: setAppTheme,
     onSuccess: (next) => {
-      applyAppTheme(next.theme, true);
+      applyAppTheme(next.theme);
       queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next);
     },
   });
