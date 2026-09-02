@@ -139,12 +139,6 @@ export function GptRadarPage() {
     ? ipcErrorMessage(checkMutation.error, "检查失败").includes("已终止")
     : false;
   const posts = postsInRadarRange(data?.posts ?? [], rangeKey).slice().sort((a, b) => b.postedAt - a.postedAt);
-  const citedIds = new Set([
-    ...(data?.decision.currentKeyCitationIds ?? []),
-    ...(data?.decision.historicalCitationIds ?? []),
-    ...(data?.aiAssessment.latestDeltaAnalysis?.citations ?? []),
-    ...(data?.aiAssessment.eventAnalysis?.citations ?? []),
-  ]);
   const visible = posts.filter((post) => {
     if (filter === "all") return true;
     if (filter === "signal") return post.explicitReset || post.filter === "signal";
@@ -287,7 +281,6 @@ export function GptRadarPage() {
           signalCount={posts.filter((p) => p.explicitReset || p.filter === "signal").length}
           relatedCount={posts.filter((p) => p.filter === "related").length}
           noneCount={posts.filter((p) => p.filter === "none" && !p.explicitReset).length}
-          citedIds={citedIds}
           selected={selected}
           filter={filter}
           onFilter={setFilter}
@@ -910,7 +903,6 @@ function TiboFeedView({
   signalCount,
   relatedCount,
   noneCount,
-  citedIds,
   selected,
   filter,
   onFilter,
@@ -922,7 +914,6 @@ function TiboFeedView({
   signalCount: number;
   relatedCount: number;
   noneCount: number;
-  citedIds: Set<string>;
   selected: RadarPost | null;
   filter: "all" | "signal" | "related" | "none";
   onFilter: (value: "all" | "signal" | "related" | "none") => void;
@@ -1031,9 +1022,6 @@ function TiboFeedView({
                   <span title="来源分类">
                     <StatusBadge tone={postBadgeTone(post)}>{sourceRelationLabel(post)}</StatusBadge>
                   </span>
-                  {citedIds.has(post.id) ? (
-                    <span className="rounded-q-pill bg-q-primary-soft px-2 py-0.5 text-[11px] text-q-primary">AI 已引用</span>
-                  ) : null}
                   <span className="ml-auto shrink-0 text-[12px] tabular-nums text-q-text-secondary">
                     {formatTime(post.postedAt)}
                   </span>
@@ -1084,9 +1072,6 @@ function TiboFeedView({
                 <span title="来源分类">
                   <StatusBadge tone={postBadgeTone(selected)}>{sourceRelationLabel(selected)}</StatusBadge>
                 </span>
-                {citedIds.has(selected.id) ? (
-                  <span className="rounded-q-pill bg-q-primary-soft px-2 py-0.5 text-[11px] text-q-primary">AI 已引用</span>
-                ) : null}
                 <span className="text-[11px] tabular-nums text-q-text-muted">{formatTime(selected.postedAt)}</span>
               </div>
 
