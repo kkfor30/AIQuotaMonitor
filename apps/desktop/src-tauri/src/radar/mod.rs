@@ -660,9 +660,10 @@ fn build_ai_assessment(
             .map(|record| analysis_view(database, record, covers_latest)),
         None => None,
     };
+    // 错误只认最新一次检查：历史失败记录已被后续成功覆盖，不得继续挂出误导。
     let latest_error = checks
-        .iter()
-        .find(|check| check.analyze_status.as_deref() == Some("failed"))
+        .first()
+        .filter(|check| check.analyze_status.as_deref() == Some("failed"))
         .and_then(|check| check.error_message.clone());
     let latest_failed = checks
         .first()
