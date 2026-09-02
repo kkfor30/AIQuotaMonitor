@@ -475,6 +475,72 @@ function SignalSummaryView({
           ) : (
             <p className="text-xs text-q-text-muted">正在加载重置判断…</p>
           )}
+
+          {/* 最近一次重置：并入判断卡的折叠小节，只认本机观察/用户确认；展开保留 时间/确认方式/最终状态/当时结论/当时分析 */}
+          {recentCard ? (
+            <div className="mt-auto flex flex-col border-t border-q-border/70 pt-2">
+              <button
+                type="button"
+                className="radar-collapse-trigger"
+                onClick={() => setRecentOpen((value) => !value)}
+                aria-expanded={recentOpen}
+              >
+                <ChevronRight
+                  size={17}
+                  aria-hidden
+                  className={cn("radar-collapse-chevron", recentOpen && "is-open")}
+                />
+                <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">
+                  {recentReset ? "最近一次重置" : "最近一次事件"}
+                </h2>
+                <span className="min-w-0 flex-1 truncate text-[13px]">
+                  {recentResetAt ? (
+                    <>
+                      <span className="font-semibold tabular-nums text-q-text-primary">
+                        {formatCompactTime(recentResetAt)}
+                      </span>
+                      <span className="text-q-text-muted">
+                        {" "}
+                        · {radarConfirmationSourceLabel(recentReset?.confirmationSource)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-q-text-muted">{recentMeta}</span>
+                  )}
+                </span>
+              </button>
+              <AnimatedCollapse open={recentOpen}>
+                <div className="flex flex-col gap-1.5 pt-2">
+                  {recentResetAt ? (
+                    <p className="text-[13px] leading-relaxed text-q-text-secondary">
+                      <span className="font-semibold text-q-text-primary">真实时间：</span>
+                      <span className="tabular-nums">{formatCompactTime(recentResetAt)}</span>
+                    </p>
+                  ) : null}
+                  <p className="text-[13px] leading-relaxed text-q-text-secondary">
+                    <span className="font-semibold text-q-text-primary">确认方式：</span>
+                    {radarConfirmationSourceLabel(recentCard.confirmationSource)}
+                  </p>
+                  <p className="text-[13px] leading-relaxed text-q-text-secondary">
+                    <span className="font-semibold text-q-text-primary">最终状态：</span>
+                    {radarCloseReasonLabel(recentCard.closeReason)}
+                  </p>
+                  {recentCard.analysis?.conclusion ? (
+                    <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                      <span className="font-semibold text-q-text-primary">当时结论：</span>
+                      {humanizeRadarPostRefs(recentCard.analysis.conclusion, knownPosts)}
+                    </p>
+                  ) : null}
+                  {recentCard.analysis?.analysisBasis ? (
+                    <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                      <span className="font-semibold text-q-text-primary">当时分析：</span>
+                      {humanizeRadarPostRefs(recentCard.analysis.analysisBasis, knownPosts)}
+                    </p>
+                  ) : null}
+                </div>
+              </AnimatedCollapse>
+            </div>
+          ) : null}
         </section>
 
         {/* 本机验证：汇总徽章 + 一句汇总；账号详情直接展开，多账号时卡内滚动防溢出 */}
@@ -748,58 +814,6 @@ function SignalSummaryView({
           </>
         )}
       </section>
-
-      {/* 最近一次重置：默认折叠，折叠行突出真实时间；展开只保留 时间/确认方式/最终状态/当时结论/当时分析 */}
-      {recentCard ? (
-        <section className="glass-panel flex shrink-0 flex-col p-4">
-          <button type="button" className="radar-collapse-trigger" onClick={() => setRecentOpen((value) => !value)} aria-expanded={recentOpen}>
-            <ChevronRight size={17} aria-hidden className={cn("radar-collapse-chevron", recentOpen && "is-open")} />
-            <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">
-              {recentReset ? "最近一次重置" : "最近一次事件"}
-            </h2>
-            <span className="min-w-0 flex-1 truncate text-[13px]">
-              {recentResetAt ? (
-                <>
-                  <span className="font-semibold tabular-nums text-q-text-primary">{formatCompactTime(recentResetAt)}</span>
-                  <span className="text-q-text-muted"> · {radarConfirmationSourceLabel(recentReset?.confirmationSource)}</span>
-                </>
-              ) : (
-                <span className="text-q-text-muted">{recentMeta}</span>
-              )}
-            </span>
-          </button>
-          <AnimatedCollapse open={recentOpen}>
-            <div className="flex flex-col gap-1.5 pt-2">
-              {recentResetAt ? (
-                <p className="text-[13px] leading-relaxed text-q-text-secondary">
-                  <span className="font-semibold text-q-text-primary">真实时间：</span>
-                  <span className="tabular-nums">{formatCompactTime(recentResetAt)}</span>
-                </p>
-              ) : null}
-              <p className="text-[13px] leading-relaxed text-q-text-secondary">
-                <span className="font-semibold text-q-text-primary">确认方式：</span>
-                {radarConfirmationSourceLabel(recentCard.confirmationSource)}
-              </p>
-              <p className="text-[13px] leading-relaxed text-q-text-secondary">
-                <span className="font-semibold text-q-text-primary">最终状态：</span>
-                {radarCloseReasonLabel(recentCard.closeReason)}
-              </p>
-              {recentCard.analysis?.conclusion ? (
-                <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
-                  <span className="font-semibold text-q-text-primary">当时结论：</span>
-                  {humanizeRadarPostRefs(recentCard.analysis.conclusion, knownPosts)}
-                </p>
-              ) : null}
-              {recentCard.analysis?.analysisBasis ? (
-                <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
-                  <span className="font-semibold text-q-text-primary">当时分析：</span>
-                  {humanizeRadarPostRefs(recentCard.analysis.analysisBasis, knownPosts)}
-                </p>
-              ) : null}
-            </div>
-          </AnimatedCollapse>
-        </section>
-      ) : null}
 
       <section className="glass-panel flex shrink-0 flex-col p-4">
         <button type="button" className="radar-collapse-trigger" onClick={() => setHistoryOpen((value) => !value)} aria-expanded={historyOpen}>
