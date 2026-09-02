@@ -76,7 +76,7 @@ function ThemeSwitchButton() {
   const themeMutation = useMutation({
     mutationFn: setAppTheme,
     onSuccess: (next) => {
-      applyAppTheme(next.theme);
+      applyAppTheme(next.theme, true);
       queryClient.setQueryData(APP_SETTINGS_QUERY_KEY, next);
     },
   });
