@@ -336,11 +336,7 @@ function CreditBalanceSection({ capability }: { capability: CapabilitySnapshotVi
     <ModulePanel icon={Coins} title="额外额度">
       <div className="flex min-w-0 flex-col gap-1 border-t border-q-border pt-3">
         <div className="flex min-w-0 items-baseline justify-between gap-3">
-          <span className="flex min-w-0 items-center gap-2">
-            <CircleDollarSign size={14} aria-hidden className="shrink-0 text-q-text-muted" />
-            <span className="truncate text-xs text-q-text-muted">{capability.displayName}</span>
-            {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
-          </span>
+          {capability.freshness !== "fresh" ? <FreshnessTag freshness={capability.freshness} /> : <span aria-hidden />}
           <span
             className="min-w-0 shrink-0 truncate text-right text-[16px] leading-6 text-q-text-primary"
             style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
