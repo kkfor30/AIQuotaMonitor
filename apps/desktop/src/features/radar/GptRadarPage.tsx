@@ -50,6 +50,7 @@ import {
   radarDecisionBadge,
   radarDecisionTimeText,
   radarDeltaImpactLine,
+  radarQuotaSummaryLine,
   sourceRelationLabel,
 } from "@/features/hoverbar/hoverbar-state";
 import { useContainerWidth, TIBO_SPLIT_MIN_PX } from "@/lib/use-container-width";
@@ -406,6 +407,7 @@ function SignalSummaryView({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [historyAnalysisOpen, setHistoryAnalysisOpen] = useState(false);
+  const [verificationOpen, setVerificationOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const recentResetAt = recentReset?.observedResetAt ?? recentReset?.userConfirmedResetAt ?? null;
   const recentMeta = recentResetAt
@@ -428,6 +430,7 @@ function SignalSummaryView({
     }
     return { tone: "success" as const, label: "正常" };
   })();
+  const quotaSummary = radarQuotaSummaryLine(verifications);
   // Tibo 最近动态预览：当前范围按 postedAt 倒序取 3 条，只读摘要。
   const previewPosts = postsInRadarRange(knownPosts, data?.analysisPrefs.rangeKey ?? "3d")
     .slice()
@@ -448,7 +451,7 @@ function SignalSummaryView({
 
   return (
     <div className="radar-console flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
-      {/* 三张状态卡：现在怎样 / 上次何时 / 本机是否验证（宽屏等高，窄屏自动换行） */}
+      {/* 两张状态卡：判断（含最近一次重置）+ 本机验证（宽屏等高，窄屏自动换行） */}
       <div className="radar-status-grid shrink-0">
         <section className="glass-panel flex flex-col gap-2 p-4">
           <div className="flex items-center gap-2">
@@ -482,7 +485,7 @@ function SignalSummaryView({
                 <p className="text-[11.5px] text-q-text-muted">{decision.recentSummaryText}</p>
               ) : null}
               {decision.canConfirmReset || decision.canUndoConfirm ? (
-                <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
                   {decision.canConfirmReset ? (
                     <Button variant="secondary" size="sm" onClick={() => setConfirmOpen(true)}>
                       确认额度已重置
@@ -499,102 +502,110 @@ function SignalSummaryView({
           ) : (
             <p className="text-xs text-q-text-muted">正在加载重置判断…</p>
           )}
-        </section>
 
-        {/* 最近一次重置：只认本机观察/用户确认的真实时间；无真实值时空态，来源声称不冒充重置 */}
-        <section className="glass-panel flex flex-col gap-2 p-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">最近一次重置</h2>
-            {recentReset ? (
-              <span className="rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success">
-                本机确认
-              </span>
-            ) : null}
-          </div>
-          {recentResetAt ? (
-            <>
-              <p className="text-[22px] font-semibold leading-tight tracking-tight text-q-text-primary">
+          {/* 最近一次重置：并入判断卡，只认本机观察/用户确认的真实时间；来源声称不冒充重置 */}
+          <div className="mt-auto flex flex-col gap-1 border-t border-q-border/70 pt-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] font-semibold text-q-text-secondary">最近一次重置</span>
+              {recentReset ? (
+                <span className="rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success">
+                  本机确认
+                </span>
+              ) : null}
+            </div>
+            {recentResetAt ? (
+              <p className="text-[20px] font-semibold leading-tight tracking-tight text-q-text-primary">
                 <span className="tabular-nums">{formatCompactTime(recentResetAt)}</span>
+                <span className="ml-2 text-[12px] font-medium text-q-text-secondary">
+                  {radarRecentRelativeLabel(recentResetAt)} · {radarConfirmationSourceLabel(recentReset?.confirmationSource)}
+                </span>
               </p>
-              <p className="text-[12px] text-q-text-secondary">
-                {radarRecentRelativeLabel(recentResetAt)} · {radarConfirmationSourceLabel(recentReset?.confirmationSource)}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-[15px] font-semibold leading-snug text-q-text-secondary">暂无已确认的重置</p>
-              <p className="text-[12px] leading-relaxed text-q-text-secondary">
+            ) : (
+              <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
                 {recentClosedEvent
-                  ? "存在已关闭事件，其时间来自来源声称，不作为重置事实。"
-                  : "等待本机观察或用户确认。"}
+                  ? "暂无已确认的重置；已关闭事件的时间来自来源声称，不作为重置事实。"
+                  : "暂无已确认的重置，等待本机观察或用户确认。"}
               </p>
-            </>
-          )}
-          <p className="mt-auto text-[11px] text-q-text-muted">
-            确认方式：{recentReset ? radarConfirmationSourceLabel(recentReset.confirmationSource) : "—"}
-          </p>
+            )}
+          </div>
         </section>
 
-        {/* 本机验证：汇总徽章 + 每账号状态；重置卡归因确认保留 */}
+        {/* 本机验证：汇总徽章 + 一句汇总；账号详情默认折叠，归因确认保留 */}
         <section className="glass-panel flex flex-col gap-2 p-4">
           <div className="flex items-center gap-2">
             <h2 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">本机验证</h2>
-            {quotaOverall ? (
-              <StatusBadge tone={quotaOverall.tone}>{quotaOverall.label}</StatusBadge>
+            {quotaOverall ? <StatusBadge tone={quotaOverall.tone}>{quotaOverall.label}</StatusBadge> : null}
+            {verifications.length > 0 ? (
+              <button
+                type="button"
+                className="radar-inline-toggle ml-auto"
+                data-open={verificationOpen || undefined}
+                onClick={() => setVerificationOpen((value) => !value)}
+              >
+                {verificationOpen ? "收起账号详情" : "查看账号详情"}
+                <ChevronDown size={13} aria-hidden />
+              </button>
             ) : null}
           </div>
           {verifications.length === 0 ? (
             <p className="text-xs text-q-text-muted">未接入 GPT 额度来源。</p>
           ) : (
-            <div className="flex flex-col gap-1.5">
-              {verifications.map((item) => (
-                <div
-                  key={item.sourceId}
-                  className="flex flex-col gap-1 rounded-q-control border border-q-border bg-q-surface-strong px-2.5 py-1.5"
-                >
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <b className="whitespace-nowrap text-[12.5px] text-q-text-primary">{item.accountName}</b>
-                    <StatusBadge tone={quotaTone(item.status)}>
-                      {quotaBadgeLabel(item.status, item.attribution, item.lastResetObservedAt)}
-                    </StatusBadge>
-                    {item.attribution === "user_confirmed" ? (
-                      <span className="text-[11px] text-q-text-muted">用户已确认重置卡</span>
-                    ) : null}
-                    {quotaCorrelationLabel(item.temporalCorrelation) ? (
-                      <span className="text-[11px] text-q-text-muted">{quotaCorrelationLabel(item.temporalCorrelation)}</span>
-                    ) : null}
-                  </div>
-                  {item.status === "unavailable" && (
-                    <p className="text-[11px] leading-relaxed text-q-text-muted">
-                      当前网络无法获取 Codex 额度，不影响来源与 AI 判断。
-                    </p>
-                  )}
-                  {item.note && <p className="text-[11px] text-q-text-muted">{item.note}</p>}
-                  <p className="text-[11px] text-q-text-muted">
-                    {item.windowLabel ? `${item.windowLabel} · ` : ""}
-                    {item.lastSuccessAt ? `上次成功 ${formatTime(item.lastSuccessAt)}` : "尚无成功快照"}
-                  </p>
-                  {["unscheduled_reset", "possible_reset"].includes(item.status) &&
-                    item.observationId != null &&
-                    item.attribution !== "user_confirmed" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="self-start"
-                        disabled={confirmCard.isPending}
-                        onClick={() =>
-                          confirmCard.mutate({
-                            observationId: item.observationId ?? 0,
-                            confirmedAt: Date.now(),
-                          })
-                        }
-                      >
-                        确认这是我手动使用的重置卡
-                      </Button>
-                    )}
+            <>
+              <p className="text-[12.5px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                {quotaSummary}
+              </p>
+              <AnimatedCollapse open={verificationOpen}>
+                <div className="flex flex-col gap-1.5 pt-1">
+                  {verifications.map((item) => (
+                    <div
+                      key={item.sourceId}
+                      className="flex flex-col gap-1 rounded-q-control border border-q-border bg-q-surface-strong px-2.5 py-1.5"
+                    >
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <b className="whitespace-nowrap text-[12.5px] text-q-text-primary">{item.accountName}</b>
+                        <StatusBadge tone={quotaTone(item.status)}>
+                          {quotaBadgeLabel(item.status, item.attribution, item.lastResetObservedAt)}
+                        </StatusBadge>
+                        {item.attribution === "user_confirmed" ? (
+                          <span className="text-[11px] text-q-text-muted">用户已确认重置卡</span>
+                        ) : null}
+                        {quotaCorrelationLabel(item.temporalCorrelation) ? (
+                          <span className="text-[11px] text-q-text-muted">{quotaCorrelationLabel(item.temporalCorrelation)}</span>
+                        ) : null}
+                      </div>
+                      {item.status === "unavailable" && (
+                        <p className="text-[11px] leading-relaxed text-q-text-muted">
+                          当前网络无法获取 Codex 额度，不影响来源与 AI 判断。
+                        </p>
+                      )}
+                      {item.note && <p className="text-[11px] text-q-text-muted">{item.note}</p>}
+                      <p className="text-[11px] text-q-text-muted">
+                        {item.windowLabel ? `${item.windowLabel} · ` : ""}
+                        {item.lastSuccessAt ? `上次成功 ${formatTime(item.lastSuccessAt)}` : "尚无成功快照"}
+                      </p>
+                      {["unscheduled_reset", "possible_reset"].includes(item.status) &&
+                        item.observationId != null &&
+                        item.attribution !== "user_confirmed" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="self-start"
+                            disabled={confirmCard.isPending}
+                            onClick={() =>
+                              confirmCard.mutate({
+                                observationId: item.observationId ?? 0,
+                                confirmedAt: Date.now(),
+                              })
+                            }
+                          >
+                            确认这是我手动使用的重置卡
+                          </Button>
+                        )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </AnimatedCollapse>
+            </>
           )}
         </section>
       </div>
@@ -756,8 +767,8 @@ function SignalSummaryView({
         )}
       </section>
 
-        {/* 右栏：CodexRadar 公告细条 + Tibo 最近动态预览 */}
-        <div className="flex min-w-0 flex-col gap-4">
+        {/* 右栏：CodexRadar 公告细条 + Tibo 最近动态预览（窄容器单栏时公告前置） */}
+        <div className="radar-workspace-side flex min-w-0 flex-col gap-4">
           {/* CodexRadar 公告：细条；区分 当前公告 / 最近公告 / 当前无公告 / 缓存可能过期；不进入本地 AI 输入 */}
           <section className="glass-panel radar-notice-card flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
             <h2 className="whitespace-nowrap text-[14px] font-semibold tracking-tight text-q-text-primary">

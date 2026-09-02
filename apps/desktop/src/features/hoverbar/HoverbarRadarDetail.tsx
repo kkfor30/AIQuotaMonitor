@@ -145,9 +145,8 @@ export function HoverbarRadarDetail({
 
       <section className="hb-radar-card">
         <div className="hb-radar-card-head">
-          <h3 className="hb-radar-card-title">重置判断</h3>
           {decision ? (
-            <span className="radar-phase-badge" data-phase={decision.status}>
+            <span className="radar-phase-badge ml-auto" data-phase={decision.status}>
               {radarDecisionBadge(decision)}
             </span>
           ) : null}
