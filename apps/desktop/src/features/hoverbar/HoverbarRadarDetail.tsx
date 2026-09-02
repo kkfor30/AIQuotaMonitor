@@ -391,7 +391,7 @@ export function HoverbarRadarDetail({
               {recentCard.analysis?.analysisBasis ? (
                 <>
                   <p className="hb-radar-field-label">当时分析</p>
-                  <p className="hb-radar-meta" data-selectable="true">
+                  <p className="hb-radar-copy" data-selectable="true">
                     {humanizeRadarPostRefs(recentCard.analysis.analysisBasis, knownPosts)}
                   </p>
                 </>
