@@ -1208,7 +1208,6 @@ function AiAnalysisView({
                   value={`${item.sourceId}|${item.model}`}
                   disabled={!item.ready}
                 >
-                  {item.displayName} ·{" "}
                   {item.model || "仅自定义模型（在下方添加）"}
                   {item.ready ? "" : "（不可用）"}
                 </option>
@@ -1425,7 +1424,7 @@ function CustomModelPanel({
         selected ? (
           <div className="flex flex-col gap-2 rounded-q-control border border-q-border bg-q-surface px-3 py-2.5">
             <p className="text-xs leading-relaxed text-q-text-muted">
-              为「{selected.displayName}」添加平台支持的任意模型名：先验证连接（发送一次极小请求），通过后保存即可加入上方下拉。
+              添加平台支持的任意模型名：先验证连接（发送一次极小请求），通过后保存即可加入上方下拉。
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <input
