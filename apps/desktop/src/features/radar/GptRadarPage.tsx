@@ -167,8 +167,8 @@ export function GptRadarPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 pt-2 pr-2">
-      {/* 页头：单行紧凑条——按钮固定右上；窄窗口时仅说明文字收缩截断，布局不随宽度换行 */}
-      <header className="glass-panel flex shrink-0 items-center gap-2.5 px-4 py-2.5">
+      {/* 页头：宽窗口单行紧凑条；窄窗口说明文字自然折行到第二条，不再截断省略 */}
+      <header className="glass-panel flex shrink-0 items-center gap-x-2.5 gap-y-0.5 px-4 py-2.5">
         <span
           aria-hidden
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-q-border bg-q-surface-strong text-q-primary shadow-q-sm"
@@ -176,10 +176,10 @@ export function GptRadarPage() {
           <Radar size={16} aria-hidden />
         </span>
         <h1 className="shrink-0 text-[17px] font-semibold tracking-tight text-q-text-primary">GPT 重置雷达</h1>
-        <span className="shrink-0 rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral">
+        <span className="shrink-0 whitespace-nowrap rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral">
           仅为推测，不代表官方结论
         </span>
-        <p className="min-w-0 flex-1 truncate text-[13px] text-q-text-secondary">
+        <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-q-text-secondary">
           手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译；AI 分析默认关闭，只使用英文原文。
         </p>
       </header>
@@ -226,9 +226,9 @@ export function GptRadarPage() {
             </Button>
           )}
         </div>
-        {/* 动态范围：不贴窗口右缘；自定义展开时在组内换行，不挤压左侧 Tab */}
-        <div className="ml-auto mr-4 flex max-w-full flex-wrap items-center justify-end gap-2">
-          <span className="text-[13.5px] font-medium text-q-text-secondary">动态范围：</span>
+        {/* 动态范围：flex-1 + min-w-0 让整组始终留在 Tab 行内，放不下时只在组内换行（自定义日期框掉到右对齐第二行），不把整组挤下去 */}
+        <div className="ml-auto mr-4 flex min-w-0 max-w-full flex-1 flex-wrap items-center justify-end gap-2">
+          <span className="shrink-0 whitespace-nowrap text-[13.5px] font-medium text-q-text-secondary">动态范围：</span>
           {QUICK_RANGES.map((range) => (
             <button
               key={range.id}
@@ -316,9 +316,9 @@ const RADAR_TABS: Array<{ id: RadarTabId; label: string }> = [
   { id: "ai", label: "AI 辅助分析" },
 ];
 
-/** 自定义日期输入样式（Tab 行动态范围控件用）。 */
+/** 自定义日期输入样式（Tab 行动态范围控件用）；固定宽度避免默认 date 输入过宽把工具栏挤换行。 */
 const dateInputClass =
-  "h-8 rounded-md border border-q-border bg-q-surface px-2 text-xs text-q-text-primary outline-none focus:border-q-primary";
+  "h-8 w-[116px] rounded-md border border-q-border bg-q-surface px-2 text-xs text-q-text-primary outline-none focus:border-q-primary";
 
 function formatTime(value: number) {
   return new Date(value).toLocaleString("zh-CN", { hour12: false });
@@ -1700,7 +1700,7 @@ const QUICK_RANGES: Array<{ id: string; label: string }> = [
 /** 时间范围快捷档与筛选 Chip 的统一样式：两主题各由 Chip Token 驱动，不再写死白底。 */
 function rangeChipClass(active: boolean): string {
   return cn(
-    "inline-flex cursor-pointer items-center rounded-q-pill border px-3 py-1.5 text-[12px] font-medium transition-colors duration-150",
+    "inline-flex cursor-pointer items-center whitespace-nowrap rounded-q-pill border px-3 py-1.5 text-[12px] font-medium transition-colors duration-150",
     active
       ? "border-[var(--q-chip-active-border)] bg-[var(--q-chip-active-bg)] text-[var(--q-chip-active-text)]"
       : "border-[var(--q-chip-border)] bg-[var(--q-chip-bg)] text-[var(--q-chip-text)] hover:border-[var(--q-chip-active-border)] hover:text-[var(--q-chip-active-text)]",
