@@ -2,7 +2,8 @@
  * 悬浮详情内的 GPT 重置雷达二级页。
  * 固定顺序：sticky 工具栏 → 重置判断 → 判断依据 → 本机验证 → Tibo 动态 → 最近一次事件。
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -76,6 +77,7 @@ export function HoverbarRadarDetail({
     mutationFn: undoRadarUserReset,
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
   });
+  const pageRef = useRef<HTMLDivElement>(null);
   const [quotaDetailOpen, setQuotaDetailOpen] = useState(false);
   const [recentEventOpen, setRecentEventOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
@@ -113,8 +115,22 @@ export function HoverbarRadarDetail({
     : false;
   const quotaUnavailable = verifications.some((item) => item.status === "unavailable");
 
+  const confirmDialog = confirmOpen ? (
+    <ConfirmResetDialog
+      eventType={decision?.eventType}
+      pending={confirmReset.isPending}
+      onCancel={() => setConfirmOpen(false)}
+      onConfirm={() => {
+        confirmReset.mutate(undefined, {
+          onSuccess: () => setConfirmOpen(false),
+        });
+      }}
+    />
+  ) : null;
+  const confirmHost = pageRef.current?.closest(".hb-panel") ?? pageRef.current;
+
   return (
-    <div className="hb-radar-page">
+    <div ref={pageRef} className="hb-radar-page">
       <div className="hb-radar-top">
         <button type="button" className="hb-radar-back" onClick={onBack}>
           <ArrowLeft size={14} aria-hidden />
@@ -413,18 +429,7 @@ export function HoverbarRadarDetail({
       ) : null}
       <p className="hb-radar-footnote">仅为推测，不代表官方结论；重置时间以官方实际执行为准。</p>
 
-      {confirmOpen ? (
-        <ConfirmResetDialog
-          eventType={decision?.eventType}
-          pending={confirmReset.isPending}
-          onCancel={() => setConfirmOpen(false)}
-          onConfirm={() => {
-            confirmReset.mutate(undefined, {
-              onSuccess: () => setConfirmOpen(false),
-            });
-          }}
-        />
-      ) : null}
+      {confirmDialog && confirmHost ? createPortal(confirmDialog, confirmHost) : confirmDialog}
     </div>
   );
 }
