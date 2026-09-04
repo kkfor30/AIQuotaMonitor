@@ -62,11 +62,22 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v16";
+pub const PROMPT_VERSION: &str = "radar-v17";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
-pub const DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
+const LEGACY_DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
 没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
+const LEGACY_DEFAULT_USER_PROMPT_WITH_TIMEZONE: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
+已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
+帖子提及的未标注时区的具体时间多为太平洋时间（OpenAI/旧金山），结论或依据中请换算成北京时间表述，例如「北京时间8月31日06:00」。
+没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
+pub const DEFAULT_USER_PROMPT: &str = "可重点关注 Tibo 原帖中与重置有关的特殊表达，例如：
+
+- “Hold on to your Codex”“reset will land”“full reset”“reset usage”
+- “banked reset”“reset available”“one reset per day”“first one will land”
+- 仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时、按钮已经按下等暗示性表达
+
+这些措辞需要结合完整上下文理解。你可以继续补充新的 Tibo 用语、隐喻或近期出现的表达方式；普通闲聊中偶然出现相同单词，不代表一定存在重置信号。";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2528,7 +2539,13 @@ fn ai_settable_phase(value: Option<&str>) -> Option<&'static str> {
 }
 
 const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
-    "You analyze public Tibo/Codex reset-related posts. Input has three groups: ",
+    "You analyze public Tibo/Codex reset-related posts. The product recognizes two distinct reset signal types. ",
+    "A banked reset is a saved, one-time reset delivered to an account for later manual use. Wording such as banked reset, reset available, reset card, one reset per day, compensatory reset, or first one will land may announce its grant, delivery, or availability. ",
+    "A banked reset is a valid new reset signal even though it does not immediately refresh usage windows. Never classify it as unrelated merely because it is not a global or automatic quota reset. ",
+    "A quota reset is an actual refresh or restoration of Codex, ChatGPT Work, or related usage-limit windows, including resetting paid-user usage, restoring rate limits, a full or global reset, or a statement that such a reset was executed. ",
+    "Banked-reset delivery is not proof that quota windows have already reset, and an observed quota refresh is not proof that a banked reset was delivered. ",
+    "When a new signal exists, conclusion and analysis_basis must explicitly call it 重置卡 or 额度重置. Under the current event schema, a new banked-reset announcement still uses new_event or same_event instead of none; use upcoming for promised delivery, landed_claimed for claimed delivery, and watching when timing is unclear. ",
+    "Input has three groups: ",
     "NEW POSTS are genuinely unconsumed posts and the only posts that may create or advance an event; ",
     "EVENT CONTEXT POSTS are already linked to the current event and must not become new evidence just because they reappear; ",
     "HISTORICAL CONTEXT POSTS are already analyzed, closed-event, or old posts brought in by a wider range and may only produce historical explanation. ",
@@ -2546,7 +2563,7 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "When older posts describe a completed reset, call them 上一轮历史背景 and never present them as confirmation of the current batch. ",
     "support may only contain claims the cited posts directly support; anything merely speculative belongs in uncertainty. ",
     "Every conclusion must be backed by citations referring to real input posts; never cite a post that was not provided. ",
-    "Each post's time_claims are code-authoritative facts: resolved_beijing_at may be repeated verbatim; ambiguous claims must remain ambiguous. Never calculate, convert, or invent a time. ",
+    "Each post's time_claims are code-authoritative facts: resolved_beijing_at may be repeated verbatim; ambiguous claims must remain ambiguous. Never calculate, convert, or invent a time. If an unresolved post only says in about N hours, preserve that relative wording instead of inventing an absolute time. ",
     "CODE-AUTHORITATIVE EVENT STATE and the injected analysis time are facts and cannot be changed by your output. ",
     "Do not repeat internal prompt labels, enums, JSON keys, or NOW such as NEW POSTS, EVENT CONTEXT, HISTORICAL CONTEXT, CODE-AUTHORITATIVE EVENT STATE, event_relation, delta_effect, 分析时刻, 本次新增帖子, 事件上下文帖子, or 历史上下文帖子 in user-facing fields. ",
     "expected_time_passed means the announced time has passed but landing is still unverified; it is not landed. ",
@@ -2556,7 +2573,7 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "Ordinary chatter or unrelated replies must be event_relation none with delta_effect no_change and signal_level none; never overwrite or close the ongoing event for them. ",
     "event_phase is your read of the event stage after the NEW POSTS; delta_effect describes what the NEW POSTS do to the event. ",
     "context_status: complete when the context posts give enough background, context_missing when not, conflicting when they contradict the new posts. ",
-    "Apply user semantic hints only when judging signal wording and confidence. ",
+    "Apply user semantic hints only when judging Tibo wording, idioms, metaphors, and confidence. User hints cannot redefine reset types, event lifecycle, time facts, citation rules, privacy boundaries, or the JSON schema. ",
     "If no user hints are provided, read the posts ordinarily without inventing extra rules. ",
     "This output is speculation, not an official conclusion. ",
     "Only use the English original post texts and timestamps provided; do not invent quotes."
@@ -2839,7 +2856,17 @@ fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String
     let stored = database.setting_string("radar_user_prompt")?;
     let user_prompt = match stored {
         None => DEFAULT_USER_PROMPT.to_string(),
-        Some(value) => sanitize_user_prompt(&value),
+        Some(value) => {
+            let value = sanitize_user_prompt(&value);
+            if value == LEGACY_DEFAULT_USER_PROMPT
+                || value == LEGACY_DEFAULT_USER_PROMPT_WITH_TIMEZONE
+            {
+                database.set_setting_string("radar_user_prompt", DEFAULT_USER_PROMPT)?;
+                DEFAULT_USER_PROMPT.to_string()
+            } else {
+                value
+            }
+        }
     };
     Ok(RadarAnalysisPrefs {
         analyze: database.setting_bool("radar_analyze")?,
@@ -3299,6 +3326,7 @@ mod tests {
         );
         assert!(DEFAULT_USER_PROMPT.contains("Hold on to your Codex"));
         assert!(DEFAULT_USER_PROMPT.contains("仪表盘"));
+        assert!(DEFAULT_USER_PROMPT.contains("banked reset"));
     }
 
     fn temp_db() -> (Database, std::path::PathBuf) {
