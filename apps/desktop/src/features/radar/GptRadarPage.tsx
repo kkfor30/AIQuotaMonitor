@@ -46,6 +46,7 @@ import {
   radarBeijingTimeLabel,
   radarCloseReasonLabel,
   radarConfirmationSourceLabel,
+  radarConfirmResetDialogBody,
   radarConfirmResetDialogTitle,
   radarConfirmResetLabel,
   radarDecisionBadge,
@@ -895,7 +896,7 @@ function SignalSummaryView({
               {radarConfirmResetDialogTitle(decision?.eventType)}
             </p>
             <p className="mt-2 text-xs leading-relaxed text-q-text-secondary">
-              这只记录你的人工观察，不代表官方确认，也不会判断是官方重置还是使用了重置卡。
+              {radarConfirmResetDialogBody(decision?.eventType)}
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <Button variant="ghost" size="sm" disabled={confirmReset.isPending} onClick={() => setConfirmOpen(false)}>

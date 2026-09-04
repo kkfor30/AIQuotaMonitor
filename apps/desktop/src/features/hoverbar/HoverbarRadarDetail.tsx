@@ -35,6 +35,7 @@ import {
   radarAiStatusLabel,
   radarCloseReasonLabel,
   radarConfirmationSourceLabel,
+  radarConfirmResetDialogBody,
   radarConfirmResetDialogTitle,
   radarConfirmResetLabel,
   radarDecisionBadge,
@@ -462,9 +463,7 @@ function ConfirmResetDialog({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <p className="hb-radar-subheadline">{title}</p>
-        <p className="hb-radar-meta">
-          这只记录你的人工观察，不代表官方确认，也不会判断是官方重置还是使用了重置卡。
-        </p>
+        <p className="hb-radar-meta">{radarConfirmResetDialogBody(eventType)}</p>
         <div className="hb-radar-post-actions">
           <button type="button" className="hb-radar-post-button" disabled={pending} onClick={onCancel}>
             取消

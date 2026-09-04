@@ -274,6 +274,12 @@ export function radarConfirmResetDialogTitle(eventType: string | null | undefine
   return eventType === "banked_reset" ? "确认重置卡已经到账？" : "确认额度已经重置？";
 }
 
+export function radarConfirmResetDialogBody(eventType: string | null | undefined): string {
+  return eventType === "banked_reset"
+    ? "这只记录你看到重置卡已经到账，不代表官方确认，也不表示额度已经重置。"
+    : "这只记录你看到额度已经重置，不代表官方确认。官方重置还是使用了重置卡，请在本机验证里单独确认。";
+}
+
 export function radarSignalTypeLabel(value: string | null | undefined): string {
   switch (value) {
     case "banked_reset":
