@@ -615,6 +615,35 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
       }),
     },
     {
+      label: "重置卡观察中",
+      snapshot: withOverrides({
+        event: {
+          ...previewEvent,
+          phase: "watching",
+          temporalStatus: "timeless",
+          title: "重置卡可能即将到账",
+          eventType: "banked_reset",
+          claimedLandedAt: null,
+          expectedAt: null,
+        },
+        decision: previewDecision({
+          status: "watching",
+          headline: "重置卡可能即将到账",
+          timeText: "到账时间尚未明确",
+          timeKind: "unknown",
+          eventType: "banked_reset",
+          claimedAt: null,
+          expectedAt: null,
+          canConfirmReset: true,
+          stripBadge: "观察中",
+          stripPrimary: "重置卡可能即将到账",
+          stripPrimaryCompact: "重置卡可能即将到账",
+          stripSecondary: "AI 已分析 · 等待验证",
+          recentSummaryText: "最近一次重置于 08-31 10:27 · 本机观察确认",
+        }),
+      }),
+    },
+    {
       label: "正常计划内刷新",
       snapshot: withOverrides({
         event: {

@@ -1191,7 +1191,13 @@ fn strip_copy(
             status,
             "watching" | "upcoming" | "expected_time_passed" | "landed_claimed"
         ) {
-            let primary = if source_has_direct_signal {
+            let primary = if status == "watching" {
+                if banked {
+                    "重置卡可能即将到账".into()
+                } else {
+                    "可能即将重置".into()
+                }
+            } else if source_has_direct_signal {
                 "来源出现直接重置信号".into()
             } else {
                 decision_time_text(
@@ -1317,20 +1323,19 @@ fn strip_copy(
                 format!("来源明确预告 · {ai_token} · 等待验证"),
             )
         }
-        "watching" => (
-            "观察中".into(),
-            if banked {
-                "到账时间尚未明确".into()
+        "watching" => {
+            let primary: String = if banked {
+                "重置卡可能即将到账".into()
             } else {
-                "重置时间尚未明确".into()
-            },
-            if banked {
-                "到账时间尚未明确".into()
-            } else {
-                "重置时间尚未明确".into()
-            },
-            format!("{ai_token} · 等待验证"),
-        ),
+                "可能即将重置".into()
+            };
+            (
+                "观察中".into(),
+                primary.clone(),
+                primary,
+                format!("{ai_token} · 等待验证"),
+            )
+        }
         _ => {
             // 无信号：不重复徽章状态，综合行只给“最近重置”或本机无变化。
             (
