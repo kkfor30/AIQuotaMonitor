@@ -149,6 +149,8 @@ pub struct RadarAnalysisRecord {
     pub valid_until: Option<i64>,
     pub state_revision: i64,
     pub timezone_policy_version: String,
+    /// banked_reset | quota_reset | none | unknown；旧记录为 unknown，不得伪造成新分析。
+    pub signal_type: String,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +171,8 @@ pub struct RadarEventRecord {
     pub state_revision: i64,
     /// 用户确认额度已重置的时间；与 observation.user_confirmed_at（重置卡归因）不是同一字段。
     pub user_confirmed_reset_at: Option<i64>,
+    /// banked_reset | quota_reset；旧事件迁移为 quota_reset。
+    pub event_type: String,
 }
 
 #[derive(Debug, Clone)]
@@ -806,6 +810,29 @@ impl Database {
             .map_err(|err| format!("读取能力快照失败: {err}"))
     }
 
+    pub fn recent_capability_primary_values(
+        &self,
+        source_id: &str,
+        capability_id: &str,
+        limit: i64,
+    ) -> Result<Vec<(i64, Option<String>)>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT captured_at, primary_value FROM capability_snapshots
+                 WHERE source_id = ?1 AND capability_id = ?2
+                 ORDER BY captured_at DESC, id DESC LIMIT ?3",
+            )
+            .map_err(|err| format!("准备能力历史查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![source_id, capability_id, limit], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .map_err(|err| format!("读取能力历史失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取能力历史失败: {err}"))
+    }
+
     pub fn latest_window_snapshots(&self, source_id: &str) -> Result<Vec<SnapshotRecord>, String> {
         let connection = self.connect()?;
         let mut statement = connection
@@ -1201,8 +1228,9 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at
-                 FROM radar_events WHERE closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 1",
+                &radar_event_select(
+                    "WHERE closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 1",
+                ),
                 [],
                 map_radar_event,
             )
@@ -1217,12 +1245,13 @@ impl Database {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at
-                 FROM radar_events
-                 WHERE closed_at IS NOT NULL
-                   AND (observed_reset_at IS NOT NULL OR user_confirmed_reset_at IS NOT NULL)
-                 ORDER BY COALESCE(observed_reset_at, user_confirmed_reset_at) DESC
-                 LIMIT 1",
+                &radar_event_select(
+                    "WHERE closed_at IS NOT NULL
+                       AND event_type = 'quota_reset'
+                       AND (observed_reset_at IS NOT NULL OR user_confirmed_reset_at IS NOT NULL)
+                     ORDER BY COALESCE(observed_reset_at, user_confirmed_reset_at) DESC
+                     LIMIT 1",
+                ),
                 [],
                 map_radar_event,
             )
@@ -1268,8 +1297,8 @@ impl Database {
         let connection = self.connect()?;
         connection
             .execute(
-                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, new_post_ids_json, event_context_post_ids_json, historical_post_ids_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)",
+                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, new_post_ids_json, event_context_post_ids_json, historical_post_ids_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version, signal_type)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35)",
                 params![
                     analysis.id, analysis.created_at, analysis.range_key, analysis.cut_post_id,
                     analysis.from_posted_at, analysis.to_posted_at, analysis.source_id, analysis.model,
@@ -1282,7 +1311,7 @@ impl Database {
                     analysis.event_relation, analysis.event_phase, analysis.delta_effect,
                     analysis.signal_level, analysis.context_status,
                     analysis.temporal_phase, analysis.valid_until, analysis.state_revision,
-                    analysis.timezone_policy_version,
+                    analysis.timezone_policy_version, analysis.signal_type,
                 ],
             )
             .map(|_| ())
@@ -1290,24 +1319,45 @@ impl Database {
     }
 
     pub fn active_radar_event(&self) -> Result<Option<RadarEventRecord>, String> {
+        Ok(self.active_radar_events()?.into_iter().next())
+    }
+
+    pub fn active_radar_events(&self) -> Result<Vec<RadarEventRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(&radar_event_select(
+                "WHERE closed_at IS NULL ORDER BY latest_evidence_at DESC, updated_at DESC",
+            ))
+            .map_err(|err| format!("准备活动重置事件查询失败: {err}"))?;
+        let rows = statement
+            .query_map([], map_radar_event)
+            .map_err(|err| format!("读取活动重置事件失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取活动重置事件失败: {err}"))
+    }
+
+    pub fn active_radar_event_of_type(
+        &self,
+        event_type: &str,
+    ) -> Result<Option<RadarEventRecord>, String> {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at
-                 FROM radar_events WHERE closed_at IS NULL ORDER BY updated_at DESC LIMIT 1",
-                [],
+                &radar_event_select(
+                    "WHERE closed_at IS NULL AND event_type = ?1 ORDER BY latest_evidence_at DESC, updated_at DESC LIMIT 1",
+                ),
+                params![event_type],
                 map_radar_event,
             )
             .optional()
-            .map_err(|err| format!("读取活动重置事件失败: {err}"))
+            .map_err(|err| format!("读取指定类型活动重置事件失败: {err}"))
     }
 
     pub fn radar_event(&self, event_id: &str) -> Result<Option<RadarEventRecord>, String> {
         let connection = self.connect()?;
         connection
             .query_row(
-                "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at
-                 FROM radar_events WHERE id = ?1",
+                &radar_event_select("WHERE id = ?1"),
                 params![event_id],
                 map_radar_event,
             )
@@ -1319,13 +1369,14 @@ impl Database {
         let connection = self.connect()?;
         connection
             .execute(
-                "INSERT INTO radar_events(id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                "INSERT INTO radar_events(id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at, event_type, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                 params![
                     event.id, event.phase, event.title, event.summary, event.first_signal_at,
                     event.latest_evidence_at, event.claimed_landed_at, event.observed_reset_at,
                     event.closed_at, event.close_reason, event.expected_at, event.expires_at,
-                    event.state_revision, event.user_confirmed_reset_at, epoch_ms(), epoch_ms(),
+                    event.state_revision, event.user_confirmed_reset_at, event.event_type,
+                    epoch_ms(), epoch_ms(),
                 ],
             )
             .map(|_| ())
@@ -1608,8 +1659,15 @@ impl Database {
 /// radar_analyses 全列 SELECT；各查询只差异 WHERE/ORDER 子句。
 fn radar_analysis_select(suffix: &str) -> String {
     format!(
-        "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, new_post_ids_json, event_context_post_ids_json, historical_post_ids_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version
+        "SELECT id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, new_post_ids_json, event_context_post_ids_json, historical_post_ids_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version, signal_type
          FROM radar_analyses {suffix}"
+    )
+}
+
+fn radar_event_select(suffix: &str) -> String {
+    format!(
+        "SELECT id, phase, title, summary, first_signal_at, latest_evidence_at, claimed_landed_at, observed_reset_at, closed_at, close_reason, expected_at, expires_at, state_revision, user_confirmed_reset_at, event_type
+         FROM radar_events {suffix}"
     )
 }
 
@@ -1696,6 +1754,7 @@ fn map_radar_analysis(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarAnalysis
         valid_until: row.get(31)?,
         state_revision: row.get(32)?,
         timezone_policy_version: row.get(33)?,
+        signal_type: row.get(34)?,
     })
 }
 
@@ -1715,6 +1774,7 @@ fn map_radar_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarEventRecord
         expires_at: row.get(11)?,
         state_revision: row.get(12)?,
         user_confirmed_reset_at: row.get(13)?,
+        event_type: row.get(14)?,
     })
 }
 

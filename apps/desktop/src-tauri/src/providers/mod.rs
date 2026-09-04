@@ -289,6 +289,12 @@ fn openai_templates(
                 "percent",
             ));
         }
+        templates.push(template(
+            "banked_reset_count",
+            &source.id,
+            "可用重置卡",
+            "count",
+        ));
         templates.push(template("credits", &source.id, "额外余额", "credits"));
         templates.push(template("plan_level", &source.id, "订阅计划", "text"));
     }
@@ -982,6 +988,7 @@ fn missing_capability_ok(
         return false;
     }
     capability.capability_id == "credits"
+        || capability.capability_id == "banked_reset_count"
         || capability.capability_id == "plan_level"
         || capability.capability_id == "total_spend"
         || capability.capability_id.starts_with("quota_window_")

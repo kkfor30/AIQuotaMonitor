@@ -46,10 +46,13 @@ import {
   radarBeijingTimeLabel,
   radarCloseReasonLabel,
   radarConfirmationSourceLabel,
+  radarConfirmResetDialogTitle,
+  radarConfirmResetLabel,
   radarDecisionBadge,
   radarDecisionTimeText,
   radarDeltaImpactLine,
   radarQuotaSummaryLine,
+  radarSignalTypeLabel,
   sourceRelationLabel,
 } from "@/features/hoverbar/hoverbar-state";
 import { useContainerWidth, TIBO_SPLIT_MIN_PX } from "@/lib/use-container-width";
@@ -462,7 +465,7 @@ function SignalSummaryView({
                 <div className="flex flex-wrap items-center gap-2 pt-0.5">
                   {decision.canConfirmReset ? (
                     <Button variant="secondary" size="sm" onClick={() => setConfirmOpen(true)}>
-                      确认额度已重置
+                      {radarConfirmResetLabel(decision.eventType)}
                     </Button>
                   ) : null}
                   {decision.canUndoConfirm ? (
@@ -581,6 +584,7 @@ function SignalSummaryView({
                       </p>
                     )}
                     {item.note && <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{item.note}</p>}
+                    <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{item.bankedResetLabel}</p>
                     <p className="text-[11.5px] tabular-nums text-q-text-muted">
                       {item.windowLabel ? `${item.windowLabel} · ` : ""}
                       {item.lastSuccessAt ? `上次成功 ${formatCompactTime(item.lastSuccessAt)}` : "尚无成功快照"}
@@ -689,6 +693,9 @@ function SignalSummaryView({
               <p className="text-[17px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
                 {humanizeRadarPostRefs(aiReasoning.conclusion, knownPosts)}
               </p>
+              {aiReasoning.signalType ? (
+                <p className="text-[12px] text-q-text-muted">信号类型 · {radarSignalTypeLabel(aiReasoning.signalType)}</p>
+              ) : null}
             </div>
             {aiReasoning.analysisBasis ? (
               <div className="flex flex-col gap-1.5">
@@ -884,7 +891,9 @@ function SignalSummaryView({
             aria-modal="true"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <p className="text-sm font-semibold text-q-text-primary">确认额度已经重置？</p>
+            <p className="text-sm font-semibold text-q-text-primary">
+              {radarConfirmResetDialogTitle(decision?.eventType)}
+            </p>
             <p className="mt-2 text-xs leading-relaxed text-q-text-secondary">
               这只记录你的人工观察，不代表官方确认，也不会判断是官方重置还是使用了重置卡。
             </p>
@@ -1313,6 +1322,9 @@ function AiAnalysisView({
               <p className="text-[15px] font-medium leading-relaxed text-q-text-primary" data-selectable="true">
                 {humanizeRadarPostRefs(analysis.conclusion, knownPosts)}
               </p>
+              {analysis.signalType ? (
+                <p className="text-[12px] text-q-text-muted">信号类型 · {radarSignalTypeLabel(analysis.signalType)}</p>
+              ) : null}
             </div>
             {analysis.analysisBasis ? (
               <div className="flex flex-col gap-1.5">

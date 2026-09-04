@@ -50,7 +50,7 @@ import { UsageTrend } from "./UsageTrend";
 
 /* ————————————————— 能力类型体系（capabilityId 语义归类，与平台名无关） ————————————————— */
 
-type CapabilityGroup = "window" | "finance" | "credits" | "model_usage" | "efficiency" | "trend" | "other";
+type CapabilityGroup = "window" | "finance" | "credits" | "banked" | "model_usage" | "efficiency" | "trend" | "other";
 
 const FINANCE_MAIN_ID = "balance";
 const FINANCE_SECONDARY_META: Array<{ id: string; icon: LucideIcon }> = [
@@ -103,6 +103,7 @@ function classifyCapability(capability: CapabilitySnapshotViewModel): Capability
   if (id.startsWith("model_usage_")) return "model_usage";
   if (id === FINANCE_MAIN_ID || FINANCE_SECONDARY_META.some((meta) => meta.id === id)) return "finance";
   if (id === "credits") return "credits";
+  if (id === "banked_reset_count") return "banked";
   if (id === "usage_trend" || capability.value.kind === "trend") return "trend";
   return "other";
 }
@@ -112,6 +113,7 @@ function groupCapabilities(capabilities: CapabilitySnapshotViewModel[]): Record<
     window: [],
     finance: [],
     credits: [],
+    banked: [],
     model_usage: [],
     efficiency: [],
     trend: [],
@@ -323,6 +325,35 @@ function FinanceSection({ capabilities }: { capabilities: CapabilitySnapshotView
           })}
         </div>
       )}
+    </ModulePanel>
+  );
+}
+
+/* ————————————————— 可用重置卡 ————————————————— */
+
+function BankedResetSection({ capability }: { capability: CapabilitySnapshotViewModel }) {
+  const missing = isMissing(capability);
+  const line = freshnessLine(capability);
+  const countText = missing ? "未获取" : `${primaryText(capability)} 张`;
+  return (
+    <ModulePanel icon={TimerReset} title="可用重置卡">
+      <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-t border-q-border pt-3">
+        <span className="flex shrink-0 items-baseline gap-2">
+          <span
+            className="text-[18px] leading-6 text-q-text-primary"
+            style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
+            data-selectable="true"
+            data-missing={missing || undefined}
+          >
+            {countText}
+          </span>
+          {capability.freshness !== "fresh" && <FreshnessTag freshness={capability.freshness} />}
+        </span>
+        <p className="min-w-0 truncate text-[12.5px] text-q-text-secondary" title={capability.value.secondary ?? undefined}>
+          {missing ? "暂无法获取" : capability.value.secondary ?? "可用于重置 Codex 使用额度"}
+          {line ? <span className="text-[11px] text-q-text-muted"> · {line.text}</span> : null}
+        </p>
+      </div>
     </ModulePanel>
   );
 }
@@ -603,6 +634,7 @@ export function CapabilityDashboard({
 }) {
   const groups = groupCapabilities(capabilities);
   const credits = groups.credits[0] ?? null;
+  const banked = groups.banked[0] ?? null;
   const trend = groups.trend[0] ?? null;
   if (capabilities.length === 0) {
     return <p className="px-1 text-xs text-q-text-muted">该账号暂无额度数据。</p>;
@@ -631,6 +663,7 @@ export function CapabilityDashboard({
         </div>
       )}
 
+      {banked && <BankedResetSection capability={banked} />}
       {credits && <CreditBalanceSection capability={credits} />}
       {trend && <UsageTrend capability={trend} />}
       {groups.other.length > 0 && <OtherCapabilitySection capabilities={groups.other} />}

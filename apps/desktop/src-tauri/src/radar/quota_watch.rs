@@ -27,6 +27,8 @@ pub struct QuotaVerificationView {
     pub last_success_at: Option<i64>,
     pub note: Option<String>,
     pub last_reset_observed_at: Option<i64>,
+    /// 只读：可用重置卡 0 张 / 可用重置卡 1 张 / 暂无法获取。
+    pub banked_reset_label: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -86,6 +88,7 @@ pub fn assess_quota_verifications(
                 .error_message
                 .clone()
                 .or_else(|| Some("额度来源暂不可用".into()));
+            view.banked_reset_label = banked_reset_state(database, &source.id)?.0;
             result.push(view);
             continue;
         }
@@ -137,6 +140,15 @@ pub fn assess_quota_verifications(
                 view.note = Some("本次刷新未见进一步变化；之前已观察到窗口重置".into());
             }
         }
+        let (label, previous_count, current_count) = banked_reset_state(database, &source.id)?;
+        view.banked_reset_label = label;
+        if let (Some(previous), Some(current)) = (previous_count, current_count) {
+            if current < previous
+                && matches!(view.status.as_str(), "unscheduled_reset" | "possible_reset")
+            {
+                view.note = Some("疑似使用重置卡".into());
+            }
+        }
         result.push(view);
     }
     // 两个账号在 60 分钟内同时观察到，相关等级提升为 high。
@@ -182,7 +194,55 @@ fn empty_view(source: &crate::storage::repository::SourceRecord) -> QuotaVerific
         last_success_at: source.last_success_at,
         note: None,
         last_reset_observed_at: None,
+        banked_reset_label: "暂无法获取".into(),
     }
+}
+
+pub fn banked_reset_observed_at(
+    database: &Database,
+    event: &RadarEventRecord,
+) -> Result<Option<i64>, String> {
+    let mut observed = None;
+    for source in database.openai_quota_sources()? {
+        let samples = database.recent_capability_primary_values(&source.id, "banked_reset_count", 2)?;
+        if samples.len() < 2 {
+            continue;
+        }
+        let (current_at, current_value) = &samples[0];
+        let previous_value = &samples[1].1;
+        let Some(current) = parse_count(current_value.as_deref()) else {
+            continue;
+        };
+        let Some(previous) = parse_count(previous_value.as_deref()) else {
+            continue;
+        };
+        if current > previous && *current_at >= event.first_signal_at {
+            observed = Some(observed.map_or(*current_at, |at: i64| at.min(*current_at)));
+        }
+    }
+    Ok(observed)
+}
+
+fn banked_reset_state(
+    database: &Database,
+    source_id: &str,
+) -> Result<(String, Option<i64>, Option<i64>), String> {
+    let samples = database.recent_capability_primary_values(source_id, "banked_reset_count", 2)?;
+    let current = samples
+        .first()
+        .and_then(|(_, value)| parse_count(value.as_deref()));
+    let previous = samples
+        .get(1)
+        .and_then(|(_, value)| parse_count(value.as_deref()));
+    let label = match current {
+        Some(count) => format!("可用重置卡 {count} 张"),
+        None => "暂无法获取".into(),
+    };
+    Ok((label, previous, current))
+}
+
+fn parse_count(value: Option<&str>) -> Option<i64> {
+    value?.trim().parse::<i64>().ok().filter(|count| *count >= 0)
 }
 
 fn point(value: &WindowSampleRecord) -> QuotaWindowPointView {

@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 11;
+const CURRENT_SCHEMA_VERSION: i64 = 12;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -134,6 +134,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 11 {
         migrate_v11(&transaction)?;
+    }
+    if previous_version < 12 {
+        migrate_v12(&transaction)?;
     }
     transaction
         .commit()
@@ -585,6 +588,46 @@ fn migrate_v11(transaction: &Transaction<'_>) -> Result<(), String> {
             "#,
         )
         .map_err(|err| format!("执行 SQLite v11 迁移失败: {err}"))
+}
+
+/// v12：分析增加 signal_type，事件增加 event_type；窄范围回补 v16 把 explicit_reset
+/// 帖子判成 none 的生命周期消费标记。旧分析标 unknown，旧事件视为额度重置。
+fn migrate_v12(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            ALTER TABLE radar_analyses ADD COLUMN signal_type TEXT NOT NULL DEFAULT 'unknown';
+            ALTER TABLE radar_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'quota_reset';
+
+            UPDATE tibo_posts
+            SET lifecycle_consumed_at = NULL
+            WHERE explicit_reset = 1
+              AND lifecycle_consumed_at IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM radar_event_evidence e WHERE e.post_id = tibo_posts.id
+              )
+              AND EXISTS (
+                  SELECT 1 FROM radar_analyses a
+                  WHERE a.error_message IS NULL
+                    AND a.prompt_version = 'radar-v16'
+                    AND IFNULL(a.event_relation, '') = 'none'
+                    AND (
+                        EXISTS (
+                            SELECT 1 FROM json_each(a.new_post_ids_json) AS j
+                            WHERE j.value = tibo_posts.id
+                        )
+                        OR EXISTS (
+                            SELECT 1 FROM json_each(a.citations_json) AS j
+                            WHERE j.value = tibo_posts.id
+                        )
+                    )
+              );
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (12, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v12 迁移失败: {err}"))
 }
 
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {

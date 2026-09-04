@@ -62,7 +62,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v17";
+pub const PROMPT_VERSION: &str = "radar-v18";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 const LEGACY_DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -71,13 +71,33 @@ const LEGACY_DEFAULT_USER_PROMPT_WITH_TIMEZONE: &str = "若帖子提到仪表盘
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
 帖子提及的未标注时区的具体时间多为太平洋时间（OpenAI/旧金山），结论或依据中请换算成北京时间表述，例如「北京时间8月31日06:00」。
 没有重置相关内容，或只有旧重置而没有新信号时，才使用低把握度。";
-pub const DEFAULT_USER_PROMPT: &str = "可重点关注 Tibo 原帖中与重置有关的特殊表达，例如：
+const LEGACY_DEFAULT_USER_PROMPT_V17: &str = "可重点关注 Tibo 原帖中与重置有关的特殊表达，例如：
 
 - “Hold on to your Codex”“reset will land”“full reset”“reset usage”
 - “banked reset”“reset available”“one reset per day”“first one will land”
 - 仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时、按钮已经按下等暗示性表达
 
 这些措辞需要结合完整上下文理解。你可以继续补充新的 Tibo 用语、隐喻或近期出现的表达方式；普通闲聊中偶然出现相同单词，不代表一定存在重置信号。";
+pub const DEFAULT_USER_PROMPT: &str = "请把帖子分成三类信号，不要混用：
+
+【重置卡 banked_reset】
+原帖在说可保存、可稍后手动使用的重置次数或重置卡发放/到账。
+常见英文：banked reset、one reset per day、first one will land、reset available、reset card。
+重置卡不是全局额度自动恢复，但仍是有效重置信号，不得判为 none。
+
+【额度重置 quota_reset】
+原帖在说 Codex / ChatGPT Work 等额度窗口实际刷新或恢复。
+常见英文：reset all paid Codex/ChatGPT Work usage、full reset、reset usage、usage has reset。
+
+【无信号 none】
+普通闲聊、回复、表情，或只是顺口提到 reset，没有重置卡或额度窗口含义。
+
+也可继续关注 Tibo 的特殊表达，例如：
+- Hold on to your Codex、reset will land
+- 仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时、按钮已经按下
+
+时间请只复述代码给出的 time_claims / resolved_beijing_at，不要自行换算北京时间。
+普通闲聊中偶然出现相同单词，不代表一定存在重置信号。";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -155,6 +175,8 @@ pub struct RadarAnalysisView {
     pub signal_level: Option<String>,
     /// complete | context_missing | conflicting
     pub context_status: Option<String>,
+    /// banked_reset | quota_reset | none | unknown
+    pub signal_type: Option<String>,
     /// before_expected | expected_time_passed | claimed_landed | observed_landed | historical | timeless
     pub temporal_phase: Option<String>,
     pub valid_until: Option<i64>,
@@ -212,6 +234,8 @@ pub struct RadarEventView {
     pub timeline: Vec<RadarEventNodeView>,
     pub post_ids: Vec<String>,
     pub user_confirmed_reset_at: Option<i64>,
+    /// banked_reset | quota_reset
+    pub event_type: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -246,6 +270,8 @@ pub struct RadarRecentEventView {
     pub user_confirmed_reset_at: Option<i64>,
     /// observed | user_confirmed | claimed
     pub confirmation_source: Option<String>,
+    /// banked_reset | quota_reset
+    pub event_type: String,
 }
 
 /// 面向用户的综合判断：由 Rust 从活动事件/时间/观察推导，React 只消费不二次判断。
@@ -289,6 +315,8 @@ pub struct RadarDecisionView {
     pub strip_secondary: String,
     pub recent_summary_text: Option<String>,
     pub delta_impact_text: String,
+    /// banked_reset | quota_reset；无当前事件时为 None。
+    pub event_type: Option<String>,
 }
 
 /// 本次检查组装的三组帖子，供 AI Tab 审计展示。
@@ -399,18 +427,24 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         last_synced_at,
         freshness: source_status.to_string(),
     };
-    let event_record = database.active_radar_event()?;
+    let event_records = database.active_radar_events()?;
+    let quota_event = event_records
+        .iter()
+        .find(|event| event.event_type != "banked_reset");
     let quota_verifications =
-        quota_watch::assess_quota_verifications(database, event_record.as_ref())?;
+        quota_watch::assess_quota_verifications(database, quota_event)?;
     // expiresAt 已过的事件不再作为“当前事件”展示；数据库仍由 reconcile_event_state 正式关闭。
     let now_ms = epoch_ms();
-    let active_event =
-        event_record.filter(|event| event.expires_at.is_none_or(|at| at > now_ms));
+    let live_events: Vec<_> = event_records
+        .into_iter()
+        .filter(|event| event.expires_at.is_none_or(|at| at > now_ms))
+        .collect();
+    let active_event = live_events.first().cloned();
     let event_view_data = active_event
         .as_ref()
         .map(|record| event_view(database, record));
     let prefs = load_analysis_prefs(database)?;
-    let groups = classify_analysis_posts(database, &posts, &prefs.range_key, active_event.as_ref())?;
+    let groups = classify_analysis_posts(database, &posts, &prefs.range_key, &live_events)?;
     let ai_assessment = build_ai_assessment(
         database,
         analysis.as_ref(),
@@ -450,36 +484,51 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
 
 pub fn reconcile_event_state(database: &Database, now: i64) -> Result<(), String> {
     refresh_time_claims(database)?;
-    let initial = database.active_radar_event()?;
-    quota_watch::materialize_observations(database, initial.as_ref())?;
-    let Some(mut event) = database.active_radar_event()? else {
-        return Ok(());
-    };
+    let events = database.active_radar_events()?;
+    let quota_event = events
+        .iter()
+        .find(|event| event.event_type != "banked_reset")
+        .cloned();
+    quota_watch::materialize_observations(database, quota_event.as_ref())?;
+    for mut event in events {
+        reconcile_one_event(database, &mut event, now)?;
+    }
+    Ok(())
+}
+
+fn reconcile_one_event(
+    database: &Database,
+    event: &mut RadarEventRecord,
+    now: i64,
+) -> Result<(), String> {
     let original = event.clone();
     let post_ids = database.radar_event_post_ids(&event.id)?;
     let claims = database.radar_time_claims_for_posts(&post_ids)?;
     event.expected_at = claims.iter().filter_map(|claim| claim.resolved_at).max();
-    let verifications = quota_watch::assess_quota_verifications(database, Some(&event))?;
     if matches!(
         event.phase.as_str(),
         "watching" | "upcoming" | "landed_claimed"
     ) {
-        if let Some(observed_at) = verifications
-            .iter()
-            .filter_map(|value| value.last_reset_observed_at)
-            .min()
-        {
+        let observed_at = if event.event_type == "banked_reset" {
+            quota_watch::banked_reset_observed_at(database, event)?
+        } else {
+            quota_watch::assess_quota_verifications(database, Some(event))?
+                .iter()
+                .filter_map(|value| value.last_reset_observed_at)
+                .min()
+        };
+        if let Some(observed_at) = observed_at {
             event.phase = "landed_observed".into();
             event.observed_reset_at = Some(observed_at);
-            event.title = event_title_for_phase("landed_observed");
+            event.title = event_title_for_phase("landed_observed", &event.event_type);
         }
     }
     if event.phase != "closed" && event.observed_reset_at.is_none() {
-        event.title = event_title_for_phase(&event.phase);
+        event.title = event_title_for_phase(&event.phase, &event.event_type);
     } else if event.phase == "landed_observed" {
-        event.title = event_title_for_phase("landed_observed");
+        event.title = event_title_for_phase("landed_observed", &event.event_type);
     }
-    event.expires_at = event_expiry(&event);
+    event.expires_at = event_expiry(event);
     if event.expires_at.is_some_and(|expires| now >= expires) {
         event.closed_at = Some(now);
         event.close_reason = Some(
@@ -504,7 +553,7 @@ pub fn reconcile_event_state(database: &Database, now: i64) -> Result<(), String
         || event.title != original.title
     {
         event.state_revision = original.state_revision + 1;
-        database.update_radar_event(&event)?;
+        database.update_radar_event(event)?;
     }
     Ok(())
 }
@@ -561,12 +610,22 @@ fn event_expiry(event: &RadarEventRecord) -> Option<i64> {
     }
 }
 
-fn event_title_for_phase(phase: &str) -> String {
-    match phase {
-        "watching" => "可能即将重置".into(),
-        "upcoming" => "预计即将重置".into(),
-        "landed_claimed" => "来源称已经重置".into(),
-        "landed_observed" => "本机已观察到额度重置".into(),
+fn event_is_banked(event_type: &str) -> bool {
+    event_type == "banked_reset"
+}
+
+fn event_title_for_phase(phase: &str, event_type: &str) -> String {
+    let banked = event_is_banked(event_type);
+    match (phase, banked) {
+        ("watching", true) => "重置卡可能即将到账".into(),
+        ("watching", false) => "可能即将重置".into(),
+        ("upcoming", true) => "重置卡即将到账".into(),
+        ("upcoming", false) => "预计即将重置".into(),
+        ("landed_claimed", true) => "来源称重置卡已到账".into(),
+        ("landed_claimed", false) => "来源称已经重置".into(),
+        ("landed_observed", true) => "本机已观察到重置卡到账".into(),
+        ("landed_observed", false) => "本机已观察到额度重置".into(),
+        (_, true) => "重置卡事件".into(),
         _ => "重置事件".into(),
     }
 }
@@ -606,14 +665,22 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
         timeline.push(RadarEventNodeView {
             at,
             kind: "confirmed".into(),
-            label: "用户确认额度已重置".into(),
+            label: if event_is_banked(&record.event_type) {
+                "用户确认重置卡已到账".into()
+            } else {
+                "用户确认额度已重置".into()
+            },
         });
     }
     if let Some(at) = record.observed_reset_at {
         timeline.push(RadarEventNodeView {
             at,
             kind: "observed".into(),
-            label: "本机已观察到额度重置".into(),
+            label: if event_is_banked(&record.event_type) {
+                "本机已观察到重置卡到账".into()
+            } else {
+                "本机已观察到额度重置".into()
+            },
         });
     }
     if let Some(at) = record.closed_at {
@@ -646,6 +713,7 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
         timeline,
         post_ids,
         user_confirmed_reset_at: record.user_confirmed_reset_at,
+        event_type: record.event_type.clone(),
     }
 }
 
@@ -738,47 +806,73 @@ fn build_decision(
     let event_analysis = ai.event_analysis.as_ref();
     let latest_delta = ai.latest_delta_analysis.as_ref();
     let mut status = "no_signal";
-    let mut headline = "暂无下一轮重置信号";
+    let mut headline = "暂无下一轮重置信号".to_string();
     let mut time_kind = "unknown";
     let mut expected_at = None;
     let mut observed_at = None;
     let mut claimed_at = None;
     let mut user_confirmed_at = None;
     let mut observation_expires_at = None;
+    let event_type = active_event.map(|event| event.event_type.clone());
+    let banked = event_type.as_deref() == Some("banked_reset");
     if let Some(event) = active_event {
         expected_at = event.expected_at;
         claimed_at = event.claimed_landed_at;
         user_confirmed_at = event.user_confirmed_reset_at;
         if event.observed_reset_at.is_some() {
             status = "landed_observed";
-            headline = "本机已观察到额度重置";
+            headline = if banked {
+                "本机已观察到重置卡到账".into()
+            } else {
+                "本机已观察到额度重置".into()
+            };
             time_kind = "observed";
             observed_at = event.observed_reset_at;
             observation_expires_at = event.expires_at;
         } else if event.user_confirmed_reset_at.is_some() {
             status = "user_confirmed";
-            headline = "用户已确认额度重置";
+            headline = if banked {
+                "用户已确认重置卡到账".into()
+            } else {
+                "用户已确认额度重置".into()
+            };
             time_kind = "confirmed";
             observation_expires_at = event.expires_at;
         } else if event_temporal_phase(event, now) == "expected_time_passed" {
             status = "expected_time_passed";
-            headline = "预告时间已过，等待验证";
+            headline = if banked {
+                "预告到账时间已过，等待验证".into()
+            } else {
+                "预告时间已过，等待验证".into()
+            };
             time_kind = "passed";
         } else {
             match event.phase.as_str() {
                 "landed_claimed" => {
                     status = "landed_claimed";
-                    headline = "来源称已经重置";
+                    headline = if banked {
+                        "来源称重置卡已到账".into()
+                    } else {
+                        "来源称已经重置".into()
+                    };
                     time_kind = "claimed";
                 }
                 _ if event.expected_at.is_some() => {
                     status = "upcoming";
-                    headline = "预计即将重置";
+                    headline = if banked {
+                        "重置卡即将到账".into()
+                    } else {
+                        "预计即将重置".into()
+                    };
                     time_kind = "expected";
                 }
                 _ => {
                     status = "watching";
-                    headline = "可能即将重置";
+                    headline = if banked {
+                        "重置卡可能即将到账".into()
+                    } else {
+                        "可能即将重置".into()
+                    };
                     time_kind = "unknown";
                 }
             }
@@ -786,6 +880,7 @@ fn build_decision(
     }
     let time_text = decision_time_text(
         status,
+        event_type.as_deref(),
         expected_at,
         observed_at,
         claimed_at,
@@ -862,6 +957,7 @@ fn build_decision(
     let delta_impact_text = delta_impact_line(ai, ai_enabled, pending_unconsumed_count);
     let (strip_badge, strip_primary, strip_primary_compact, strip_secondary) = strip_copy(
         status,
+        event_type.as_deref(),
         ai_enabled,
         source_has_direct_signal,
         pending_unconsumed_count,
@@ -876,7 +972,7 @@ fn build_decision(
     Ok(RadarDecisionView {
         status: status.into(),
         active_event_id: active_event.map(|event| event.id.clone()),
-        headline: headline.into(),
+        headline,
         time_text,
         verification_hint,
         observation_period_text,
@@ -907,6 +1003,7 @@ fn build_decision(
         strip_secondary,
         recent_summary_text,
         delta_impact_text,
+        event_type,
     })
 }
 
@@ -939,20 +1036,35 @@ fn recent_event_view(
         claimed_landed_at: record.claimed_landed_at,
         user_confirmed_reset_at: record.user_confirmed_reset_at,
         confirmation_source,
+        event_type: record.event_type.clone(),
     })
 }
 
 fn decision_time_text(
     status: &str,
+    event_type: Option<&str>,
     expected_at: Option<i64>,
     observed_at: Option<i64>,
     claimed_at: Option<i64>,
     user_confirmed_at: Option<i64>,
 ) -> String {
+    let banked = event_type == Some("banked_reset");
     match status {
-        "watching" => "重置时间尚未明确".into(),
+        "watching" => {
+            if banked {
+                "到账时间尚未明确".into()
+            } else {
+                "重置时间尚未明确".into()
+            }
+        }
         "upcoming" => expected_at.map_or_else(
-            || "重置时间尚未明确".into(),
+            || {
+                if banked {
+                    "到账时间尚未明确".into()
+                } else {
+                    "重置时间尚未明确".into()
+                }
+            },
             |at| format!("预计北京时间 {} 左右", format_clock(at)),
         ),
         "expected_time_passed" => expected_at.map_or_else(
@@ -960,16 +1072,52 @@ fn decision_time_text(
             |at| format!("原预告时间 {}", format_clock(at)),
         ),
         "landed_claimed" => claimed_at.map_or_else(
-            || "来源称额度已重置".into(),
-            |at| format!("来源于 {} 声称额度已重置", format_clock(at)),
+            || {
+                if banked {
+                    "来源称重置卡已到账".into()
+                } else {
+                    "来源称额度已重置".into()
+                }
+            },
+            |at| {
+                if banked {
+                    format!("来源于 {} 声称重置卡已到账", format_clock(at))
+                } else {
+                    format!("来源于 {} 声称额度已重置", format_clock(at))
+                }
+            },
         ),
         "landed_observed" => observed_at.map_or_else(
-            || "本机已观察到额度重置".into(),
-            |at| format!("观察到额度重置于 {}", format_clock(at)),
+            || {
+                if banked {
+                    "本机已观察到重置卡到账".into()
+                } else {
+                    "本机已观察到额度重置".into()
+                }
+            },
+            |at| {
+                if banked {
+                    format!("本机于 {} 观察到重置卡到账", format_clock(at))
+                } else {
+                    format!("本机于 {} 观察到额度重置", format_clock(at))
+                }
+            },
         ),
         "user_confirmed" => user_confirmed_at.map_or_else(
-            || "用户已确认额度重置".into(),
-            |at| format!("用户于 {} 确认额度已重置", format_clock(at)),
+            || {
+                if banked {
+                    "用户已确认重置卡到账".into()
+                } else {
+                    "用户已确认额度重置".into()
+                }
+            },
+            |at| {
+                if banked {
+                    format!("用户于 {} 确认重置卡已到账", format_clock(at))
+                } else {
+                    format!("用户于 {} 确认额度已重置", format_clock(at))
+                }
+            },
         ),
         _ => "下一次重置时间暂时无法判断".into(),
     }
@@ -1007,6 +1155,7 @@ fn delta_impact_line(ai: &RadarAiAssessmentView, enabled: bool, pending: i64) ->
 #[allow(clippy::too_many_arguments)]
 fn strip_copy(
     status: &str,
+    event_type: Option<&str>,
     ai_enabled: bool,
     source_has_direct_signal: bool,
     pending: i64,
@@ -1024,6 +1173,7 @@ fn strip_copy(
             .or(item.user_confirmed_reset_at)
             .map(|at| format!("最近重置于 {}", format_clock(at)))
     });
+    let banked = event_type == Some("banked_reset");
     let analyzed = latest_delta.is_some();
     let ai_token = if !ai_enabled {
         if pending > 0 {
@@ -1044,7 +1194,14 @@ fn strip_copy(
             let primary = if source_has_direct_signal {
                 "来源出现直接重置信号".into()
             } else {
-                decision_time_text(status, expected_at, observed_at, claimed_at, user_confirmed_at)
+                decision_time_text(
+                    status,
+                    event_type,
+                    expected_at,
+                    observed_at,
+                    claimed_at,
+                    user_confirmed_at,
+                )
             };
             let compact = expected_at
                 .map(|at| format!("预计 {}", format_clock(at)))
@@ -1072,12 +1229,22 @@ fn strip_copy(
     }
     match status {
         "landed_observed" => {
-            let primary = observed_at.map_or_else(
-                || "本机已观察到额度重置".into(),
-                |at| format!("本机于 {} 观察到额度重置", format_clock(at)),
+            let primary = decision_time_text(
+                status,
+                event_type,
+                expected_at,
+                observed_at,
+                claimed_at,
+                user_confirmed_at,
             );
             let compact = observed_at
-                .map(|at| format!("{} 额度重置", format_clock(at)))
+                .map(|at| {
+                    if banked {
+                        format!("{} 重置卡到账", format_clock(at))
+                    } else {
+                        format!("{} 额度重置", format_clock(at))
+                    }
+                })
                 .unwrap_or_else(|| primary.clone());
             let secondary = observation_expires_at
                 .map(|at| format!("24 小时观察期至 {}", format_clock(at)))
@@ -1085,9 +1252,13 @@ fn strip_copy(
             ("已观察".into(), primary, compact, secondary)
         }
         "user_confirmed" => {
-            let primary = user_confirmed_at.map_or_else(
-                || "用户已确认额度重置".into(),
-                |at| format!("用户于 {} 确认额度已重置", format_clock(at)),
+            let primary = decision_time_text(
+                status,
+                event_type,
+                expected_at,
+                observed_at,
+                claimed_at,
+                user_confirmed_at,
             );
             let compact = user_confirmed_at
                 .map(|at| format!("{} 已确认", format_clock(at)))
@@ -1098,11 +1269,19 @@ fn strip_copy(
             ("已确认".into(), primary, compact, secondary)
         }
         "landed_claimed" => {
-            let primary = "来源称已经重置".into();
+            let primary = if banked {
+                "来源称重置卡已到账".into()
+            } else {
+                "来源称已经重置".into()
+            };
             (
                 "待验证".into(),
                 primary,
-                "来源称已经重置".into(),
+                if banked {
+                    "重置卡已到账".into()
+                } else {
+                    "来源称已经重置".into()
+                },
                 "等待本机检测或用户确认".into(),
             )
         }
@@ -1119,12 +1298,18 @@ fn strip_copy(
         ),
         "upcoming" => {
             let primary = expected_at.map_or_else(
-                || "预计即将重置".into(),
+                || {
+                    if banked {
+                        "重置卡即将到账".into()
+                    } else {
+                        "预计即将重置".into()
+                    }
+                },
                 |at| format!("预计北京时间 {} 左右", format_clock(at)),
             );
             let compact = expected_at
                 .map(|at| format!("预计 {}", format_clock(at)))
-                .unwrap_or_else(|| "预计即将重置".into());
+                .unwrap_or_else(|| primary.clone());
             (
                 "强信号".into(),
                 primary,
@@ -1134,8 +1319,16 @@ fn strip_copy(
         }
         "watching" => (
             "观察中".into(),
-            "重置时间尚未明确".into(),
-            "重置时间尚未明确".into(),
+            if banked {
+                "到账时间尚未明确".into()
+            } else {
+                "重置时间尚未明确".into()
+            },
+            if banked {
+                "到账时间尚未明确".into()
+            } else {
+                "重置时间尚未明确".into()
+            },
             format!("{ai_token} · 等待验证"),
         ),
         _ => {
@@ -1544,6 +1737,7 @@ fn analysis_view(
         delta_effect: record.delta_effect,
         signal_level: record.signal_level,
         context_status: record.context_status,
+        signal_type: Some(record.signal_type).filter(|value| !value.is_empty()),
         temporal_phase: record.temporal_phase,
         valid_until: record.valid_until,
         time_claims,
@@ -1768,7 +1962,7 @@ fn classify_analysis_posts(
     database: &Database,
     posts: &[TiboPostView],
     range_key: &str,
-    active_event: Option<&RadarEventRecord>,
+    active_events: &[RadarEventRecord],
 ) -> Result<ClassifiedPosts, String> {
     let (window_start, window_end) = range_bounds(range_key);
     let range_posts: Vec<_> = posts
@@ -1780,14 +1974,10 @@ fn classify_analysis_posts(
         .closed_radar_event_post_ids()?
         .into_iter()
         .collect::<std::collections::HashSet<_>>();
-    let event_ids: std::collections::HashSet<String> = match active_event {
-        Some(event) => database
-            .radar_event_post_ids(&event.id)
-            .unwrap_or_default()
-            .into_iter()
-            .collect(),
-        None => std::collections::HashSet::new(),
-    };
+    let mut event_ids = std::collections::HashSet::new();
+    for event in active_events {
+        event_ids.extend(database.radar_event_post_ids(&event.id).unwrap_or_default());
+    }
     let mut new_posts = Vec::new();
     let mut event_context = Vec::new();
     let mut historical = Vec::new();
@@ -1948,11 +2138,13 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
         .map(to_view)
         .collect::<Vec<_>>();
     let now = epoch_ms();
-    let event = database.active_radar_event()?;
-    let active = event
-        .as_ref()
-        .filter(|item| item.expires_at.is_none_or(|at| at > now));
-    let classified = classify_analysis_posts(database, &views, range_key, active)?;
+    let events = database.active_radar_events()?;
+    let active: Vec<_> = events
+        .iter()
+        .filter(|item| item.expires_at.is_none_or(|at| at > now))
+        .cloned()
+        .collect();
+    let classified = classify_analysis_posts(database, &views, range_key, &active)?;
     if classified.range_posts.is_empty()
         && classified.event_context.is_empty()
         && classified.new_posts.is_empty()
@@ -1993,7 +2185,8 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
         .map(|post| post.id.clone())
         .collect::<Vec<_>>();
     let claims = database.radar_time_claims_for_posts(&post_ids)?;
-    let temporal_phase = event.as_ref().map_or_else(
+    let headline_event = active.first();
+    let temporal_phase = headline_event.map_or_else(
         || {
             if mode == "historical_replay" {
                 "historical".into()
@@ -2003,24 +2196,30 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
         },
         |record| event_temporal_phase(record, now),
     );
-    let event_status = event.as_ref().map(|record| {
-        json!({
-            "event_id": record.id,
-            "state_revision": record.state_revision,
-            "phase": record.phase,
-            "temporal_phase": temporal_phase,
-            "first_signal_at": format_iso(record.first_signal_at),
-            "latest_evidence_at": format_iso(record.latest_evidence_at),
-            "claimed_landed_at": record.claimed_landed_at.map(format_iso),
-            "local_quota_reset_observed_at": record.observed_reset_at.map(format_iso),
-            "user_confirmed_reset_at": record.user_confirmed_reset_at.map(format_iso),
-            "expected_at": record.expected_at.map(format_iso),
-            "verification_availability": "derived_by_rust",
-        })
-        .to_string()
-    });
-    let valid_until = event
-        .as_ref()
+    let event_status = if active.is_empty() {
+        None
+    } else {
+        Some(
+            json!({
+                "events": active.iter().map(|record| json!({
+                    "event_id": record.id,
+                    "event_type": record.event_type,
+                    "state_revision": record.state_revision,
+                    "phase": record.phase,
+                    "temporal_phase": event_temporal_phase(record, now),
+                    "first_signal_at": format_iso(record.first_signal_at),
+                    "latest_evidence_at": format_iso(record.latest_evidence_at),
+                    "claimed_landed_at": record.claimed_landed_at.map(format_iso),
+                    "local_quota_reset_observed_at": record.observed_reset_at.map(format_iso),
+                    "user_confirmed_reset_at": record.user_confirmed_reset_at.map(format_iso),
+                    "expected_at": record.expected_at.map(format_iso),
+                })).collect::<Vec<_>>(),
+                "verification_availability": "derived_by_rust",
+            })
+            .to_string(),
+        )
+    };
+    let valid_until = headline_event
         .and_then(|record| {
             if temporal_phase == "before_expected" {
                 record.expected_at
@@ -2047,7 +2246,7 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
         time_claims: claims,
         temporal_phase,
         valid_until,
-        state_revision: event.as_ref().map_or(0, |record| record.state_revision),
+        state_revision: active.iter().map(|record| record.state_revision).sum(),
     })
 }
 
@@ -2073,6 +2272,7 @@ fn derived_event_already_expired(
         expires_at: None,
         state_revision: 0,
         user_confirmed_reset_at: None,
+        event_type: "quota_reset".into(),
     };
     event_expiry(&dummy).is_some_and(|at| now >= at)
 }
@@ -2282,6 +2482,10 @@ async fn run_analysis_inner(
         valid_until: inputs.valid_until,
         state_revision: inputs.state_revision,
         timezone_policy_version: time_claims::TIMEZONE_POLICY_VERSION.into(),
+        signal_type: parsed
+            .signal_type
+            .clone()
+            .unwrap_or_else(|| "unknown".into()),
     };
     // 事件推进先于落库，得到的 event_id 一并写入分析记录。
     let (event_id, replay) = apply_analysis_to_event(database, inputs, &parsed, &record.id)?;
@@ -2333,6 +2537,9 @@ fn apply_analysis_to_event(
     {
         return Ok((None, false));
     }
+    let Some(event_type) = event_type_from_signal(parsed.signal_type.as_deref()) else {
+        return Ok((None, false));
+    };
     if !cited_new.iter().any(|post| post_has_source_signal(post)) {
         return Ok((None, false));
     }
@@ -2346,7 +2553,7 @@ fn apply_analysis_to_event(
     }
     match parsed.event_relation.as_deref() {
         Some("new_event") => {
-            if let Some(active) = database.active_radar_event()? {
+            if let Some(active) = database.active_radar_event_of_type(event_type)? {
                 if newest_posted_at <= active.latest_evidence_at {
                     return Ok((Some(active.id), false));
                 }
@@ -2368,7 +2575,7 @@ fn apply_analysis_to_event(
             Ok((Some(event_id), false))
         }
         Some("same_event") => {
-            let Some(active) = database.active_radar_event()? else {
+            let Some(active) = database.active_radar_event_of_type(event_type)? else {
                 let event_id = create_radar_event(
                     database,
                     inputs,
@@ -2413,7 +2620,7 @@ fn apply_analysis_to_event(
                 }
             }
             if updated.phase != "closed" && updated.observed_reset_at.is_none() {
-                updated.title = event_title_for_phase(&updated.phase);
+                updated.title = event_title_for_phase(&updated.phase, &updated.event_type);
             }
             updated.expected_at = expected_at.or(updated.expected_at);
             updated.expires_at = event_expiry(&updated);
@@ -2482,10 +2689,11 @@ fn create_radar_event(
     let newest = cited_new.iter().map(|post| post.posted_at).max().unwrap_or(now);
     let oldest = cited_new.iter().map(|post| post.posted_at).min().unwrap_or(now);
     let expected_at = expected_from_posts(inputs, cited_new);
+    let event_type = event_type_from_signal(parsed.signal_type.as_deref()).unwrap_or("quota_reset");
     let mut event = RadarEventRecord {
         id: format!("event-{now}"),
         phase: phase.into(),
-        title: event_title_for_phase(phase),
+        title: event_title_for_phase(phase, event_type),
         summary: parsed.analysis_basis.clone(),
         first_signal_at: oldest,
         latest_evidence_at: newest,
@@ -2497,6 +2705,7 @@ fn create_radar_event(
         expires_at: None,
         state_revision: 1,
         user_confirmed_reset_at: None,
+        event_type: event_type.into(),
     };
     event.expires_at = event_expiry(&event);
     database.insert_radar_event(&event)?;
@@ -2538,13 +2747,22 @@ fn ai_settable_phase(value: Option<&str>) -> Option<&'static str> {
     }
 }
 
+fn event_type_from_signal(value: Option<&str>) -> Option<&'static str> {
+    match value? {
+        "banked_reset" => Some("banked_reset"),
+        "quota_reset" => Some("quota_reset"),
+        _ => None,
+    }
+}
+
 const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "You analyze public Tibo/Codex reset-related posts. The product recognizes two distinct reset signal types. ",
     "A banked reset is a saved, one-time reset delivered to an account for later manual use. Wording such as banked reset, reset available, reset card, one reset per day, compensatory reset, or first one will land may announce its grant, delivery, or availability. ",
     "A banked reset is a valid new reset signal even though it does not immediately refresh usage windows. Never classify it as unrelated merely because it is not a global or automatic quota reset. ",
     "A quota reset is an actual refresh or restoration of Codex, ChatGPT Work, or related usage-limit windows, including resetting paid-user usage, restoring rate limits, a full or global reset, or a statement that such a reset was executed. ",
     "Banked-reset delivery is not proof that quota windows have already reset, and an observed quota refresh is not proof that a banked reset was delivered. ",
-    "When a new signal exists, conclusion and analysis_basis must explicitly call it 重置卡 or 额度重置. Under the current event schema, a new banked-reset announcement still uses new_event or same_event instead of none; use upcoming for promised delivery, landed_claimed for claimed delivery, and watching when timing is unclear. ",
+    "signal_type must be banked_reset, quota_reset, or none. banked reset, one reset per day, first one will land, and reset available are banked_reset. Never output none merely because a banked reset is not a global automatic quota refresh. quota_reset means usage windows actually refresh or restore. ",
+    "When a new signal exists, conclusion and analysis_basis must explicitly call it 重置卡 or 额度重置. new_event or same_event requires signal_type banked_reset or quota_reset, at least one NEW POST citation, and must not reuse a closed event. Use upcoming for promised delivery, landed_claimed for claimed delivery, and watching when timing is unclear. ",
     "Input has three groups: ",
     "NEW POSTS are genuinely unconsumed posts and the only posts that may create or advance an event; ",
     "EVENT CONTEXT POSTS are already linked to the current event and must not become new evidence just because they reappear; ",
@@ -2552,7 +2770,7 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "EVENT CONTEXT and HISTORICAL CONTEXT must never be the sole basis of a new event. ",
     "new_event or same_event must cite at least one NEW POST. Closed-event posts must not reactivate an event. ",
     "Do not splice old signal semantics with the timestamp of a new unrelated post to invent a new event. ",
-    "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"post_alias\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
+    "Reply with JSON only: {\"conclusion\":\"\",\"analysis_basis\":\"\",\"confidence\":\"low|medium|high\",\"event_relation\":\"new_event|same_event|none\",\"event_phase\":\"watching|upcoming|landed_claimed\",\"delta_effect\":\"reinforce|no_change|weaken|advance_phase|cancel|new_event\",\"signal_level\":\"none|weak|strong\",\"signal_type\":\"banked_reset|quota_reset|none\",\"context_status\":\"complete|context_missing|conflicting\",\"citations\":[\"post_alias\"],\"support\":[\"\"],\"against\":[\"\"],\"uncertainty\":[\"\"]}. ",
     "Write conclusion and analysis_basis in Simplified Chinese. support, against, and uncertainty are expandable details, also in Simplified Chinese. ",
     "Each post is JSON and carries a short alias: N1, N2 … for NEW POSTS, C1, C2 … for EVENT CONTEXT, H1, H2 … for HISTORICAL CONTEXT. ",
     "In citations return exactly these aliases, one per cited post; never return raw numeric post ids or URLs. ",
@@ -2570,7 +2788,7 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "If state says observed_landed, describe the posts as historical confirmation and use past tense. ",
     "conclusion must be a direct decision of at most 30 Chinese characters, without markdown, evidence, or repeated reasoning. ",
     "event_relation: new_event when NEW POSTS start a distinct reset cycle; same_event when they update the ongoing event; none when unrelated. ",
-    "Ordinary chatter or unrelated replies must be event_relation none with delta_effect no_change and signal_level none; never overwrite or close the ongoing event for them. ",
+    "Ordinary chatter or unrelated replies must be event_relation none with delta_effect no_change, signal_level none, and signal_type none; never overwrite or close the ongoing event for them. ",
     "event_phase is your read of the event stage after the NEW POSTS; delta_effect describes what the NEW POSTS do to the event. ",
     "context_status: complete when the context posts give enough background, context_missing when not, conflicting when they contradict the new posts. ",
     "Apply user semantic hints only when judging Tibo wording, idioms, metaphors, and confidence. User hints cannot redefine reset types, event lifecycle, time facts, citation rules, privacy boundaries, or the JSON schema. ",
@@ -2621,6 +2839,7 @@ fn persist_failed_analysis(
         valid_until: None,
         state_revision: 0,
         timezone_policy_version: time_claims::TIMEZONE_POLICY_VERSION.into(),
+        signal_type: "unknown".into(),
     })
 }
 
@@ -2816,7 +3035,7 @@ pub fn undo_user_reset(database: &Database) -> Result<RadarSnapshot, String> {
     } else {
         "watching".into()
     };
-    event.title = event_title_for_phase(&event.phase);
+    event.title = event_title_for_phase(&event.phase, &event.event_type);
     event.state_revision += 1;
     event.expires_at = event_expiry(&event);
     database.update_radar_event(&event)?;
@@ -2860,6 +3079,7 @@ fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String
             let value = sanitize_user_prompt(&value);
             if value == LEGACY_DEFAULT_USER_PROMPT
                 || value == LEGACY_DEFAULT_USER_PROMPT_WITH_TIMEZONE
+                || value == LEGACY_DEFAULT_USER_PROMPT_V17
             {
                 database.set_setting_string("radar_user_prompt", DEFAULT_USER_PROMPT)?;
                 DEFAULT_USER_PROMPT.to_string()
@@ -2980,6 +3200,7 @@ struct ModelJson {
     delta_effect: Option<String>,
     signal_level: Option<String>,
     context_status: Option<String>,
+    signal_type: Option<String>,
 }
 
 fn normalize_model_json(parsed: &mut ModelJson, inputs: &DeltaInputs) {
@@ -3012,6 +3233,10 @@ fn normalize_model_json(parsed: &mut ModelJson, inputs: &DeltaInputs) {
         ],
     );
     allow(&mut parsed.signal_level, &["none", "weak", "strong"]);
+    allow(
+        &mut parsed.signal_type,
+        &["banked_reset", "quota_reset", "none"],
+    );
     allow(
         &mut parsed.context_status,
         &["complete", "context_missing", "conflicting"],
@@ -3158,6 +3383,10 @@ fn parse_model_json(body: &str) -> Result<ModelJson, String> {
             .map(str::to_string),
         context_status: parsed
             .get("context_status")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        signal_type: parsed
+            .get("signal_type")
             .and_then(Value::as_str)
             .map(str::to_string),
     })
@@ -3376,6 +3605,7 @@ mod tests {
             delta_effect: Some("new_event".into()),
             signal_level: Some("strong".into()),
             context_status: Some("complete".into()),
+            signal_type: Some("quota_reset".into()),
         }
     }
 
@@ -3411,6 +3641,7 @@ mod tests {
             expires_at: Some(old_at + 24 * 3_600_000),
             state_revision: 2,
             user_confirmed_reset_at: None,
+            event_type: "quota_reset".into(),
         };
         closed.closed_at = Some(old_at + 24 * 3_600_000);
         database.insert_radar_event(&closed).unwrap();
@@ -3481,6 +3712,7 @@ mod tests {
                 expires_at: Some(now + 40 * 3_600_000),
                 state_revision: 1,
                 user_confirmed_reset_at: None,
+                event_type: "quota_reset".into(),
             })
             .unwrap();
         confirm_user_reset(&database).unwrap();
@@ -3522,6 +3754,7 @@ mod tests {
             expires_at: None,
             state_revision: 1,
             user_confirmed_reset_at,
+            event_type: "quota_reset".into(),
         }
     }
 
@@ -3623,6 +3856,7 @@ mod tests {
             valid_until: None,
             state_revision: 0,
             timezone_policy_version: time_claims::TIMEZONE_POLICY_VERSION.into(),
+            signal_type: "none".into(),
         };
         database.insert_radar_analysis(&record).unwrap();
         let stored = database.latest_radar_analysis().unwrap().expect("stored");
@@ -3637,6 +3871,58 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(current, vec!["p-new-1".to_string()]);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn banked_reset_does_not_close_active_quota_event() {
+        let (database, path) = temp_db();
+        let now = epoch_ms();
+        let posted_at = now - 30 * 60 * 1000;
+        database
+            .insert_radar_event(&RadarEventRecord {
+                id: "event-quota".into(),
+                phase: "landed_claimed".into(),
+                title: "来源称已经重置".into(),
+                summary: None,
+                first_signal_at: now - 6 * 3_600_000,
+                latest_evidence_at: now - 6 * 3_600_000,
+                claimed_landed_at: Some(now - 6 * 3_600_000),
+                observed_reset_at: None,
+                closed_at: None,
+                close_reason: None,
+                expected_at: None,
+                expires_at: Some(now + 40 * 3_600_000),
+                state_revision: 1,
+                user_confirmed_reset_at: None,
+                event_type: "quota_reset".into(),
+            })
+            .unwrap();
+        database
+            .replace_tibo_posts(
+                &[sample_post("banked-new", posted_at, "direct", true)],
+                now,
+            )
+            .unwrap();
+        let inputs = collect_delta_inputs(&database, "3d").unwrap();
+        let mut parsed = parsed_signal("new_event", vec!["banked-new"]);
+        parsed.signal_type = Some("banked_reset".into());
+        parsed.event_phase = Some("upcoming".into());
+        let (event_id, replay) =
+            apply_analysis_to_event(&database, &inputs, &parsed, "analysis-banked").unwrap();
+        assert!(!replay);
+        assert!(event_id.is_some());
+        let quota = database
+            .active_radar_event_of_type("quota_reset")
+            .unwrap()
+            .expect("quota still active");
+        assert_eq!(quota.id, "event-quota");
+        assert!(quota.closed_at.is_none());
+        let banked = database
+            .active_radar_event_of_type("banked_reset")
+            .unwrap()
+            .expect("banked created");
+        assert_eq!(banked.event_type, "banked_reset");
         let _ = std::fs::remove_file(path);
     }
 }

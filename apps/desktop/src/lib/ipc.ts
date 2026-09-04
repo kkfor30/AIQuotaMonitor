@@ -261,6 +261,8 @@ export type RadarAnalysis = {
   deltaEffect: string | null;
   signalLevel: string | null;
   contextStatus: string | null;
+  /** banked_reset | quota_reset | none | unknown */
+  signalType: string | null;
   /** before_expected | expected_time_passed | claimed_landed | observed_landed | historical | timeless */
   temporalPhase: string | null;
   validUntil: number | null;
@@ -310,6 +312,8 @@ export type RadarEvent = {
   timeline: RadarEventNode[];
   postIds: string[];
   userConfirmedResetAt: number | null;
+  /** banked_reset | quota_reset */
+  eventType: string;
 };
 
 export type RadarAiAssessment = {
@@ -338,6 +342,8 @@ export type RadarRecentEvent = {
   userConfirmedResetAt: number | null;
   /** observed | user_confirmed | claimed */
   confirmationSource: string | null;
+  /** banked_reset | quota_reset */
+  eventType: string;
 };
 
 /** Rust 推导的综合判断；React 只消费不二次判断。 */
@@ -377,6 +383,8 @@ export type RadarDecision = {
   stripSecondary: string;
   recentSummaryText: string | null;
   deltaImpactText: string;
+  /** banked_reset | quota_reset；无当前事件时为 null。 */
+  eventType: string | null;
 };
 
 export type RadarAnalysisGroups = {
@@ -411,6 +419,8 @@ export type QuotaVerification = {
   lastSuccessAt: number | null;
   note: string | null;
   lastResetObservedAt: number | null;
+  /** 可用重置卡 0 张 / 可用重置卡 1 张 / 暂无法获取 */
+  bankedResetLabel: string;
 };
 
 export type RadarModelOption = {

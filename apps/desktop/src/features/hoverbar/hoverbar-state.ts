@@ -266,6 +266,27 @@ export function radarDeltaImpactLine(radar: RadarSnapshot): string {
   return radar.decision.deltaImpactText;
 }
 
+export function radarConfirmResetLabel(eventType: string | null | undefined): string {
+  return eventType === "banked_reset" ? "确认重置卡已到账" : "确认额度已重置";
+}
+
+export function radarConfirmResetDialogTitle(eventType: string | null | undefined): string {
+  return eventType === "banked_reset" ? "确认重置卡已经到账？" : "确认额度已经重置？";
+}
+
+export function radarSignalTypeLabel(value: string | null | undefined): string {
+  switch (value) {
+    case "banked_reset":
+      return "重置卡";
+    case "quota_reset":
+      return "额度重置";
+    case "none":
+      return "无重置信号";
+    default:
+      return "未标注";
+  }
+}
+
 export function radarConfirmationSourceLabel(source: string | null | undefined): string {
   switch (source) {
     case "observed":

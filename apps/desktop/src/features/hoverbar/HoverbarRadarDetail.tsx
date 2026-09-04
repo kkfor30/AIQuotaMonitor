@@ -34,10 +34,13 @@ import {
   radarAiStatusLabel,
   radarCloseReasonLabel,
   radarConfirmationSourceLabel,
+  radarConfirmResetDialogTitle,
+  radarConfirmResetLabel,
   radarDecisionBadge,
   radarDecisionTimeText,
   radarDeltaImpactLine,
   radarQuotaSummaryLine,
+  radarSignalTypeLabel,
   sourceRelationLabel,
 } from "./hoverbar-state";
 
@@ -165,7 +168,7 @@ export function HoverbarRadarDetail({
             ) : null}
             {decision.canConfirmReset ? (
               <button type="button" className="hb-radar-post-button" onClick={() => setConfirmOpen(true)}>
-                确认额度已重置
+                {radarConfirmResetLabel(decision.eventType)}
               </button>
             ) : null}
             {decision.canUndoConfirm ? (
@@ -412,6 +415,7 @@ export function HoverbarRadarDetail({
 
       {confirmOpen ? (
         <ConfirmResetDialog
+          eventType={decision?.eventType}
           pending={confirmReset.isPending}
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => {
@@ -426,14 +430,17 @@ export function HoverbarRadarDetail({
 }
 
 function ConfirmResetDialog({
+  eventType,
   pending,
   onCancel,
   onConfirm,
 }: {
+  eventType: string | null | undefined;
   pending: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const title = radarConfirmResetDialogTitle(eventType);
   return (
     <div
       className="hb-confirm-mask"
@@ -446,10 +453,10 @@ function ConfirmResetDialog({
         className="hb-confirm-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="确认额度已经重置"
+        aria-label={title}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <p className="hb-radar-subheadline">确认额度已经重置？</p>
+        <p className="hb-radar-subheadline">{title}</p>
         <p className="hb-radar-meta">
           这只记录你的人工观察，不代表官方确认，也不会判断是官方重置还是使用了重置卡。
         </p>
@@ -499,6 +506,9 @@ function AiReasoningBlock({
           <p className="hb-radar-subheadline" data-selectable="true">
             {humanizeRadarPostRefs(analysis.conclusion, posts)}
           </p>
+          {analysis.signalType ? (
+            <p className="hb-radar-meta">信号类型 · {radarSignalTypeLabel(analysis.signalType)}</p>
+          ) : null}
         </>
       ) : null}
       {analysis.analysisBasis ? (
@@ -595,6 +605,7 @@ function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
         <p className="hb-radar-meta">网络无法获取额度，不影响来源与 AI 判断。</p>
       ) : null}
       {item.note ? <p className="hb-radar-meta hb-radar-meta-strong">{item.note}</p> : null}
+      <p className="hb-radar-meta">{item.bankedResetLabel}</p>
       <p className="hb-radar-meta">
         {item.lastSuccessAt ? `上次成功 ${formatHoverbarClock(item.lastSuccessAt)}` : "尚无成功快照"}
       </p>

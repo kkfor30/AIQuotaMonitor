@@ -280,6 +280,7 @@ const previewAnalysis: RadarAnalysis = {
   deltaEffect: "reinforce",
   signalLevel: "strong",
   contextStatus: "complete",
+  signalType: "quota_reset",
   temporalPhase: "observed_landed",
   validUntil: null,
   timeClaims: [
@@ -316,6 +317,7 @@ const previewEvent: RadarEvent = {
   stateRevision: 3,
   temporalStatus: "claimed_landed",
   userConfirmedResetAt: null,
+  eventType: "quota_reset",
 };
 
 /** 按状态构建预览决策，保证与事件 mock 同源一致（仅布局验收用）。 */
@@ -351,6 +353,7 @@ function previewDecision(overrides: Partial<RadarDecision> = {}): RadarDecision 
     stripSecondary: "等待本机检测或用户确认",
     recentSummaryText: null,
     deltaImpactText: "最新动态已分析，未改变当前判断",
+    eventType: "quota_reset",
     ...overrides,
   };
 }
@@ -373,6 +376,7 @@ const previewQuota: QuotaVerification[] = [
     lastSuccessAt: Date.now() - 8 * 60 * 1000,
     note: "未到原定时间窗口已恢复，重置时间明显后移",
     lastResetObservedAt: Date.now() - 8 * 60 * 1000,
+    bankedResetLabel: "可用重置卡 0 张",
   },
   {
     accountId: "openai-extra-2",
@@ -390,6 +394,7 @@ const previewQuota: QuotaVerification[] = [
     lastSuccessAt: Date.now() - 8 * 60 * 1000,
     lastResetObservedAt: null,
     note: "已成功刷新，本次未观察到窗口恢复",
+    bankedResetLabel: "可用重置卡 1 张",
   },
 ];
 
@@ -575,6 +580,7 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             lastSuccessAt: Date.now() - 25 * 60 * 60 * 1000,
             lastResetObservedAt: null,
             note: "示例：暂时无法刷新",
+            bankedResetLabel: "暂无法获取",
           },
         ],
       }),
@@ -603,6 +609,7 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             lastSuccessAt: Date.now() - 8 * 60 * 1000,
             lastResetObservedAt: null,
             note: "缺少额度基线快照，成功刷新两次后可观察",
+            bankedResetLabel: "暂无法获取",
           },
         ],
       }),
@@ -646,6 +653,7 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             lastSuccessAt: Date.now() - 8 * 60 * 1000,
             lastResetObservedAt: null,
             note: "到达原定时间后的正常周期刷新",
+            bankedResetLabel: "可用重置卡 0 张",
           },
         ],
       }),
@@ -738,7 +746,9 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             claimedLandedAt: Date.now() - 30 * 60 * 60 * 1000,
             userConfirmedResetAt: null,
             confirmationSource: "observed",
+            eventType: "quota_reset",
           },
+          eventType: null,
         }),
         quotaVerifications: [],
       }),

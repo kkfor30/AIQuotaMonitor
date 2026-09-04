@@ -509,8 +509,10 @@ fn parse_app_server(
         .or_else(|| account.get("plan"))
         .and_then(Value::as_str);
     append_plan_and_credits(&mut capabilities, plan, body);
+    append_banked_reset_count(&mut capabilities, body);
     if body != &rate_limits {
         append_plan_and_credits(&mut capabilities, None, &rate_limits);
+        append_banked_reset_count(&mut capabilities, &rate_limits);
     }
     deduplicate_capabilities(&mut capabilities);
     if !codex_capabilities_usable(&capabilities) {
@@ -614,6 +616,7 @@ async fn fetch_wham_at(
             body.get("plan_type").and_then(Value::as_str),
             &body,
         );
+        append_banked_reset_count(&mut capabilities, &body);
         deduplicate_capabilities(&mut capabilities);
         if !codex_capabilities_usable(&capabilities) {
             return Err(RefreshError::new(
@@ -701,6 +704,44 @@ fn codex_capabilities_usable(capabilities: &[CapabilityData]) -> bool {
         capability.capability_id.starts_with("quota_window_")
             || capability.capability_id == "plan_level"
     })
+}
+
+fn append_banked_reset_count(capabilities: &mut Vec<CapabilityData>, body: &Value) {
+    let Some(count) = parse_available_reset_count(body) else {
+        return;
+    };
+    capabilities.push(CapabilityData {
+        capability_id: "banked_reset_count".into(),
+        display_name: "可用重置卡".into(),
+        value_kind: "count".into(),
+        primary_value: Some(count.to_string()),
+        secondary_value: Some(if count > 0 {
+            "可用于重置 Codex 使用额度".into()
+        } else {
+            "当前没有可用重置卡".into()
+        }),
+        progress: None,
+        trend: vec![],
+        window_seconds: None,
+        reset_at: None,
+    });
+}
+
+fn parse_available_reset_count(body: &Value) -> Option<i64> {
+    let node = body
+        .get("rateLimitResetCredits")
+        .or_else(|| body.get("rate_limit_reset_credits"))?;
+    let value = node
+        .get("availableCount")
+        .or_else(|| node.get("available_count"))?;
+    match value {
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().map(|value| value as i64)),
+        Value::String(text) => text.trim().parse().ok(),
+        _ => None,
+    }
+    .filter(|count| *count >= 0)
 }
 
 fn append_plan_and_credits(
@@ -905,6 +946,36 @@ mod tests {
             .any(|value| value.capability_id == "plan_level"));
         assert!(codex_capabilities_usable(&values));
         assert!(!codex_capabilities_usable(&[]));
+    }
+
+    #[test]
+    fn parses_banked_reset_count_zero_two_and_missing() {
+        let mut zero = Vec::new();
+        append_banked_reset_count(
+            &mut zero,
+            &json!({ "rateLimitResetCredits": { "availableCount": 0, "credits": [] } }),
+        );
+        assert_eq!(zero[0].capability_id, "banked_reset_count");
+        assert_eq!(zero[0].primary_value.as_deref(), Some("0"));
+        assert_eq!(
+            zero[0].secondary_value.as_deref(),
+            Some("当前没有可用重置卡")
+        );
+
+        let mut two = Vec::new();
+        append_banked_reset_count(
+            &mut two,
+            &json!({ "rate_limit_reset_credits": { "available_count": 2 } }),
+        );
+        assert_eq!(two[0].primary_value.as_deref(), Some("2"));
+        assert_eq!(
+            two[0].secondary_value.as_deref(),
+            Some("可用于重置 Codex 使用额度")
+        );
+
+        let mut missing = Vec::new();
+        append_banked_reset_count(&mut missing, &json!({ "credits": { "balance": "12.34" } }));
+        assert!(missing.is_empty());
     }
 
     #[test]
