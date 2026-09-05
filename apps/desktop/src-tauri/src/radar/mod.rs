@@ -78,7 +78,7 @@ const LEGACY_DEFAULT_USER_PROMPT_V17: &str = "可重点关注 Tibo 原帖中与�
 - 仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时、按钮已经按下等暗示性表达
 
 这些措辞需要结合完整上下文理解。你可以继续补充新的 Tibo 用语、隐喻或近期出现的表达方式；普通闲聊中偶然出现相同单词，不代表一定存在重置信号。";
-pub const DEFAULT_USER_PROMPT: &str = "请把帖子分成三类信号，不要混用：
+const LEGACY_DEFAULT_USER_PROMPT_V18: &str = "请把帖子分成三类信号，不要混用：
 
 【重置卡 banked_reset】
 原帖在说可保存、可稍后手动使用的重置次数或重置卡发放/到账。
@@ -97,6 +97,25 @@ pub const DEFAULT_USER_PROMPT: &str = "请把帖子分成三类信号，不要�
 - 仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时、按钮已经按下
 
 时间请只复述代码给出的 time_claims / resolved_beijing_at，不要自行换算北京时间。
+普通闲聊中偶然出现相同单词，不代表一定存在重置信号。";
+pub const DEFAULT_USER_PROMPT: &str = "请把帖子分成三类信号，不要混用：
+
+【重置卡 banked_reset】
+原帖在说可保存、可稍后手动使用的重置次数或重置卡发放/到账。
+常见英文：banked reset、one reset per day、first one will land、reset available、reset card。
+重置卡不是全局额度自动恢复，但仍是有效重置信号，不得判为 none。
+
+【额度重置 quota_reset】
+原帖在说 Codex / ChatGPT Work 等额度窗口实际刷新或恢复。
+常见英文：reset all paid Codex/ChatGPT Work usage、full reset、reset usage、usage has reset。
+
+【无信号 none】
+普通闲聊、回复、表情，或只是顺口提到 reset，没有重置卡或额度窗口含义。
+
+也可继续关注 Tibo 的特殊表达，例如：
+- Hold on to your Codex、reset will land
+- 仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时、按钮已经按下
+
 普通闲聊中偶然出现相同单词，不代表一定存在重置信号。";
 
 #[derive(Debug, Clone, Serialize)]
@@ -3226,6 +3245,7 @@ fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String
             if value == LEGACY_DEFAULT_USER_PROMPT
                 || value == LEGACY_DEFAULT_USER_PROMPT_WITH_TIMEZONE
                 || value == LEGACY_DEFAULT_USER_PROMPT_V17
+                || value == LEGACY_DEFAULT_USER_PROMPT_V18
             {
                 database.set_setting_string("radar_user_prompt", DEFAULT_USER_PROMPT)?;
                 DEFAULT_USER_PROMPT.to_string()
@@ -3896,6 +3916,8 @@ mod tests {
         assert!(DEFAULT_USER_PROMPT.contains("Hold on to your Codex"));
         assert!(DEFAULT_USER_PROMPT.contains("仪表盘"));
         assert!(DEFAULT_USER_PROMPT.contains("banked reset"));
+        assert!(!DEFAULT_USER_PROMPT.contains("time_claims"));
+        assert!(!DEFAULT_USER_PROMPT.contains("resolved_beijing_at"));
     }
 
     fn temp_db() -> (Database, std::path::PathBuf) {
