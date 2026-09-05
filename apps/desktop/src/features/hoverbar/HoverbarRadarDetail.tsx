@@ -17,6 +17,7 @@ import {
   confirmRadarUserReset,
   ipcErrorMessage,
   openExternalUrl,
+  setRadarNoticeHidden,
   translateRadarPost,
   undoRadarUserReset,
   type QuotaVerification,
@@ -76,6 +77,10 @@ export function HoverbarRadarDetail({
   });
   const undoReset = useMutation({
     mutationFn: undoRadarUserReset,
+    onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
+  });
+  const setNoticeHidden = useMutation({
+    mutationFn: setRadarNoticeHidden,
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
   });
   const pageRef = useRef<HTMLDivElement>(null);
@@ -204,12 +209,36 @@ export function HoverbarRadarDetail({
         )}
       </section>
 
-      {/* CodexRadar 公告：无公告时压缩为单行，不换行 */}
-      {radar?.notice ? (
+      {/* CodexRadar 公告：可隐藏；无公告时压缩为单行 */}
+      {radar?.noticeHidden ? (
+        <section className="hb-radar-card hb-notice-hidden">
+          <h3 className="hb-radar-card-title hb-nowrap">CodexRadar 公告已隐藏</h3>
+          <button
+            type="button"
+            className="hb-radar-post-button"
+            disabled={setNoticeHidden.isPending}
+            aria-label="显示 CodexRadar 公告"
+            onClick={() => setNoticeHidden.mutate(false)}
+          >
+            显示
+          </button>
+        </section>
+      ) : radar?.notice ? (
         <section className="hb-radar-card hb-notice-card">
-          <h3 className="hb-radar-card-title">
-            {radar.notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告"}
-          </h3>
+          <div className="hb-radar-card-head">
+            <h3 className="hb-radar-card-title">
+              {radar.notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告"}
+            </h3>
+            <button
+              type="button"
+              className="hb-radar-post-button"
+              disabled={setNoticeHidden.isPending}
+              aria-label="隐藏 CodexRadar 公告"
+              onClick={() => setNoticeHidden.mutate(true)}
+            >
+              隐藏
+            </button>
+          </div>
           <p className="hb-radar-subheadline" data-selectable="true">
             {radar.notice.headline}
           </p>
@@ -232,6 +261,15 @@ export function HoverbarRadarDetail({
         <section className="hb-radar-card hb-notice-card hb-notice-empty">
           <h3 className="hb-radar-card-title hb-nowrap">CodexRadar 当前无公告</h3>
           <span className="hb-radar-meta hb-nowrap">帖子同步正常</span>
+          <button
+            type="button"
+            className="hb-radar-post-button"
+            disabled={setNoticeHidden.isPending}
+            aria-label="隐藏 CodexRadar 公告"
+            onClick={() => setNoticeHidden.mutate(true)}
+          >
+            隐藏
+          </button>
         </section>
       )}
 

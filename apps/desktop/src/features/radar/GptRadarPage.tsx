@@ -32,6 +32,7 @@ import {
   openExternalUrl,
   runRadarCheck,
   saveRadarAnalysisPrefs,
+  setRadarNoticeHidden,
   testRadarModel,
   undoRadarUserReset,
 } from "@/lib/ipc";
@@ -426,6 +427,10 @@ function SignalSummaryView({
     mutationFn: undoRadarUserReset,
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
   });
+  const setNoticeHidden = useMutation({
+    mutationFn: setRadarNoticeHidden,
+    onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
+  });
 
   return (
     <div className="radar-console flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
@@ -616,58 +621,92 @@ function SignalSummaryView({
         </section>
       </div>
 
-      {/* CodexRadar 公告：全宽细条；区分 当前公告 / 最近公告 / 当前无公告 / 缓存可能过期；不进入本地 AI 输入 */}
-      <section className="glass-panel radar-notice-card flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
-        <h2 className="whitespace-nowrap text-[14px] font-semibold tracking-tight text-q-text-primary">
-          {notice ? (notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
-        </h2>
-        {notice ? (
-          <span className="rounded-q-pill bg-q-primary-soft px-2 py-0.5 text-[11px] font-medium text-q-primary">
-            {notice.isCurrent ? "当前公告" : "最近公告"}
-          </span>
-        ) : null}
-        <span
-          className={
-            data?.sourceStatus === "fresh"
-              ? "rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success"
-              : data?.sourceStatus === "stale"
-                ? "rounded-q-pill bg-q-warning-soft px-2 py-0.5 text-[11px] font-medium text-q-warning"
-                : "rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral"
-          }
-        >
-          {data?.sourceStatus === "fresh" ? "同步正常" : data?.sourceStatus === "stale" ? "缓存可能过期" : "尚未同步"}
-        </span>
-        {notice ? (
-          <>
-            <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
-              <span className="font-semibold text-q-text-primary">{notice.headline}</span>
-              {notice.lead ? <span> · {notice.lead}</span> : null}
-            </p>
-            <span className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap text-[12px] text-q-text-muted">
-              {notice.isCurrent
-                ? notice.updatedAt
-                  ? `更新 ${formatTime(notice.updatedAt)}`
-                  : "当前公告"
-                : notice.updatedAt
-                  ? `上次出现于 ${formatTime(notice.updatedAt)}`
-                  : "历史公告"}
-              <a
-                href="https://codexradar.com/"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
-                onClick={(event) => {
-                  event.preventDefault();
-                  void openExternalUrl("https://codexradar.com/").catch(() => {});
-                }}
-              >
-                <ExternalLink size={12} aria-hidden />
-                打开 CodexRadar
-              </a>
+      {/* CodexRadar 公告：全宽细条；可隐藏，偏好与悬浮页同步；不进入本地 AI 输入 */}
+      {data?.noticeHidden ? (
+        <section className="glass-panel flex shrink-0 items-center gap-2 px-4 py-2">
+          <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-q-text-secondary">CodexRadar 公告已隐藏</p>
+          <button
+            type="button"
+            className="shrink-0 cursor-pointer text-[12px] font-medium text-q-primary hover:underline disabled:opacity-50"
+            disabled={setNoticeHidden.isPending}
+            aria-label="显示 CodexRadar 公告"
+            onClick={() => setNoticeHidden.mutate(false)}
+          >
+            显示
+          </button>
+        </section>
+      ) : (
+        <section className="glass-panel radar-notice-card flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
+          <h2 className="whitespace-nowrap text-[14px] font-semibold tracking-tight text-q-text-primary">
+            {notice ? (notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
+          </h2>
+          {notice ? (
+            <span className="rounded-q-pill bg-q-primary-soft px-2 py-0.5 text-[11px] font-medium text-q-primary">
+              {notice.isCurrent ? "当前公告" : "最近公告"}
             </span>
-          </>
-        ) : null}
-      </section>
+          ) : null}
+          <span
+            className={
+              data?.sourceStatus === "fresh"
+                ? "rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success"
+                : data?.sourceStatus === "stale"
+                  ? "rounded-q-pill bg-q-warning-soft px-2 py-0.5 text-[11px] font-medium text-q-warning"
+                  : "rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral"
+            }
+          >
+            {data?.sourceStatus === "fresh" ? "同步正常" : data?.sourceStatus === "stale" ? "缓存可能过期" : "尚未同步"}
+          </span>
+          {notice ? (
+            <>
+              <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                <span className="font-semibold text-q-text-primary">{notice.headline}</span>
+                {notice.lead ? <span> · {notice.lead}</span> : null}
+              </p>
+              <span className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap text-[12px] text-q-text-muted">
+                {notice.isCurrent
+                  ? notice.updatedAt
+                    ? `更新 ${formatTime(notice.updatedAt)}`
+                    : "当前公告"
+                  : notice.updatedAt
+                    ? `上次出现于 ${formatTime(notice.updatedAt)}`
+                    : "历史公告"}
+                <a
+                  href="https://codexradar.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void openExternalUrl("https://codexradar.com/").catch(() => {});
+                  }}
+                >
+                  <ExternalLink size={12} aria-hidden />
+                  打开 CodexRadar
+                </a>
+                <button
+                  type="button"
+                  className="cursor-pointer text-[12px] font-medium text-q-text-muted hover:text-q-primary hover:underline disabled:opacity-50"
+                  disabled={setNoticeHidden.isPending}
+                  aria-label="隐藏 CodexRadar 公告"
+                  onClick={() => setNoticeHidden.mutate(true)}
+                >
+                  隐藏
+                </button>
+              </span>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="ml-auto shrink-0 cursor-pointer text-[12px] font-medium text-q-text-muted hover:text-q-primary hover:underline disabled:opacity-50"
+              disabled={setNoticeHidden.isPending}
+              aria-label="隐藏 CodexRadar 公告"
+              onClick={() => setNoticeHidden.mutate(true)}
+            >
+              隐藏
+            </button>
+          )}
+        </section>
+      )}
 
       {/* AI 分析全宽主卡：结论/分析/正向依据；详情开关在正文底部 */}
       <section className="glass-panel flex shrink-0 flex-col gap-3 p-4">

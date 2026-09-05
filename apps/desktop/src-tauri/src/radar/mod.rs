@@ -355,6 +355,8 @@ pub struct RadarSnapshot {
     pub models: Vec<RadarModelOption>,
     pub analysis_prefs: RadarAnalysisPrefs,
     pub notice: Option<RadarNotice>,
+    /// 用户隐藏 CodexRadar 公告细条；不影响同步，主窗口与悬浮页共用。
+    pub notice_hidden: bool,
     pub source_assessment: RadarSourceAssessmentView,
     pub event: Option<RadarEventView>,
     pub ai_assessment: RadarAiAssessmentView,
@@ -473,6 +475,7 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         models: chat_models(database)?,
         analysis_prefs: prefs,
         notice,
+        notice_hidden: database.setting_bool("radar_notice_hidden")?,
         source_assessment,
         event: event_view_data,
         ai_assessment,
@@ -3044,6 +3047,12 @@ pub fn undo_user_reset(database: &Database) -> Result<RadarSnapshot, String> {
     event.state_revision += 1;
     event.expires_at = event_expiry(&event);
     database.update_radar_event(&event)?;
+    snapshot(database)
+}
+
+/// 隐藏或显示 CodexRadar 公告细条：只改展示偏好，不停同步、不清空公告缓存。
+pub fn set_notice_hidden(database: &Database, hidden: bool) -> Result<RadarSnapshot, String> {
+    database.set_setting_bool("radar_notice_hidden", hidden)?;
     snapshot(database)
 }
 

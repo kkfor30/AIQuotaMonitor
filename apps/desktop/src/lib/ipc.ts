@@ -168,6 +168,8 @@ export type RadarSnapshot = {
   models: RadarModelOption[];
   analysisPrefs: RadarAnalysisPrefs;
   notice: RadarNotice | null;
+  /** 用户隐藏 CodexRadar 公告细条；主窗口与悬浮页共用，不影响同步。 */
+  noticeHidden: boolean;
   sourceAssessment: RadarSourceAssessment;
   event: RadarEvent | null;
   aiAssessment: RadarAiAssessment;
@@ -458,6 +460,10 @@ export async function confirmRadarUserReset(): Promise<RadarSnapshot> {
 
 export async function undoRadarUserReset(): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("undo_radar_user_reset");
+}
+
+export async function setRadarNoticeHidden(hidden: boolean): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("set_radar_notice_hidden", { hidden });
 }
 
 export async function runRadarCheck(input: {

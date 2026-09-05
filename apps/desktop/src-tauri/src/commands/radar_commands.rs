@@ -188,3 +188,17 @@ pub fn undo_radar_user_reset(
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
 }
+
+/// 隐藏或显示 CodexRadar 公告：主窗口与悬浮详情共用，不影响来源同步。
+#[tauri::command]
+pub fn set_radar_notice_hidden(
+    hidden: bool,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main", "hoverbar-detail"])?;
+    let snapshot = radar::set_notice_hidden(&database, hidden)?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
+}

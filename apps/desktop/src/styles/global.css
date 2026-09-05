@@ -1925,10 +1925,52 @@ html.hoverbar-window #root {
 .hb-notice-empty .hb-radar-card-title,
 .hb-notice-empty .hb-radar-meta {
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hb-notice-empty .hb-radar-card-title {
   font-size: 13px;
+}
+
+.hb-notice-empty .hb-radar-post-button,
+.hb-notice-hidden .hb-radar-post-button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.hb-notice-card .hb-radar-card-head {
+  margin-bottom: 6px;
+}
+
+.hb-notice-card .hb-radar-card-head .hb-radar-card-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-notice-hidden {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-block: 9px;
+}
+
+.hb-notice-hidden .hb-radar-card-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+/* 左右 300px：空公告行去掉「帖子同步正常」，给隐藏按钮留位、避免横向溢出。 */
+.hb-detail-root[data-edge="left"] .hb-notice-empty .hb-radar-meta,
+.hb-detail-root[data-edge="right"] .hb-notice-empty .hb-radar-meta {
+  display: none;
 }
 
 /* UI V4：AI 分析卡不再使用大面积浅蓝底，继承 glass-panel 近白实体层。 */

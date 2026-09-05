@@ -488,6 +488,7 @@ const previewRadar: RadarSnapshot = {
     isCurrent: true,
     freshnessMs: 42 * 60 * 1000,
   },
+  noticeHidden: false,
   sourceAssessment: {
     headline: "按钮今日已按下，庆祝活动推迟至明天",
     lead: "请关注 Codex 仪表板",
@@ -734,6 +735,12 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
           stripPrimaryCompact: "原预告 09-01 10:00",
           stripSecondary: "等待本机检测或用户确认",
         }),
+      }),
+    },
+    {
+      label: "公告已隐藏",
+      snapshot: withOverrides({
+        noticeHidden: true,
       }),
     },
     {
