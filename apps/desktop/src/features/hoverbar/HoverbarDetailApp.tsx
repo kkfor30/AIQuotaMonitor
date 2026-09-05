@@ -145,7 +145,7 @@ export function HoverbarDetailApp() {
   }, []);
   const radarChecking = radarCheck.isPending || externalChecking;
   // 展开详情（详情窗口可见）时自动检查重置雷达：设置开关 + 距上次检查 ≥5 分钟节流。
-  // 详情窗首次展开才创建，之后隐藏/显示不重新挂载，必须由 motionPhase 驱动而非仅 mount。
+  // 悬浮详情窗口常驻（隐藏/显示不重新挂载），必须由 motionPhase 驱动而非仅 mount。
   const AUTO_RADAR_CHECK_MIN_INTERVAL_MS = 5 * 60 * 1000;
   const motionPhaseRefForAuto = useRef(motionPhase);
   motionPhaseRefForAuto.current = motionPhase;
