@@ -189,7 +189,6 @@ export function GptRadarPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 pt-2 pr-2">
-      {/* 页头：宽窗口单行紧凑条；窄窗口说明文字自然折行到第二条，不再截断省略 */}
       <header className="glass-panel flex shrink-0 items-center gap-x-2.5 gap-y-0.5 px-4 py-2.5">
         <span
           aria-hidden
@@ -201,9 +200,6 @@ export function GptRadarPage() {
         <span className="shrink-0 whitespace-nowrap rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral">
           仅为推测，不代表官方结论
         </span>
-        <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-q-text-secondary">
-          手动同步 CodexRadar 公开首页的 Tibo 动态与中文翻译；AI 分析默认关闭，只使用英文原文。
-        </p>
       </header>
       {checkMutation.error && !checkCancelled && (
         <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
