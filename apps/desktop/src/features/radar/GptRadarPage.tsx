@@ -115,6 +115,9 @@ export function GptRadarPage() {
     setUserPrompt(data.analysisPrefs.userPrompt ?? data.analysisPrefs.defaultUserPrompt ?? "");
   }, [data]);
 
+  // 语义提示改为显式保存，不随开关/模型/范围的自动写入一起落库。
+  const userPromptRef = useRef(userPrompt);
+  userPromptRef.current = userPrompt;
   useEffect(() => {
     if (!prefsReady.current) return;
     const timer = window.setTimeout(() => {
@@ -123,11 +126,11 @@ export function GptRadarPage() {
         rangeKey,
         sourceId: sourceId || null,
         model: modelChoice || null,
-        userPrompt,
+        userPrompt: userPromptRef.current,
       });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [analyze, rangeKey, sourceId, modelChoice, userPrompt]);
+  }, [analyze, rangeKey, sourceId, modelChoice]);
 
   // 下拉与检查只使用凭据可用的对话模型；失配时回退同来源或第一个就绪模型。
   const modelOptions = (data?.models ?? []).filter((item) => item.ready);
@@ -321,6 +324,7 @@ export function GptRadarPage() {
           onModelChange={setModelChoice}
           userPrompt={userPrompt}
           defaultUserPrompt={data?.analysisPrefs.defaultUserPrompt ?? ""}
+          rangeKey={rangeKey}
           onUserPromptChange={setUserPrompt}
         />
       )}
@@ -1223,6 +1227,7 @@ function AiAnalysisView({
   models,
   userPrompt,
   defaultUserPrompt,
+  rangeKey,
   onAnalyzeChange,
   onSourceChange,
   onModelChange,
@@ -1235,6 +1240,7 @@ function AiAnalysisView({
   models: RadarModelOption[];
   userPrompt: string;
   defaultUserPrompt: string;
+  rangeKey: string;
   onAnalyzeChange: (value: boolean) => void;
   onSourceChange: (value: string) => void;
   onModelChange: (value: string) => void;
@@ -1273,6 +1279,46 @@ function AiAnalysisView({
   const canTestSelected = Boolean(selectedModelOption?.sourceId && selectedModelOption.model);
   const selectClass =
     "h-10 min-w-0 flex-1 cursor-pointer rounded-q-control border border-q-border bg-q-surface-strong px-3 text-sm text-q-text-primary outline-none focus:border-q-primary";
+  const promptQueryClient = useQueryClient();
+  const [promptEditing, setPromptEditing] = useState(false);
+  const [promptDraft, setPromptDraft] = useState(userPrompt);
+  const [promptFeedback, setPromptFeedback] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  useEffect(() => {
+    if (!promptEditing) setPromptDraft(userPrompt);
+  }, [userPrompt, promptEditing]);
+  const promptDirty = promptDraft !== userPrompt;
+  const promptIsDefault = userPrompt === defaultUserPrompt;
+  const saveUserPrompt = useMutation({
+    mutationFn: (prompt: string) =>
+      saveRadarAnalysisPrefs({
+        analyze,
+        rangeKey,
+        sourceId: sourceId || null,
+        model: modelChoice || null,
+        userPrompt: prompt,
+      }),
+    onSuccess: (snapshot, prompt) => {
+      promptQueryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot);
+      onUserPromptChange(prompt);
+      setPromptEditing(false);
+      setPromptFeedback({
+        kind: "ok",
+        text: "已保存。下次「立即检查」且实际调用模型时才会使用这份提示；没有新增动态时仍会跳过分析。",
+      });
+    },
+    onError: (error) =>
+      setPromptFeedback({ kind: "error", text: ipcErrorMessage(error, "保存语义提示失败") }),
+  });
+  const beginPromptEdit = () => {
+    setPromptDraft(userPrompt);
+    setPromptFeedback(null);
+    setPromptEditing(true);
+  };
+  const cancelPromptEdit = () => {
+    setPromptDraft(userPrompt);
+    setPromptEditing(false);
+    setPromptFeedback(null);
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
@@ -1383,31 +1429,106 @@ function AiAnalysisView({
         </section>
       </div>
 
-      {/* 语义提示 */}
+      {/* 语义提示：只读展示已保存文本；修改后需显式保存才写入偏好。 */}
       <section className="glass-panel flex flex-col gap-2.5 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">语义提示</h2>
-          <button
-            type="button"
-            className="cursor-pointer text-xs font-medium text-q-primary hover:underline"
-            onClick={() => onUserPromptChange(defaultUserPrompt)}
-            disabled={!defaultUserPrompt || userPrompt === defaultUserPrompt}
-          >
-            恢复默认
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">语义提示</h2>
+            <span
+              className={
+                promptEditing && promptDirty
+                  ? "rounded-q-pill bg-q-warning-soft px-2 py-0.5 text-[11px] font-medium text-q-warning"
+                  : "rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success"
+              }
+            >
+              {promptEditing && promptDirty
+                ? "未保存"
+                : promptIsDefault
+                  ? "已保存 · 默认"
+                  : userPrompt.trim()
+                    ? "已保存 · 自定义"
+                    : "已保存 · 未设置"}
+            </span>
+          </div>
+          {promptEditing ? (
+            <button
+              type="button"
+              className="cursor-pointer text-xs font-medium text-q-text-secondary hover:text-q-primary hover:underline disabled:opacity-50"
+              onClick={cancelPromptEdit}
+              disabled={saveUserPrompt.isPending}
+            >
+              取消
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="cursor-pointer text-xs font-medium text-q-primary hover:underline"
+              onClick={beginPromptEdit}
+            >
+              修改
+            </button>
+          )}
         </div>
         <p className="text-[13px] leading-relaxed text-q-text-secondary">
-          会随每次分析发给模型，用来补充你认为算强重置信号的措辞。不会改变只发送英文原文、时间和链接的限制。留空则不做额外语义引导。
+          会随每次分析发给模型，用来补充你认为算强重置信号的措辞。不会改变只发送英文原文、时间和链接的限制。留空则不做额外语义引导。修改后需点保存才会生效。
         </p>
         <textarea
-          value={userPrompt}
-          onChange={(event) => onUserPromptChange(event.target.value.slice(0, 4000))}
+          aria-label="语义提示"
+          value={promptEditing ? promptDraft : userPrompt}
+          onChange={(event) => {
+            if (!promptEditing) return;
+            setPromptDraft(event.target.value.slice(0, 4000));
+          }}
+          readOnly={!promptEditing}
           rows={6}
           maxLength={4000}
           placeholder="例如：提到 dashboard、milestone、Hold on to your Codex 时视为即将重置的强信号。"
-          className="min-h-[132px] w-full resize-y rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2.5 text-[13px] leading-relaxed text-q-text-primary outline-none focus:border-q-primary"
+          className={cn(
+            "min-h-[132px] w-full resize-y rounded-q-control border border-q-border px-3 py-2.5 text-[13px] leading-relaxed text-q-text-primary outline-none",
+            promptEditing
+              ? "bg-q-surface-strong focus:border-q-primary"
+              : "cursor-default bg-q-surface-muted text-q-text-secondary",
+          )}
         />
-        <p className="text-[11px] text-q-text-muted">{userPrompt.length}/4000</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] text-q-text-muted">{(promptEditing ? promptDraft : userPrompt).length}/4000</p>
+          {promptEditing ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={
+                  saveUserPrompt.isPending || !defaultUserPrompt || promptDraft === defaultUserPrompt
+                }
+                onClick={() => setPromptDraft(defaultUserPrompt)}
+              >
+                恢复默认
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={saveUserPrompt.isPending || !promptDirty}
+                onClick={() => saveUserPrompt.mutate(promptDraft)}
+              >
+                {saveUserPrompt.isPending ? "保存中…" : "保存"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+        {promptEditing && promptDirty ? (
+          <p className="text-xs leading-relaxed text-q-warning">未保存的修改不会用于「立即检查」。点保存后才会写入偏好。</p>
+        ) : null}
+        {promptFeedback ? (
+          <p
+            className={cn(
+              "text-xs leading-relaxed",
+              promptFeedback.kind === "ok" ? "text-q-success" : "text-q-danger",
+            )}
+          >
+            {promptFeedback.text}
+          </p>
+        ) : null}
       </section>
 
       {/* 辅助结论 */}
