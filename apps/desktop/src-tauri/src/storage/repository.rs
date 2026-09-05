@@ -44,6 +44,22 @@ pub struct RadarCustomModelRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct RadarChatEndpointRecord {
+    pub id: String,
+    pub display_name: String,
+    pub api_base_url: String,
+    pub secret_ref: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RadarChatEndpointModelRecord {
+    pub endpoint_id: String,
+    pub model: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct AccountRecord {
     pub id: String,
     pub platform_id: String,
@@ -1146,6 +1162,140 @@ impl Database {
                 params![source_id, model],
             )
             .map_err(|err| format!("删除自定义模型失败: {err}"))?;
+        Ok(())
+    }
+
+    pub fn list_radar_chat_endpoints(&self) -> Result<Vec<RadarChatEndpointRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, display_name, api_base_url, secret_ref, created_at
+                 FROM radar_chat_endpoints ORDER BY created_at, id",
+            )
+            .map_err(|err| format!("准备对话接入查询失败: {err}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(RadarChatEndpointRecord {
+                    id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    api_base_url: row.get(2)?,
+                    secret_ref: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|err| format!("查询对话接入失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取对话接入失败: {err}"))
+    }
+
+    pub fn radar_chat_endpoint(
+        &self,
+        endpoint_id: &str,
+    ) -> Result<Option<RadarChatEndpointRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT id, display_name, api_base_url, secret_ref, created_at
+                 FROM radar_chat_endpoints WHERE id = ?1",
+                params![endpoint_id],
+                |row| {
+                    Ok(RadarChatEndpointRecord {
+                        id: row.get(0)?,
+                        display_name: row.get(1)?,
+                        api_base_url: row.get(2)?,
+                        secret_ref: row.get(3)?,
+                        created_at: row.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|err| format!("读取对话接入失败: {err}"))
+    }
+
+    pub fn insert_radar_chat_endpoint(
+        &self,
+        record: &RadarChatEndpointRecord,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT INTO radar_chat_endpoints(id, display_name, api_base_url, secret_ref, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    record.id,
+                    record.display_name,
+                    record.api_base_url,
+                    record.secret_ref,
+                    record.created_at
+                ],
+            )
+            .map_err(|err| format!("保存对话接入失败: {err}"))?;
+        Ok(())
+    }
+
+    pub fn delete_radar_chat_endpoint(&self, endpoint_id: &str) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "DELETE FROM radar_chat_endpoints WHERE id = ?1",
+                params![endpoint_id],
+            )
+            .map_err(|err| format!("删除对话接入失败: {err}"))?;
+        Ok(())
+    }
+
+    pub fn list_radar_chat_endpoint_models(
+        &self,
+        endpoint_id: &str,
+    ) -> Result<Vec<RadarChatEndpointModelRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT endpoint_id, model, created_at FROM radar_chat_endpoint_models
+                 WHERE endpoint_id = ?1 ORDER BY created_at, model",
+            )
+            .map_err(|err| format!("准备接入模型查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![endpoint_id], |row| {
+                Ok(RadarChatEndpointModelRecord {
+                    endpoint_id: row.get(0)?,
+                    model: row.get(1)?,
+                    created_at: row.get(2)?,
+                })
+            })
+            .map_err(|err| format!("查询接入模型失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取接入模型失败: {err}"))
+    }
+
+    pub fn add_radar_chat_endpoint_model(
+        &self,
+        endpoint_id: &str,
+        model: &str,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO radar_chat_endpoint_models(endpoint_id, model, created_at)
+                 VALUES (?1, ?2, ?3)",
+                params![endpoint_id, model, epoch_ms()],
+            )
+            .map_err(|err| format!("保存接入模型失败: {err}"))?;
+        Ok(())
+    }
+
+    pub fn delete_radar_chat_endpoint_model(
+        &self,
+        endpoint_id: &str,
+        model: &str,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "DELETE FROM radar_chat_endpoint_models WHERE endpoint_id = ?1 AND model = ?2",
+                params![endpoint_id, model],
+            )
+            .map_err(|err| format!("删除接入模型失败: {err}"))?;
         Ok(())
     }
 

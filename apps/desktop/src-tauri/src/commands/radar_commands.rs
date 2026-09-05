@@ -189,6 +189,58 @@ pub fn undo_radar_user_reset(
     Ok(snapshot)
 }
 
+/// 未保存的独立对话接入：用填写的地址和 API Key 发一次极小 ping。
+#[tauri::command]
+pub async fn test_radar_chat_endpoint(
+    api_base_url: String,
+    secret: String,
+    model: String,
+    window: WebviewWindow,
+    coordinator: State<'_, RefreshCoordinator>,
+) -> Result<(), String> {
+    require_label(&window, &["main"])?;
+    radar::test_chat_endpoint(&coordinator, &api_base_url, &secret, &model).await
+}
+
+/// 测试通过后保存独立对话接入。
+#[tauri::command]
+pub async fn save_radar_chat_endpoint(
+    display_name: String,
+    api_base_url: String,
+    secret: String,
+    model: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+    coordinator: State<'_, RefreshCoordinator>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main"])?;
+    let snapshot = radar::save_chat_endpoint(
+        &database,
+        &coordinator,
+        &display_name,
+        &api_base_url,
+        &secret,
+        &model,
+    )
+    .await?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn delete_radar_chat_endpoint(
+    endpoint_id: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    database: State<'_, Database>,
+) -> Result<RadarSnapshot, String> {
+    require_label(&window, &["main"])?;
+    let snapshot = radar::delete_chat_endpoint(&database, &endpoint_id)?;
+    let _ = app.emit("radar-data-changed", ());
+    Ok(snapshot)
+}
+
 /// 隐藏或显示 CodexRadar 公告：主窗口与悬浮详情共用，不影响来源同步。
 #[tauri::command]
 pub fn set_radar_notice_hidden(

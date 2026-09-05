@@ -166,6 +166,7 @@ export type RadarSnapshot = {
   checks: RadarCheck[];
   analysis: RadarAnalysis | null;
   models: RadarModelOption[];
+  chatEndpoints: RadarChatEndpoint[];
   analysisPrefs: RadarAnalysisPrefs;
   notice: RadarNotice | null;
   /** 用户隐藏 CodexRadar 公告细条；主窗口与悬浮页共用，不影响同步。 */
@@ -432,6 +433,17 @@ export type RadarModelOption = {
   model: string;
   ready: boolean;
   custom: boolean;
+  /** platform = 平台中心 API Key；endpoint = 雷达独立对话接入。 */
+  kind: "platform" | "endpoint" | string;
+};
+
+export type RadarChatEndpoint = {
+  id: string;
+  sourceId: string;
+  displayName: string;
+  apiBaseUrl: string;
+  models: string[];
+  ready: boolean;
 };
 
 export async function fetchRadarSnapshot(): Promise<RadarSnapshot> {
@@ -500,6 +512,27 @@ export async function addRadarCustomModel(input: { sourceId: string; model: stri
 
 export async function deleteRadarCustomModel(input: { sourceId: string; model: string }): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("delete_radar_custom_model", input);
+}
+
+export async function testRadarChatEndpoint(input: {
+  apiBaseUrl: string;
+  secret: string;
+  model: string;
+}): Promise<void> {
+  return invoke<void>("test_radar_chat_endpoint", input);
+}
+
+export async function saveRadarChatEndpoint(input: {
+  displayName: string;
+  apiBaseUrl: string;
+  secret: string;
+  model: string;
+}): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("save_radar_chat_endpoint", input);
+}
+
+export async function deleteRadarChatEndpoint(endpointId: string): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("delete_radar_chat_endpoint", { endpointId });
 }
 
 export type AppSettingsView = {

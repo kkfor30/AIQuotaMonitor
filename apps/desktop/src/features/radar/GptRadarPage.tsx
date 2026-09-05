@@ -26,18 +26,21 @@ import {
   cancelRadarCheck,
   confirmRadarQuotaChange,
   confirmRadarUserReset,
+  deleteRadarChatEndpoint,
   deleteRadarCustomModel,
   fetchRadarSnapshot,
   ipcErrorMessage,
   openExternalUrl,
   runRadarCheck,
   saveRadarAnalysisPrefs,
+  saveRadarChatEndpoint,
   setRadarNoticeHidden,
+  testRadarChatEndpoint,
   testRadarModel,
   undoRadarUserReset,
 } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
-import type { RadarModelOption, RadarPost, RadarSnapshot } from "@/lib/ipc";
+import type { RadarChatEndpoint, RadarModelOption, RadarPost, RadarSnapshot } from "@/lib/ipc";
 import {
   formatRadarRangeLabel,
   humanizeRadarPostRefs,
@@ -1296,12 +1299,31 @@ function AiAnalysisView({
                 }}
                 className={selectClass}
               >
-                {models.length === 0 && <option value="">请先在平台中心接入可用的对话 API Key</option>}
-                {models.map((item) => (
-                  <option key={`${item.sourceId}|${item.model}`} value={`${item.sourceId}|${item.model}`}>
-                    {radarModelOptionLabel(item)}
-                  </option>
-                ))}
+                {models.length === 0 && (
+                  <option value="">请先在平台中心接入对话 API Key，或添加其他对话接入</option>
+                )}
+                {models.some((item) => item.kind !== "endpoint") ? (
+                  <optgroup label="已接入平台">
+                    {models
+                      .filter((item) => item.kind !== "endpoint")
+                      .map((item) => (
+                        <option key={`${item.sourceId}|${item.model}`} value={`${item.sourceId}|${item.model}`}>
+                          {radarModelOptionLabel(item)}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
+                {models.some((item) => item.kind === "endpoint") ? (
+                  <optgroup label="其他对话接入">
+                    {models
+                      .filter((item) => item.kind === "endpoint")
+                      .map((item) => (
+                        <option key={`${item.sourceId}|${item.model}`} value={`${item.sourceId}|${item.model}`}>
+                          {radarModelOptionLabel(item)}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
               </select>
               <Button
                 type="button"
@@ -1325,6 +1347,10 @@ function AiAnalysisView({
             )}
           </div>
           <CustomModelPanel models={models} selected={selectedModelOption} onAdded={onModelChange} />
+          <ChatEndpointPanel endpoints={data?.chatEndpoints ?? []} onAdded={(sourceId, model) => {
+            onSourceChange(sourceId);
+            onModelChange(model);
+          }} />
           <p className="text-[13px] leading-relaxed text-q-text-secondary">
             开启 AI 时只分析所选范围内尚未消费的新帖；关闭时仍同步来源，不调用模型，未消费帖子保持待分析。
           </p>
@@ -1537,13 +1563,15 @@ function CustomModelPanel({
         selected ? (
           <div className="flex flex-col gap-2 rounded-q-control border border-q-border bg-q-surface px-3 py-2.5">
             <p className="text-xs leading-relaxed text-q-text-muted">
-              添加平台支持的任意模型名：先验证连接（发送一次极小请求），通过后保存即可加入上方下拉。
+              {selected.kind === "endpoint"
+                ? "给当前对话接入再添加一个模型名：先验证连接，通过后保存即可加入上方下拉。"
+                : "添加当前平台支持的任意模型名：先验证连接（发送一次极小请求），通过后保存即可加入上方下拉。"}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <input
                 value={draft}
                 onChange={(event) => changeDraft(event.target.value)}
-                placeholder="模型名称，例如 deepseek-reasoner"
+                placeholder={selected.kind === "endpoint" ? "模型名称，例如 grok-3-mini" : "模型名称，例如 deepseek-reasoner"}
                 disabled={!sourceReady}
                 className="h-9 min-w-0 flex-1 rounded-md border border-q-border bg-q-surface px-2.5 text-xs text-q-text-primary outline-none focus:border-q-primary disabled:opacity-50"
               />
@@ -1596,6 +1624,210 @@ function CustomModelPanel({
         ) : (
           <p className="text-xs text-q-text-muted">请先在上方下拉中选择一个分析模型来源。</p>
         )
+      ) : null}
+    </div>
+  );
+}
+
+const CHAT_ENDPOINT_PRESETS: Array<{ id: string; label: string; url: string; model: string }> = [
+  { id: "openai", label: "OpenAI", url: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  { id: "openrouter", label: "OpenRouter", url: "https://openrouter.ai/api/v1", model: "" },
+  { id: "xai", label: "xAI", url: "https://api.x.ai/v1", model: "grok-3-mini" },
+  { id: "siliconflow", label: "SiliconFlow", url: "https://api.siliconflow.cn/v1", model: "" },
+  { id: "custom", label: "自定义", url: "", model: "" },
+];
+
+function ChatEndpointPanel({
+  endpoints,
+  onAdded,
+}: {
+  endpoints: RadarChatEndpoint[];
+  onAdded: (sourceId: string, model: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [presetId, setPresetId] = useState("openai");
+  const [name, setName] = useState("OpenAI");
+  const [url, setUrl] = useState("https://api.openai.com/v1");
+  const [secret, setSecret] = useState("");
+  const [model, setModel] = useState("gpt-4o-mini");
+  const [verifiedKey, setVerifiedKey] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  const applyPreset = (id: string) => {
+    const preset = CHAT_ENDPOINT_PRESETS.find((item) => item.id === id);
+    setPresetId(id);
+    if (!preset) return;
+    setUrl(preset.url);
+    if (preset.model) setModel(preset.model);
+    if (id !== "custom") setName(preset.label);
+    setVerifiedKey(null);
+    setFeedback(null);
+  };
+
+  const draftKey = `${url.trim()}|${secret.trim()}|${model.trim()}`;
+  const canTest = Boolean(url.trim() && secret.trim() && model.trim());
+
+  const testMutation = useMutation({
+    mutationFn: () =>
+      testRadarChatEndpoint({ apiBaseUrl: url.trim(), secret: secret.trim(), model: model.trim() }),
+    onSuccess: () => {
+      setVerifiedKey(draftKey);
+      setFeedback({ kind: "ok", text: "连接成功，可以保存。" });
+    },
+    onError: (error) => {
+      setVerifiedKey(null);
+      setFeedback({ kind: "error", text: ipcErrorMessage(error, "测试失败") });
+    },
+  });
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      saveRadarChatEndpoint({
+        displayName: name.trim() || "对话接入",
+        apiBaseUrl: url.trim(),
+        secret: secret.trim(),
+        model: model.trim(),
+      }),
+    onSuccess: (snapshot) => {
+      queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot);
+      const saved = snapshot.chatEndpoints.at(-1);
+      const savedModel = saved?.models[0] ?? model.trim();
+      if (saved) onAdded(saved.sourceId, savedModel);
+      setSecret("");
+      setVerifiedKey(null);
+      setFeedback({ kind: "ok", text: `已保存 ${name.trim() || "对话接入"} · ${savedModel}` });
+    },
+    onError: (error) => setFeedback({ kind: "error", text: ipcErrorMessage(error, "保存失败") }),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: deleteRadarChatEndpoint,
+    onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
+    onError: (error) => setFeedback({ kind: "error", text: ipcErrorMessage(error, "删除失败") }),
+  });
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        className="self-start cursor-pointer text-xs font-medium text-q-primary hover:underline"
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? "收起其他对话接入" : "添加其他对话接入"}
+      </button>
+      {open ? (
+        <div className="flex flex-col gap-2 rounded-q-control border border-q-border bg-q-surface px-3 py-2.5">
+          <p className="text-xs leading-relaxed text-q-text-muted">
+            添加 OpenAI 兼容的对话接口（OpenAI / OpenRouter / xAI / SiliconFlow 或自填地址）。密钥只保存在本机凭据库，不进入平台中心。本机 Codex / Grok CLI 登录不能用于分析。
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {CHAT_ENDPOINT_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                aria-pressed={presetId === preset.id}
+                onClick={() => applyPreset(preset.id)}
+                className={cn(
+                  "cursor-pointer rounded-q-pill px-2.5 py-1 text-[11px] font-medium",
+                  presetId === preset.id
+                    ? "bg-[var(--q-chip-active-bg)] text-[var(--q-chip-active-text)]"
+                    : "border border-q-border text-q-text-secondary hover:text-q-text-primary",
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="显示名称"
+              aria-label="对话接入显示名称"
+              className="h-9 rounded-md border border-q-border bg-q-surface px-2.5 text-xs text-q-text-primary outline-none focus:border-q-primary"
+            />
+            <input
+              value={model}
+              onChange={(event) => {
+                setModel(event.target.value);
+                setVerifiedKey(null);
+              }}
+              placeholder="模型名"
+              aria-label="对话接入模型名"
+              className="h-9 rounded-md border border-q-border bg-q-surface px-2.5 text-xs text-q-text-primary outline-none focus:border-q-primary"
+            />
+          </div>
+          <input
+            value={url}
+            onChange={(event) => {
+              setUrl(event.target.value);
+              setVerifiedKey(null);
+            }}
+            placeholder="https://api.example.com/v1"
+            aria-label="对话接入请求地址"
+            className="h-9 rounded-md border border-q-border bg-q-surface px-2.5 text-xs text-q-text-primary outline-none focus:border-q-primary"
+          />
+          <input
+            type="password"
+            value={secret}
+            onChange={(event) => {
+              setSecret(event.target.value);
+              setVerifiedKey(null);
+            }}
+            placeholder="API Key"
+            aria-label="对话接入 API Key"
+            autoComplete="off"
+            className="h-9 rounded-md border border-q-border bg-q-surface px-2.5 text-xs text-q-text-primary outline-none focus:border-q-primary"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!canTest || testMutation.isPending}
+              onClick={() => testMutation.mutate()}
+            >
+              {testMutation.isPending ? "验证中…" : verifiedKey === draftKey ? "重新验证" : "验证连接"}
+            </Button>
+            <Button
+              size="sm"
+              disabled={!canTest || verifiedKey !== draftKey || saveMutation.isPending}
+              onClick={() => saveMutation.mutate()}
+            >
+              {saveMutation.isPending ? "保存中…" : "保存接入"}
+            </Button>
+          </div>
+          {feedback ? (
+            <p className={cn("text-xs leading-relaxed", feedback.kind === "ok" ? "text-q-success" : "text-q-danger")}>
+              {feedback.text}
+            </p>
+          ) : (
+            <p className="text-xs leading-relaxed text-q-text-muted">验证会发送一次极小请求，可能消耗少量额度。地址必须是 https。</p>
+          )}
+          {endpoints.length > 0 ? (
+            <ul className="flex flex-col gap-1.5">
+              {endpoints.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex min-w-0 items-start justify-between gap-2 rounded-q-control border border-q-border bg-q-surface-strong px-2.5 py-1.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-[12px] font-medium text-q-text-primary">{item.displayName}</p>
+                    <p className="truncate text-[11px] text-q-text-muted" title={item.apiBaseUrl}>
+                      {item.models.join(" · ") || "未添加模型"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 cursor-pointer text-[11px] text-q-text-muted hover:text-q-danger"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => deleteMutation.mutate(item.id)}
+                  >
+                    删除
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

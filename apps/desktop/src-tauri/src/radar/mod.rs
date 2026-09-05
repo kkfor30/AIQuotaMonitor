@@ -9,8 +9,8 @@ mod time_claims;
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use crate::storage::repository::{
-    RadarAnalysisRecord, RadarCheckRecord, RadarEventRecord, RadarTimeClaimRecord, SourceRecord,
-    TiboPostRecord,
+    RadarAnalysisRecord, RadarChatEndpointRecord, RadarCheckRecord, RadarEventRecord,
+    RadarTimeClaimRecord, SourceRecord, TiboPostRecord,
 };
 use crate::storage::vault;
 use chrono::{Duration as ChronoDuration, Local, NaiveDate, TimeZone};
@@ -341,6 +341,19 @@ pub struct RadarModelOption {
     pub ready: bool,
     /// 用户通过「验证连接」添加的自定义模型；默认模型为 false。
     pub custom: bool,
+    /// platform = 平台中心 API Key；endpoint = 雷达独立对话接入。
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadarChatEndpointView {
+    pub id: String,
+    pub source_id: String,
+    pub display_name: String,
+    pub api_base_url: String,
+    pub models: Vec<String>,
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -363,6 +376,7 @@ pub struct RadarSnapshot {
     pub decision: RadarDecisionView,
     pub quota_verifications: Vec<QuotaVerificationView>,
     pub analysis_groups: RadarAnalysisGroupsView,
+    pub chat_endpoints: Vec<RadarChatEndpointView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -482,6 +496,7 @@ pub fn snapshot(database: &Database) -> Result<RadarSnapshot, String> {
         decision,
         quota_verifications,
         analysis_groups: groups_view(&groups),
+        chat_endpoints: chat_endpoint_views(database)?,
     })
 }
 
@@ -1457,6 +1472,21 @@ struct ChatTarget {
     api_base: Option<String>,
 }
 
+const OPENAI_COMPATIBLE_ADAPTER: &str = "openai_compatible";
+const ENDPOINT_SOURCE_PREFIX: &str = "radar-endpoint:";
+
+fn endpoint_source_id(endpoint_id: &str) -> String {
+    format!("{ENDPOINT_SOURCE_PREFIX}{endpoint_id}")
+}
+
+fn parse_endpoint_id(source_id: &str) -> Option<&str> {
+    source_id.strip_prefix(ENDPOINT_SOURCE_PREFIX)
+}
+
+fn endpoint_secret_ref(endpoint_id: &str) -> String {
+    vault::secret_ref("radar-endpoint", endpoint_id)
+}
+
 fn resolve_chat_target(
     database: &Database,
     source_id: Option<&str>,
@@ -1468,13 +1498,16 @@ fn resolve_chat_target(
             chat_models(database).ok().and_then(|models| {
                 models
                     .into_iter()
-                    .find(|item| item.ready)
+                    .find(|item| item.ready && !item.model.is_empty())
                     .map(|item| item.source_id)
             })
         })
         .ok_or_else(|| {
-            "请先接入可用于对话的 API Key（DeepSeek / GLM / Kimi 开放平台 / MiniMax）".to_string()
+            "请先在平台中心接入对话 API Key，或添加其他对话接入".to_string()
         })?;
+    if let Some(endpoint_id) = parse_endpoint_id(&source_id) {
+        return resolve_endpoint_target(database, endpoint_id, model);
+    }
     let source = database.source(&source_id)?;
     let secret = source
         .secret_ref
@@ -1482,6 +1515,7 @@ fn resolve_chat_target(
         .and_then(|reference| vault::get(reference).ok().flatten())
         .ok_or_else(|| "所选模型没有可用凭据".to_string())?;
     let model = model
+        .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| chat_target(&source.adapter_id).map(|(_, model)| model.to_string()))
         .ok_or_else(|| "该来源不支持对话分析".to_string())?;
@@ -1497,6 +1531,35 @@ fn resolve_chat_target(
         model,
         secret,
         api_base,
+    })
+}
+
+fn resolve_endpoint_target(
+    database: &Database,
+    endpoint_id: &str,
+    model: Option<&str>,
+) -> Result<ChatTarget, String> {
+    let endpoint = database
+        .radar_chat_endpoint(endpoint_id)?
+        .ok_or_else(|| "找不到该对话接入".to_string())?;
+    let secret = vault::get(&endpoint.secret_ref)?
+        .ok_or_else(|| "所选模型没有可用凭据".to_string())?;
+    let model = model
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            database
+                .list_radar_chat_endpoint_models(endpoint_id)
+                .ok()
+                .and_then(|models| models.into_iter().next().map(|item| item.model))
+        })
+        .ok_or_else(|| "请指定模型名称".to_string())?;
+    Ok(ChatTarget {
+        source_id: endpoint_source_id(endpoint_id),
+        adapter_id: OPENAI_COMPATIBLE_ADAPTER.into(),
+        model,
+        secret,
+        api_base: Some(endpoint.api_base_url),
     })
 }
 
@@ -1799,6 +1862,7 @@ fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
                         model: model.into(),
                         ready: true,
                         custom: false,
+                        kind: "platform".into(),
                     });
                 }
                 None => {
@@ -1816,6 +1880,7 @@ fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
                             model: String::new(),
                             ready: true,
                             custom: false,
+                            kind: "platform".into(),
                         });
                     }
                 }
@@ -1831,11 +1896,65 @@ fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
                     model: custom.model.clone(),
                     ready: true,
                     custom: true,
+                    kind: "platform".into(),
                 });
             }
         }
     }
+    append_endpoint_models(database, &mut options)?;
     Ok(options)
+}
+
+fn append_endpoint_models(
+    database: &Database,
+    options: &mut Vec<RadarModelOption>,
+) -> Result<(), String> {
+    for endpoint in database.list_radar_chat_endpoints()? {
+        let ready = vault::get(&endpoint.secret_ref)
+            .ok()
+            .flatten()
+            .is_some();
+        if !ready {
+            continue;
+        }
+        let models = database.list_radar_chat_endpoint_models(&endpoint.id)?;
+        for (index, item) in models.into_iter().enumerate() {
+            options.push(RadarModelOption {
+                source_id: endpoint_source_id(&endpoint.id),
+                platform_id: "radar-endpoint".into(),
+                display_name: endpoint.display_name.clone(),
+                model: item.model,
+                ready: true,
+                custom: index > 0,
+                kind: "endpoint".into(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn chat_endpoint_views(database: &Database) -> Result<Vec<RadarChatEndpointView>, String> {
+    let mut views = Vec::new();
+    for endpoint in database.list_radar_chat_endpoints()? {
+        let ready = vault::get(&endpoint.secret_ref)
+            .ok()
+            .flatten()
+            .is_some();
+        let models = database
+            .list_radar_chat_endpoint_models(&endpoint.id)?
+            .into_iter()
+            .map(|item| item.model)
+            .collect();
+        views.push(RadarChatEndpointView {
+            id: endpoint.id.clone(),
+            source_id: endpoint_source_id(&endpoint.id),
+            display_name: endpoint.display_name,
+            api_base_url: endpoint.api_base_url,
+            models,
+            ready,
+        });
+    }
+    Ok(views)
 }
 
 fn source_ready(source: &SourceRecord) -> bool {
@@ -1930,6 +2049,12 @@ fn chat_endpoint_candidates(source_id: &str, api_base: Option<&str>) -> Vec<(Str
             ),
             true,
         )],
+        OPENAI_COMPATIBLE_ADAPTER => {
+            let Some(base) = api_base.map(str::trim).filter(|value| !value.is_empty()) else {
+                return Vec::new();
+            };
+            vec![(join_chat_url(base, "/chat/completions"), true)]
+        }
         _ => Vec::new(),
     }
 }
@@ -3180,6 +3305,9 @@ pub fn add_custom_model(
     model: &str,
 ) -> Result<RadarSnapshot, String> {
     let model = sanitize_custom_model(model)?;
+    if parse_endpoint_id(source_id).is_some() {
+        return add_endpoint_model(database, source_id, &model);
+    }
     let source = database.source(source_id)?;
     if source.source_type != "api_key" {
         return Err("只有 API Key 来源支持自定义模型".into());
@@ -3204,8 +3332,199 @@ pub fn delete_custom_model(
     model: &str,
 ) -> Result<RadarSnapshot, String> {
     let model = sanitize_custom_model(model)?;
+    if parse_endpoint_id(source_id).is_some() {
+        return delete_endpoint_model(database, source_id, &model);
+    }
     database.delete_radar_custom_model(source_id, &model)?;
     snapshot(database)
+}
+
+async fn ping_chat_target(
+    coordinator: &RefreshCoordinator,
+    target: &ChatTarget,
+) -> Result<(), String> {
+    let body = json!({
+        "model": target.model,
+        "messages": [{"role": "user", "content": "ping"}]
+    });
+    send_chat(coordinator.client(), target, &body).await?;
+    Ok(())
+}
+
+/// 未保存接入也可测：用用户填写的 https 地址和 API Key 发一次极小请求。
+pub async fn test_chat_endpoint(
+    coordinator: &RefreshCoordinator,
+    api_base_url: &str,
+    secret: &str,
+    model: &str,
+) -> Result<(), String> {
+    let model = sanitize_custom_model(model)?;
+    let api_base = sanitize_chat_base_url(api_base_url)?;
+    let secret = secret.trim();
+    if secret.is_empty() {
+        return Err("API Key 不能为空".into());
+    }
+    let target = ChatTarget {
+        source_id: "radar-endpoint:draft".into(),
+        adapter_id: OPENAI_COMPATIBLE_ADAPTER.into(),
+        model,
+        secret: secret.into(),
+        api_base: Some(api_base),
+    };
+    ping_chat_target(coordinator, &target).await
+}
+
+/// 测试通过后保存一条独立对话接入及其首个模型。
+pub async fn save_chat_endpoint(
+    database: &Database,
+    coordinator: &RefreshCoordinator,
+    display_name: &str,
+    api_base_url: &str,
+    secret: &str,
+    model: &str,
+) -> Result<RadarSnapshot, String> {
+    let display_name = sanitize_endpoint_name(display_name)?;
+    let api_base = sanitize_chat_base_url(api_base_url)?;
+    let model = sanitize_custom_model(model)?;
+    let secret = secret.trim();
+    if secret.is_empty() {
+        return Err("API Key 不能为空".into());
+    }
+    let target = ChatTarget {
+        source_id: "radar-endpoint:draft".into(),
+        adapter_id: OPENAI_COMPATIBLE_ADAPTER.into(),
+        model: model.clone(),
+        secret: secret.into(),
+        api_base: Some(api_base.clone()),
+    };
+    ping_chat_target(coordinator, &target).await?;
+    let id = format!("ep_{}_{}", epoch_ms(), std::process::id());
+    let secret_ref = endpoint_secret_ref(&id);
+    vault::set(&secret_ref, secret)?;
+    let now = epoch_ms();
+    if let Err(error) = database.insert_radar_chat_endpoint(&RadarChatEndpointRecord {
+        id: id.clone(),
+        display_name,
+        api_base_url: api_base,
+        secret_ref: secret_ref.clone(),
+        created_at: now,
+    }) {
+        let _ = vault::delete(&secret_ref);
+        return Err(error);
+    }
+    if let Err(error) = database.add_radar_chat_endpoint_model(&id, &model) {
+        let _ = database.delete_radar_chat_endpoint(&id);
+        let _ = vault::delete(&secret_ref);
+        return Err(error);
+    }
+    snapshot(database)
+}
+
+pub fn delete_chat_endpoint(database: &Database, endpoint_id: &str) -> Result<RadarSnapshot, String> {
+    let endpoint_id = endpoint_id.trim();
+    if endpoint_id.is_empty() {
+        return Err("接入 ID 不能为空".into());
+    }
+    let secret_ref = database
+        .radar_chat_endpoint(endpoint_id)?
+        .map(|item| item.secret_ref);
+    database.delete_radar_chat_endpoint(endpoint_id)?;
+    if let Some(secret_ref) = secret_ref {
+        let _ = vault::delete(&secret_ref);
+    }
+    ensure_analysis_pref_valid(database)?;
+    snapshot(database)
+}
+
+pub fn add_endpoint_model(
+    database: &Database,
+    source_id: &str,
+    model: &str,
+) -> Result<RadarSnapshot, String> {
+    let model = sanitize_custom_model(model)?;
+    let endpoint_id = parse_endpoint_id(source_id).ok_or_else(|| "不是独立对话接入".to_string())?;
+    let endpoint = database
+        .radar_chat_endpoint(endpoint_id)?
+        .ok_or_else(|| "找不到该对话接入".to_string())?;
+    let existing = database.list_radar_chat_endpoint_models(endpoint_id)?;
+    if existing.iter().any(|item| item.model == model) {
+        return Err("该接入已包含此模型".into());
+    }
+    let _ = vault::get(&endpoint.secret_ref)?
+        .ok_or_else(|| "所选模型没有可用凭据".to_string())?;
+    database.add_radar_chat_endpoint_model(endpoint_id, &model)?;
+    snapshot(database)
+}
+
+pub fn delete_endpoint_model(
+    database: &Database,
+    source_id: &str,
+    model: &str,
+) -> Result<RadarSnapshot, String> {
+    let model = sanitize_custom_model(model)?;
+    let endpoint_id = parse_endpoint_id(source_id).ok_or_else(|| "不是独立对话接入".to_string())?;
+    let remaining = database.list_radar_chat_endpoint_models(endpoint_id)?;
+    if remaining.iter().filter(|item| item.model != model).count() == 0 {
+        return Err("至少保留一个模型；要移除接入请删除整条对话接入".into());
+    }
+    database.delete_radar_chat_endpoint_model(endpoint_id, &model)?;
+    ensure_analysis_pref_valid(database)?;
+    snapshot(database)
+}
+
+fn ensure_analysis_pref_valid(database: &Database) -> Result<(), String> {
+    let models = chat_models(database)?;
+    let source = database.setting_string("radar_source_id")?.unwrap_or_default();
+    let model = database.setting_string("radar_model")?.unwrap_or_default();
+    let still = models
+        .iter()
+        .any(|item| item.ready && item.source_id == source && item.model == model);
+    if still {
+        return Ok(());
+    }
+    if let Some(first) = models
+        .into_iter()
+        .find(|item| item.ready && !item.model.is_empty())
+    {
+        database.set_setting_string("radar_source_id", &first.source_id)?;
+        database.set_setting_string("radar_model", &first.model)?;
+    } else {
+        database.set_setting_string("radar_source_id", "")?;
+        database.set_setting_string("radar_model", "")?;
+    }
+    Ok(())
+}
+
+fn sanitize_endpoint_name(raw: &str) -> Result<String, String> {
+    let cleaned: String = raw
+        .chars()
+        .filter(|ch| *ch == ' ' || !ch.is_control())
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        return Err("显示名称不能为空".into());
+    }
+    if trimmed.chars().count() > 64 {
+        return Err("显示名称过长（最多 64 字）".into());
+    }
+    Ok(trimmed.to_string())
+}
+
+fn sanitize_chat_base_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("请求地址不能为空".into());
+    }
+    if trimmed.chars().any(|ch| ch.is_control() || ch == '\0') {
+        return Err("请求地址包含非法字符".into());
+    }
+    if !trimmed.to_ascii_lowercase().starts_with("https://") {
+        return Err("对话地址必须使用 https".into());
+    }
+    if trimmed.len() > 512 {
+        return Err("请求地址过长".into());
+    }
+    Ok(trimmed.trim_end_matches('/').to_string())
 }
 
 struct ModelJson {
@@ -3945,5 +4264,28 @@ mod tests {
             .expect("banked created");
         assert_eq!(banked.event_type, "banked_reset");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chat_base_url_requires_https_and_normalizes() {
+        assert!(sanitize_chat_base_url("http://api.openai.com/v1").is_err());
+        assert!(sanitize_chat_base_url("ftp://example.com").is_err());
+        assert_eq!(
+            sanitize_chat_base_url("https://api.openai.com/v1/").unwrap(),
+            "https://api.openai.com/v1"
+        );
+        let url = join_chat_url("https://api.x.ai/v1", "/chat/completions");
+        assert_eq!(url, "https://api.x.ai/v1/chat/completions");
+        let already = join_chat_url(
+            "https://openrouter.ai/api/v1/chat/completions",
+            "/chat/completions",
+        );
+        assert_eq!(already, "https://openrouter.ai/api/v1/chat/completions");
+    }
+
+    #[test]
+    fn parse_endpoint_source_id() {
+        assert_eq!(parse_endpoint_id("radar-endpoint:ep_1"), Some("ep_1"));
+        assert_eq!(parse_endpoint_id("deepseek-balance-api"), None);
     }
 }

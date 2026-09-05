@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 12;
+const CURRENT_SCHEMA_VERSION: i64 = 13;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -137,6 +137,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 12 {
         migrate_v12(&transaction)?;
+    }
+    if previous_version < 13 {
+        migrate_v13(&transaction)?;
     }
     transaction
         .commit()
@@ -628,6 +631,34 @@ fn migrate_v12(transaction: &Transaction<'_>) -> Result<(), String> {
             "#,
         )
         .map_err(|err| format!("执行 SQLite v12 迁移失败: {err}"))
+}
+
+/// v13：雷达独立 OpenAI 兼容对话接入，不混入平台额度 Source。
+fn migrate_v13(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            CREATE TABLE radar_chat_endpoints (
+                id TEXT PRIMARY KEY NOT NULL,
+                display_name TEXT NOT NULL,
+                api_base_url TEXT NOT NULL,
+                secret_ref TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE radar_chat_endpoint_models (
+                endpoint_id TEXT NOT NULL REFERENCES radar_chat_endpoints(id) ON DELETE CASCADE,
+                model TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (endpoint_id, model)
+            );
+            CREATE INDEX idx_radar_chat_endpoint_models_endpoint
+                ON radar_chat_endpoint_models(endpoint_id, created_at);
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (13, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v13 迁移失败: {err}"))
 }
 
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {

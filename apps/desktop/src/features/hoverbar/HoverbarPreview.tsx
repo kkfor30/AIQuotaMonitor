@@ -474,6 +474,7 @@ const previewRadar: RadarSnapshot = {
   checks: [],
   analysis: previewAnalysis,
   models: [],
+  chatEndpoints: [],
   analysisPrefs: {
     analyze: false,
     rangeKey: "3d",
