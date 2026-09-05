@@ -350,15 +350,20 @@ fn create_detail_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     Ok(detail)
 }
 
-/// 按偏好确保悬浮球窗口处于正确状态（缺失则创建）。
+/// 按偏好确保悬浮球锚点窗口存在（缺失则创建）。详情窗第一次展开再创建。
 pub fn ensure_hoverbar_windows(app: &AppHandle) -> Result<(), String> {
     if app.get_webview_window("hoverbar").is_none() {
         create_anchor_window(app).map_err(|error| error.to_string())?;
     }
-    if app.get_webview_window("hoverbar-detail").is_none() {
-        create_detail_window(app).map_err(|error| error.to_string())?;
-    }
     Ok(())
+}
+
+/// 展开详情时才创建独立 WebView，避免启动阶段常驻第三个 Chromium 进程。
+pub fn ensure_hoverbar_detail_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(detail) = app.get_webview_window("hoverbar-detail") {
+        return Ok(detail);
+    }
+    create_detail_window(app).map_err(|error| error.to_string())
 }
 
 /// 隐藏悬浮球与详情窗口，并同步前端可见性状态。
@@ -387,9 +392,6 @@ pub fn set_hoverbar_enabled(app: &AppHandle, enabled: bool) -> Result<(), String
                 let anchor = prefs.anchor;
                 apply_anchor_layout(&window, &anchor)?;
                 let _ = window.show();
-                if app.get_webview_window("hoverbar-detail").is_none() {
-                    create_detail_window(app).map_err(|error| error.to_string())?;
-                }
             }
             None => ensure_hoverbar_windows(app)?,
         }

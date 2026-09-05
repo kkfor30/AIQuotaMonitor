@@ -32,9 +32,7 @@ pub fn show_hoverbar_detail(
 ) -> Result<HoverbarAnchor, String> {
     require_label(&window, &["hoverbar"])?;
     let anchor = storage::load_preferences(&app).anchor;
-    let Some(detail) = app.get_webview_window("hoverbar-detail") else {
-        return Err("悬浮详情窗口尚未就绪".to_string());
-    };
+    let detail = hoverbar::ensure_hoverbar_detail_window(&app)?;
     let (width, height) = app
         .try_state::<HoverbarRuntime>()
         .map(|runtime| runtime.current_detail_size())

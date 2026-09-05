@@ -159,7 +159,10 @@ function GeneralSection() {
       <SectionHeader title="通用" description="管理应用启动、主题和版本信息。设置修改后立即保存。" />
       {error ? <ErrorText error={error} fallback="保存设置失败" /> : null}
       <div className="glass-panel flex flex-col gap-4 p-5">
-        <SettingRow title="开机自启" description="登录 Windows 后自动启动本应用">
+        <SettingRow
+          title="开机自启"
+          description="登录后自动启动到托盘和悬浮球，不弹出主窗口。再点一次应用或托盘图标可打开主窗口。"
+        >
           <Switch
             checked={settings?.autostart ?? false}
             disabled={autostartMutation.isPending}

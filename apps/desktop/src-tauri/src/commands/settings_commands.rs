@@ -3,8 +3,7 @@ use crate::radar;
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use serde::Serialize;
-use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
 #[derive(Debug, Serialize)]
@@ -98,7 +97,7 @@ pub fn set_autostart(
     database: State<'_, Database>,
 ) -> Result<AppSettingsView, String> {
     require_label(&window, &["main"])?;
-    set_windows_autostart(enabled)?;
+    sync_windows_autostart(enabled)?;
     database.set_setting_bool("autostart", enabled)?;
     let _ = app.emit("app-settings-changed", ());
     get_app_settings(database)
@@ -160,21 +159,110 @@ pub async fn refresh_all_platforms(
     Ok(())
 }
 
-fn set_windows_autostart(enabled: bool) -> Result<(), String> {
-    let startup = startup_dir()?;
-    fs::create_dir_all(&startup).map_err(|error| format!("无法创建启动目录：{error}"))?;
-    let path = startup.join("AIQuotaMonitor.bat");
-    if enabled {
-        let exe = std::env::current_exe().map_err(|error| format!("无法定位程序路径：{error}"))?;
-        let script = format!("@echo off\r\nstart \"\" \"{}\"\r\n", exe.display());
-        fs::write(&path, script).map_err(|error| format!("写入开机自启失败：{error}"))?;
-    } else if path.exists() {
-        fs::remove_file(&path).map_err(|error| format!("关闭开机自启失败：{error}"))?;
+const AUTOSTART_RUN_VALUE: &str = "AIQuotaMonitor";
+
+pub(crate) fn sync_windows_autostart(enabled: bool) -> Result<(), String> {
+    remove_legacy_startup_bat();
+    #[cfg(windows)]
+    {
+        set_registry_run(enabled)
     }
-    Ok(())
+    #[cfg(not(windows))]
+    {
+        let _ = enabled;
+        Err("当前系统不支持开机自启".into())
+    }
 }
 
-fn startup_dir() -> Result<PathBuf, String> {
-    let appdata = std::env::var("APPDATA").map_err(|_| "无法定位 APPDATA".to_string())?;
-    Ok(PathBuf::from(appdata).join(r"Microsoft\Windows\Start Menu\Programs\Startup"))
+fn autostart_command_line(exe: &Path) -> String {
+    format!("\"{}\" --autostart", exe.display())
+}
+
+fn remove_legacy_startup_bat() {
+    let Some(appdata) = std::env::var_os("APPDATA") else {
+        return;
+    };
+    let path = Path::new(&appdata)
+        .join(r"Microsoft\Windows\Start Menu\Programs\Startup")
+        .join("AIQuotaMonitor.bat");
+    let _ = std::fs::remove_file(path);
+}
+
+#[cfg(windows)]
+fn set_registry_run(enabled: bool) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegSetValueExW, HKEY_CURRENT_USER,
+        KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
+    };
+
+    fn wide(value: &str) -> Vec<u16> {
+        value.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    let subkey = wide(r"Software\Microsoft\Windows\CurrentVersion\Run");
+    let name = wide(AUTOSTART_RUN_VALUE);
+    let mut hkey = std::ptr::null_mut();
+    let status = unsafe {
+        RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            0,
+            std::ptr::null_mut(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_WRITE,
+            std::ptr::null(),
+            &mut hkey,
+            std::ptr::null_mut(),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(format!("无法打开开机自启注册表：{status}"));
+    }
+    let result = (|| {
+        if enabled {
+            let exe = std::env::current_exe().map_err(|error| format!("无法定位程序路径：{error}"))?;
+            let command = autostart_command_line(&exe);
+            let data = wide(&command);
+            let bytes = (data.len() * 2) as u32;
+            let status = unsafe {
+                RegSetValueExW(
+                    hkey,
+                    name.as_ptr(),
+                    0,
+                    REG_SZ,
+                    data.as_ptr().cast(),
+                    bytes,
+                )
+            };
+            if status != ERROR_SUCCESS {
+                return Err(format!("无法写入开机自启：{status}"));
+            }
+        } else {
+            let status = unsafe { RegDeleteValueW(hkey, name.as_ptr()) };
+            if status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND {
+                return Err(format!("无法关闭开机自启：{status}"));
+            }
+        }
+        Ok(())
+    })();
+    unsafe {
+        let _ = RegCloseKey(hkey);
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::autostart_command_line;
+    use std::path::Path;
+
+    #[test]
+    fn autostart_command_quotes_exe_and_passes_flag() {
+        let exe = Path::new(r"C:\Program Files\AIQuotaMonitor\AIQuotaMonitor.exe");
+        assert_eq!(
+            autostart_command_line(exe),
+            r#""C:\Program Files\AIQuotaMonitor\AIQuotaMonitor.exe" --autostart"#
+        );
+    }
 }

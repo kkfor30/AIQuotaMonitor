@@ -27,12 +27,14 @@ rust_decimal = "1"
 tokio = { version = "1", features = ["io-util", "macros", "process", "sync", "time"] }
 
 [target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "2"
 webview2-com = "0.38"
 windows-core = "0.61"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Security_Credentials",
+    "Win32_System_Registry",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

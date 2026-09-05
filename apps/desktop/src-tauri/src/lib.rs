@@ -21,13 +21,12 @@ use tauri::{
     Emitter, Manager,
 };
 
-/// 从托盘/其他入口恢复主窗口。
-fn show_main_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+const AUTO_REFRESH_POLL_SECS: u64 = 30;
+const MANUAL_FIRST_REFRESH_SECS: u64 = 30;
+const AUTOSTART_FIRST_REFRESH_SECS: u64 = 180;
+
+fn launched_via_autostart() -> bool {
+    std::env::args().any(|arg| arg == "--autostart")
 }
 
 /// 系统托盘：左键点击恢复主窗口；菜单提供「显示主窗口 / 退出」。应用只能从这里真正退出。
@@ -45,7 +44,7 @@ fn setup_tray(app: &tauri::App) -> Result<(), tauri::Error> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => show_main_window(app),
+            "show" => commands::window_commands::show_main_window(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -56,19 +55,20 @@ fn setup_tray(app: &tauri::App) -> Result<(), tauri::Error> {
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                commands::window_commands::show_main_window(tray.app_handle());
             }
         })
         .build(app)?;
     Ok(())
 }
 
-fn start_auto_refresh(app: tauri::AppHandle) {
+fn start_auto_refresh(app: tauri::AppHandle, first_delay_secs: u64) {
     tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(first_delay_secs)).await;
         let mut last = 0_i64;
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             let Some(database) = app.try_state::<storage::database::Database>() else {
+                tokio::time::sleep(std::time::Duration::from_secs(AUTO_REFRESH_POLL_SECS)).await;
                 continue;
             };
             let minutes = database
@@ -77,29 +77,37 @@ fn start_auto_refresh(app: tauri::AppHandle) {
                 .flatten()
                 .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(15);
-            if minutes == 0 {
-                continue;
-            }
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            if now - last < (minutes as i64) * 60 {
-                continue;
-            }
-            last = now;
-            if let Some(coordinator) = app.try_state::<refresh::RefreshCoordinator>() {
-                if coordinator.refresh_all(&database).await.is_ok() {
-                    let _ = radar::reconcile_event_state_now(&database);
-                    let _ = app.emit("platform-data-changed", ());
+            if minutes != 0 && (last == 0 || now - last >= (minutes as i64) * 60) {
+                last = now;
+                if let Some(coordinator) = app.try_state::<refresh::RefreshCoordinator>() {
+                    if coordinator.refresh_all(&database).await.is_ok() {
+                        let _ = radar::reconcile_event_state_now(&database);
+                        let _ = app.emit("platform-data-changed", ());
+                    }
                 }
             }
+            tokio::time::sleep(std::time::Duration::from_secs(AUTO_REFRESH_POLL_SECS)).await;
         }
     });
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // 单实例插件必须最先注册：第二个进程在这里退出，并把参数交给已运行实例。
+    #[cfg(windows)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.iter().any(|arg| arg == "--autostart") {
+                return;
+            }
+            commands::window_commands::show_main_window(app);
+        }));
+    }
+    builder
         .invoke_handler(tauri::generate_handler![
             commands::platform_commands::get_platform_summaries,
             commands::platform_commands::list_platform_catalog,
@@ -173,6 +181,8 @@ pub fn run() {
             let database = storage::database::Database::initialize(app.handle())
                 .map_err(std::io::Error::other)?;
             radar::reconcile_event_state_now(&database).map_err(std::io::Error::other)?;
+            let autostart_pref = database.setting_bool("autostart").unwrap_or(false);
+            let _ = commands::settings_commands::sync_windows_autostart(autostart_pref);
             app.manage(database);
             let refresh = refresh::RefreshCoordinator::new(app.handle().clone())
                 .map_err(std::io::Error::other)?;
@@ -192,7 +202,15 @@ pub fn run() {
                 windows::hoverbar::ensure_hoverbar_windows(app.handle())?;
             }
             windows::hoverbar::start_fullscreen_watcher(app.handle().clone());
-            start_auto_refresh(app.handle().clone());
+            let first_refresh_secs = if launched_via_autostart() {
+                AUTOSTART_FIRST_REFRESH_SECS
+            } else {
+                MANUAL_FIRST_REFRESH_SECS
+            };
+            start_auto_refresh(app.handle().clone(), first_refresh_secs);
+            if !launched_via_autostart() {
+                commands::window_commands::show_main_window(app.handle());
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

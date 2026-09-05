@@ -12,11 +12,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   fetchAppSettings,
+  fetchHoverbarPreferences,
   fetchPlatformSummaries,
   fetchRadarSnapshot,
   ipcErrorMessage,
@@ -143,7 +145,7 @@ export function HoverbarDetailApp() {
   }, []);
   const radarChecking = radarCheck.isPending || externalChecking;
   // 展开详情（详情窗口可见）时自动检查重置雷达：设置开关 + 距上次检查 ≥5 分钟节流。
-  // 悬浮详情窗口常驻（隐藏/显示不重新挂载），必须由 motionPhase 驱动而非仅 mount。
+  // 详情窗首次展开才创建，之后隐藏/显示不重新挂载，必须由 motionPhase 驱动而非仅 mount。
   const AUTO_RADAR_CHECK_MIN_INTERVAL_MS = 5 * 60 * 1000;
   const motionPhaseRefForAuto = useRef(motionPhase);
   motionPhaseRefForAuto.current = motionPhase;
@@ -184,10 +186,9 @@ export function HoverbarDetailApp() {
   useEffect(() => {
     let disposed = false;
     const unlisteners: Array<() => void> = [];
-    void listen<HoverbarAnchor>("hoverbar-detail-open", (event) => {
-      if (disposed) return;
+    const applyOpen = (nextAnchor: HoverbarAnchor) => {
       window.clearTimeout(exitTimer.current);
-      setAnchor(normalizeHoverbarAnchor(event.payload));
+      setAnchor(normalizeHoverbarAnchor(nextAnchor));
       void refetchRadar();
       setMotion("opening");
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -200,7 +201,26 @@ export function HoverbarDetailApp() {
           if (!disposed && motionPhaseRef.current === "opening") setMotion("visible");
         });
       });
-    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    };
+    void listen<HoverbarAnchor>("hoverbar-detail-open", (event) => {
+      if (disposed) return;
+      applyOpen(event.payload);
+    }).then(async (unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      unlisteners.push(unlisten);
+      // 详情窗首次创建时可能已 show，但错过了刚发出的 open 事件。
+      try {
+        if (await getCurrentWindow().isVisible()) {
+          const prefs = await fetchHoverbarPreferences();
+          if (!disposed) applyOpen(normalizeHoverbarAnchor(prefs.anchor));
+        }
+      } catch {
+        // 仍等待后续 hoverbar-detail-open。
+      }
+    });
     void listen("hoverbar-detail-close", () => {
       if (!disposed) finishClose();
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
