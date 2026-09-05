@@ -46,7 +46,7 @@ V1 不直接访问 X，使用独立的 `CodexRadarSource` 从 `https://codexrada
 
 ## D012：雷达生命周期消费与用户确认重置
 
-帖子用 `lifecycle_consumed_at` 标记是否已成功参与实时分析。用户时间范围只控制展示和 AI 背景，不得用来判断“是否新增”。只有 NEW POSTS 可以创建或推进事件；EVENT CONTEXT / HISTORICAL CONTEXT 不能作为新事件的唯一依据。事件证据只收录被 citations 引用的新增帖和必要事件上下文，不得把整批时间窗帖子写入 `radar_event_evidence`。`radar_events.user_confirmed_reset_at` 记录“用户确认额度已重置/重置卡已到账”，进入 24 小时观察期，可撤销；本机 `observed_reset_at` 优先于用户确认。提示词版本 radar-v18。
+帖子用 `lifecycle_consumed_at` 标记是否已成功参与实时分析。用户时间范围只控制展示和 AI 背景，不得用来判断“是否新增”。只有 NEW POSTS 可以创建或推进事件；EVENT CONTEXT / HISTORICAL CONTEXT 不能作为新事件的唯一依据。事件证据只收录被 citations 引用的新增帖和必要事件上下文，不得把整批时间窗帖子写入 `radar_event_evidence`。`radar_events.user_confirmed_reset_at` 记录“用户确认额度已重置/重置卡已到账”，进入 24 小时观察期，可撤销；本机 `observed_reset_at` 优先于用户确认。提示词版本 radar-v19。用户可见中文把 banked reset 固定为「重置卡」，禁止「银行重置」。
 
 ## D013：最近一次重置只认本机观察或用户确认
 

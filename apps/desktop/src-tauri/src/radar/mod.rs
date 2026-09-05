@@ -62,7 +62,7 @@ impl RadarControl {
         }
     }
 }
-pub const PROMPT_VERSION: &str = "radar-v18";
+pub const PROMPT_VERSION: &str = "radar-v19";
 pub const USER_PROMPT_MAX_CHARS: usize = 4000;
 const LEGACY_DEFAULT_USER_PROMPT: &str = "若帖子提到仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时，或出现 “Hold on to your Codex” / “抓紧你的 Codex” / “reset will land” 等措辞，视为即将重置的强信号（signal_level=strong），即使没有给出确切时间。
 已落地的历史重置只作背景，不能当成否定新一轮重置的证据；普通闲聊回帖应判 none/no_change，不得推进或关闭当前事件。
@@ -98,12 +98,32 @@ const LEGACY_DEFAULT_USER_PROMPT_V18: &str = "请把帖子分成三类信号，�
 
 时间请只复述代码给出的 time_claims / resolved_beijing_at，不要自行换算北京时间。
 普通闲聊中偶然出现相同单词，不代表一定存在重置信号。";
+const LEGACY_DEFAULT_USER_PROMPT_V18_NO_INTERNAL_FIELDS: &str = "请把帖子分成三类信号，不要混用：
+
+【重置卡 banked_reset】
+原帖在说可保存、可稍后手动使用的重置次数或重置卡发放/到账。
+常见英文：banked reset、one reset per day、first one will land、reset available、reset card。
+重置卡不是全局额度自动恢复，但仍是有效重置信号，不得判为 none。
+
+【额度重置 quota_reset】
+原帖在说 Codex / ChatGPT Work 等额度窗口实际刷新或恢复。
+常见英文：reset all paid Codex/ChatGPT Work usage、full reset、reset usage、usage has reset。
+
+【无信号 none】
+普通闲聊、回复、表情，或只是顺口提到 reset，没有重置卡或额度窗口含义。
+
+也可继续关注 Tibo 的特殊表达，例如：
+- Hold on to your Codex、reset will land
+- 仪表盘（dashboard）、里程碑（milestone）、庆祝（celebration）、倒计时、按钮已经按下
+
+普通闲聊中偶然出现相同单词，不代表一定存在重置信号。";
 pub const DEFAULT_USER_PROMPT: &str = "请把帖子分成三类信号，不要混用：
 
 【重置卡 banked_reset】
 原帖在说可保存、可稍后手动使用的重置次数或重置卡发放/到账。
 常见英文：banked reset、one reset per day、first one will land、reset available、reset card。
 重置卡不是全局额度自动恢复，但仍是有效重置信号，不得判为 none。
+中文只写「重置卡」，不要写成「银行重置」；此处 bank 是积存，不是银行。
 
 【额度重置 quota_reset】
 原帖在说 Codex / ChatGPT Work 等额度窗口实际刷新或恢复。
@@ -737,7 +757,7 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
         id: record.id.clone(),
         phase: record.phase.clone(),
         title: record.title.clone(),
-        summary: record.summary.clone(),
+        summary: record.summary.as_deref().map(rewrite_banked_reset_zh),
         first_signal_at: record.first_signal_at,
         latest_evidence_at: record.latest_evidence_at,
         claimed_landed_at: record.claimed_landed_at,
@@ -1466,12 +1486,12 @@ pub async fn translate_post(
     let body = json!({
         "model": target.model,
         "messages": [
-            {"role": "system", "content": "Translate the user's English post into Simplified Chinese. Output only the translation itself, keep numbers, URLs and code unchanged."},
+            {"role": "system", "content": TRANSLATION_SYSTEM_PROMPT},
             {"role": "user", "content": post.text}
         ]
     });
     let text = send_chat(coordinator.client(), &target, &body).await?;
-    let translated = extract_chat_text(&text)?;
+    let translated = rewrite_banked_reset_zh(&extract_chat_text(&text)?);
     if translated.is_empty() {
         return Err("模型未返回可用的翻译".into());
     }
@@ -1694,11 +1714,11 @@ fn to_view(post: TiboPostRecord) -> TiboPostView {
         reposts: post.reposts,
         likes: post.likes,
         synced_at: post.synced_at,
-        translated_text: post.translated_text,
+        translated_text: post.translated_text.as_deref().map(rewrite_banked_reset_zh),
         translated_at: post.translated_at,
         translation_source: post.translation_source,
-        summary: extra_string(&extra, "summary"),
-        analysis: extra_string(&extra, "analysis"),
+        summary: extra_string(&extra, "summary").map(|text| rewrite_banked_reset_zh(&text)),
+        analysis: extra_string(&extra, "analysis").map(|text| rewrite_banked_reset_zh(&text)),
         lifecycle_consumed_at: post.lifecycle_consumed_at,
     }
 }
@@ -1714,6 +1734,44 @@ fn extra_string(value: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_string)
+}
+
+const TRANSLATION_SYSTEM_PROMPT: &str = concat!(
+    "Translate the user's English post into Simplified Chinese. Output only the translation itself, keep numbers, URLs and code unchanged. ",
+    "Glossary: banked reset / banked resets / reset card = 重置卡, a stored reset credit for later manual use, not a financial bank. ",
+    "Never write 银行重置 or 银行重置卡. quota reset / usage reset / full reset = 额度重置."
+);
+
+/// 把 banked reset 的直译「银行重置」收成产品用语「重置卡」，不改分类、不编造数据。
+fn rewrite_banked_reset_zh(text: &str) -> String {
+    let mut out = text.to_string();
+    const PAIRS: &[(&str, &str)] = &[
+        ("银行重置卡", "重置卡"),
+        ("银行的重置", "重置卡"),
+        ("银行式重置", "重置卡"),
+        ("银行重置", "重置卡"),
+        ("a banked reset", "重置卡"),
+        ("the banked reset", "重置卡"),
+        ("A banked reset", "重置卡"),
+        ("The banked reset", "重置卡"),
+        ("Banked Resets", "重置卡"),
+        ("banked resets", "重置卡"),
+        ("Banked Reset", "重置卡"),
+        ("banked reset", "重置卡"),
+    ];
+    for (from, to) in PAIRS {
+        if out.contains(from) {
+            out = out.replace(from, to);
+        }
+    }
+    out
+}
+
+fn rewrite_zh_list(items: Vec<String>) -> Vec<String> {
+    items
+        .into_iter()
+        .map(|item| rewrite_banked_reset_zh(&item))
+        .collect()
 }
 
 /// 把来源里残留的英文 lane / 标签转成中文；已经是中文的原样保留。
@@ -1808,13 +1866,13 @@ fn analysis_view(
         cut_label: None,
         source_id: record.source_id,
         model: record.model,
-        conclusion: record.conclusion,
-        analysis_basis: record.analysis_basis,
+        conclusion: record.conclusion.as_deref().map(rewrite_banked_reset_zh),
+        analysis_basis: record.analysis_basis.as_deref().map(rewrite_banked_reset_zh),
         confidence: record.confidence,
         citations: json_list(&record.citations_json),
-        support: json_list(&record.support_json),
-        against: json_list(&record.against_json),
-        uncertainty: json_list(&record.uncertainty_json),
+        support: rewrite_zh_list(json_list(&record.support_json)),
+        against: rewrite_zh_list(json_list(&record.against_json)),
+        uncertainty: rewrite_zh_list(json_list(&record.uncertainty_json)),
         new_post_ids: json_list(&record.new_post_ids_json),
         event_context_post_ids: json_list(&record.event_context_post_ids_json),
         historical_post_ids: json_list(&record.historical_post_ids_json),
@@ -2921,7 +2979,7 @@ const ANALYSIS_SYSTEM_PROMPT: &str = concat!(
     "A quota reset is an actual refresh or restoration of Codex, ChatGPT Work, or related usage-limit windows, including resetting paid-user usage, restoring rate limits, a full or global reset, or a statement that such a reset was executed. ",
     "Banked-reset delivery is not proof that quota windows have already reset, and an observed quota refresh is not proof that a banked reset was delivered. ",
     "signal_type must be banked_reset, quota_reset, or none. banked reset, one reset per day, first one will land, and reset available are banked_reset. Never output none merely because a banked reset is not a global automatic quota refresh. quota_reset means usage windows actually refresh or restore. ",
-    "When a new signal exists, conclusion and analysis_basis must explicitly call it 重置卡 or 额度重置. new_event or same_event requires signal_type banked_reset or quota_reset, at least one NEW POST citation, and must not reuse a closed event. Use upcoming for promised delivery, landed_claimed for claimed delivery, and watching when timing is unclear. ",
+    "When a new signal exists, conclusion and analysis_basis must explicitly call it 重置卡 or 额度重置. In Simplified Chinese user-facing fields, a banked reset is always 重置卡 and a quota reset is always 额度重置. Never write 银行重置, 银行重置卡, or treat bank as a financial institution; banked means stored for later manual use. new_event or same_event requires signal_type banked_reset or quota_reset, at least one NEW POST citation, and must not reuse a closed event. Use upcoming for promised delivery, landed_claimed for claimed delivery, and watching when timing is unclear. ",
     "Input has three groups: ",
     "NEW POSTS are genuinely unconsumed posts and the only posts that may create or advance an event; ",
     "EVENT CONTEXT POSTS are already linked to the current event and must not become new evidence just because they reappear; ",
@@ -3246,6 +3304,7 @@ fn load_analysis_prefs(database: &Database) -> Result<RadarAnalysisPrefs, String
                 || value == LEGACY_DEFAULT_USER_PROMPT_WITH_TIMEZONE
                 || value == LEGACY_DEFAULT_USER_PROMPT_V17
                 || value == LEGACY_DEFAULT_USER_PROMPT_V18
+                || value == LEGACY_DEFAULT_USER_PROMPT_V18_NO_INTERNAL_FIELDS
             {
                 database.set_setting_string("radar_user_prompt", DEFAULT_USER_PROMPT)?;
                 DEFAULT_USER_PROMPT.to_string()
@@ -3603,17 +3662,20 @@ fn normalize_model_json(parsed: &mut ModelJson, inputs: &DeltaInputs) {
     );
     if let Some(conclusion) = &mut parsed.conclusion {
         // 先可读化再截断：别名的友好标签比原始 post_id 短得多，40 字上限不被挤占。
-        *conclusion = humanize_post_refs(conclusion, inputs)
+        *conclusion = rewrite_banked_reset_zh(&humanize_post_refs(conclusion, inputs))
             .replace(['`', '#', '*'], "")
             .chars()
             .take(40)
             .collect();
     }
-    parsed.analysis_basis = parsed.analysis_basis.as_deref().map(|basis| humanize_post_refs(basis, inputs));
+    parsed.analysis_basis = parsed
+        .analysis_basis
+        .as_deref()
+        .map(|basis| rewrite_banked_reset_zh(&humanize_post_refs(basis, inputs)));
     let humanize_list = |items: &[String]| -> Vec<String> {
         items
             .iter()
-            .map(|item| humanize_post_refs(item, inputs))
+            .map(|item| rewrite_banked_reset_zh(&humanize_post_refs(item, inputs)))
             .collect()
     };
     parsed.support = humanize_list(&parsed.support);
@@ -3916,8 +3978,26 @@ mod tests {
         assert!(DEFAULT_USER_PROMPT.contains("Hold on to your Codex"));
         assert!(DEFAULT_USER_PROMPT.contains("仪表盘"));
         assert!(DEFAULT_USER_PROMPT.contains("banked reset"));
+        assert!(DEFAULT_USER_PROMPT.contains("不要写成「银行重置」"));
         assert!(!DEFAULT_USER_PROMPT.contains("time_claims"));
         assert!(!DEFAULT_USER_PROMPT.contains("resolved_beijing_at"));
+    }
+
+    #[test]
+    fn rewrite_banked_reset_zh_replaces_literal_bank_translation() {
+        assert_eq!(
+            rewrite_banked_reset_zh("来源称银行重置卡即将到账"),
+            "来源称重置卡即将到账"
+        );
+        assert_eq!(
+            rewrite_banked_reset_zh("这是银行重置，不是额度窗口刷新"),
+            "这是重置卡，不是额度窗口刷新"
+        );
+        assert_eq!(
+            rewrite_banked_reset_zh("Tibo announced a banked reset"),
+            "Tibo announced 重置卡"
+        );
+        assert_eq!(rewrite_banked_reset_zh("额度重置已落地"), "额度重置已落地");
     }
 
     fn temp_db() -> (Database, std::path::PathBuf) {
