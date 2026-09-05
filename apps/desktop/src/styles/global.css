@@ -2690,6 +2690,11 @@ html.hoverbar-window #root {
   font-size: 14px;
 }
 
+.hb-detail-root[data-edge="left"] .hb-credits-amount,
+.hb-detail-root[data-edge="right"] .hb-credits-amount {
+  font-size: 13px;
+}
+
 /* 左右侧 300px：模型行与总缓存块同步压缩，只缩图标/字号/间距，副标题保留语义，不隐藏关键值 */
 .hb-detail-root[data-edge="left"] .hb-model-line,
 .hb-detail-root[data-edge="right"] .hb-model-line {
