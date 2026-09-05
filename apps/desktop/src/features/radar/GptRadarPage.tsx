@@ -98,8 +98,17 @@ export function GptRadarPage() {
     prefsReady.current = true;
     setAnalyze(data.analysisPrefs.analyze);
     setRangeKey(data.analysisPrefs.rangeKey || "3d");
-    if (data.analysisPrefs.sourceId) setSourceId(data.analysisPrefs.sourceId);
-    if (data.analysisPrefs.model) setModelChoice(data.analysisPrefs.model);
+    const readyModels = data.models.filter((item) => item.ready);
+    const saved = readyModels.find(
+      (item) =>
+        item.sourceId === data.analysisPrefs.sourceId && item.model === (data.analysisPrefs.model ?? ""),
+    );
+    const fallback = readyModels.find((item) => item.model) ?? readyModels[0];
+    const pick = saved ?? fallback;
+    if (pick) {
+      setSourceId(pick.sourceId);
+      setModelChoice(pick.model);
+    }
     setUserPrompt(data.analysisPrefs.userPrompt ?? data.analysisPrefs.defaultUserPrompt ?? "");
   }, [data]);
 
@@ -117,11 +126,13 @@ export function GptRadarPage() {
     return () => window.clearTimeout(timer);
   }, [analyze, rangeKey, sourceId, modelChoice, userPrompt]);
 
-  // 所选来源 + 模型的选项；modelChoice 失配（来源切换、旧偏好）时回退该来源默认模型。
-  const modelOptions = data?.models ?? [];
+  // 下拉与检查只使用凭据可用的对话模型；失配时回退同来源或第一个就绪模型。
+  const modelOptions = (data?.models ?? []).filter((item) => item.ready);
   const chosenModel =
     modelOptions.find((item) => item.sourceId === sourceId && item.model === modelChoice) ??
-    modelOptions.find((item) => item.sourceId === sourceId) ??
+    modelOptions.find((item) => item.sourceId === sourceId && item.model) ??
+    modelOptions.find((item) => item.model) ??
+    modelOptions[0] ??
     null;
 
   const checkMutation = useMutation({
@@ -299,8 +310,8 @@ export function GptRadarPage() {
         <AiAnalysisView
           data={data}
           analyze={analyze}
-          sourceId={sourceId || modelOptions.find((item) => item.ready)?.sourceId || ""}
-          modelChoice={modelChoice}
+          sourceId={chosenModel?.sourceId || sourceId}
+          modelChoice={chosenModel ? chosenModel.model : modelChoice}
           models={modelOptions}
           onAnalyzeChange={setAnalyze}
           onSourceChange={setSourceId}
@@ -327,6 +338,11 @@ const dateInputClass =
 
 function formatTime(value: number) {
   return new Date(value).toLocaleString("zh-CN", { hour12: false });
+}
+
+function radarModelOptionLabel(item: RadarModelOption): string {
+  if (!item.model) return `${item.displayName} · 需添加自定义模型`;
+  return `${item.displayName} · ${item.model}`;
 }
 
 function formatCompactTime(value: number) {
@@ -1233,10 +1249,27 @@ function AiAnalysisView({
   // 所选来源 + 模型的选项；modelChoice 失配（来源切换、旧偏好）时回退该来源默认模型。
   const selectedModelOption =
     models.find((item) => item.sourceId === sourceId && item.model === modelChoice) ??
-    models.find((item) => item.sourceId === sourceId) ??
+    models.find((item) => item.sourceId === sourceId && item.model) ??
+    models.find((item) => item.model) ??
+    models[0] ??
     null;
+  const [testFeedback, setTestFeedback] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  useEffect(() => {
+    setTestFeedback(null);
+  }, [selectedModelOption?.sourceId, selectedModelOption?.model]);
+  const testSelected = useMutation({
+    mutationFn: () => {
+      if (!selectedModelOption?.sourceId || !selectedModelOption.model) {
+        return Promise.reject(new Error("请先选择一个具体模型，或在下方添加自定义模型"));
+      }
+      return testRadarModel({ sourceId: selectedModelOption.sourceId, model: selectedModelOption.model });
+    },
+    onSuccess: () => setTestFeedback({ kind: "ok", text: "连接成功，当前模型可用。" }),
+    onError: (error) => setTestFeedback({ kind: "error", text: ipcErrorMessage(error, "测试失败") }),
+  });
+  const canTestSelected = Boolean(selectedModelOption?.sourceId && selectedModelOption.model);
   const selectClass =
-    "h-10 w-full cursor-pointer rounded-q-control border border-q-border bg-q-surface-strong px-3 text-sm text-q-text-primary outline-none focus:border-q-primary";
+    "h-10 min-w-0 flex-1 cursor-pointer rounded-q-control border border-q-border bg-q-surface-strong px-3 text-sm text-q-text-primary outline-none focus:border-q-primary";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
@@ -1248,32 +1281,49 @@ function AiAnalysisView({
             <p className="text-sm font-medium text-q-text-primary">是否开启 AI 分析</p>
             <Switch checked={analyze} onCheckedChange={onAnalyzeChange} label="是否开启 AI 分析" />
           </div>
-          <label className="flex flex-col gap-1.5 text-sm">
+          <div className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium text-q-text-primary">分析模型</span>
-            <select
-              value={
-                selectedModelOption ? `${selectedModelOption.sourceId}|${selectedModelOption.model}` : ""
-              }
-              onChange={(event) => {
-                const [nextSource, ...rest] = event.target.value.split("|");
-                onSourceChange(nextSource);
-                onModelChange(rest.join("|"));
-              }}
-              className={selectClass}
-            >
-              {models.length === 0 && <option value="">请先在平台中心接入 API Key</option>}
-              {models.map((item) => (
-                <option
-                  key={`${item.sourceId}|${item.model}`}
-                  value={`${item.sourceId}|${item.model}`}
-                  disabled={!item.ready}
-                >
-                  {item.model || "仅自定义模型（在下方添加）"}
-                  {item.ready ? "" : "（不可用）"}
-                </option>
-              ))}
-            </select>
-          </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                aria-label="分析模型"
+                value={
+                  selectedModelOption ? `${selectedModelOption.sourceId}|${selectedModelOption.model}` : ""
+                }
+                onChange={(event) => {
+                  const [nextSource, ...rest] = event.target.value.split("|");
+                  onSourceChange(nextSource);
+                  onModelChange(rest.join("|"));
+                }}
+                className={selectClass}
+              >
+                {models.length === 0 && <option value="">请先在平台中心接入可用的对话 API Key</option>}
+                {models.map((item) => (
+                  <option key={`${item.sourceId}|${item.model}`} value={`${item.sourceId}|${item.model}`}>
+                    {radarModelOptionLabel(item)}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="shrink-0"
+                disabled={!canTestSelected || testSelected.isPending}
+                onClick={() => testSelected.mutate()}
+              >
+                {testSelected.isPending ? "测试中…" : "测试连接"}
+              </Button>
+            </div>
+            {testFeedback ? (
+              <p className={cn("text-xs leading-relaxed", testFeedback.kind === "ok" ? "text-q-success" : "text-q-danger")}>
+                {testFeedback.text}
+              </p>
+            ) : (
+              <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
+                只列出当前凭据可用的对话模型。测试连接会发送一次极小请求，可能消耗少量额度。
+              </p>
+            )}
+          </div>
           <CustomModelPanel models={models} selected={selectedModelOption} onAdded={onModelChange} />
           <p className="text-[13px] leading-relaxed text-q-text-secondary">
             开启 AI 时只分析所选范围内尚未消费的新帖；关闭时仍同步来源，不调用模型，未消费帖子保持待分析。

@@ -1782,32 +1782,39 @@ fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
     let mut options = Vec::new();
     for platform in database.list_user_platforms()? {
         for source in database.list_sources(&platform.platform_id)? {
-            if source.source_type != "api_key" {
+            if source.source_type != "api_key" || !source_ready(&source) {
                 continue;
             }
-            let ready = source_ready(&source);
             let display = chat_target(&source.adapter_id).map(|(name, _)| name);
+            let display_name = display_name_for(
+                &source,
+                display.unwrap_or(platform.display_name.as_str()),
+            );
             match chat_target(&source.adapter_id) {
                 Some((_, model)) => {
                     options.push(RadarModelOption {
                         source_id: source.id.clone(),
                         platform_id: platform.platform_id.clone(),
-                        display_name: display_name_for(&source, display.unwrap_or("对话来源")),
+                        display_name: display_name.clone(),
                         model: model.into(),
-                        ready,
+                        ready: true,
                         custom: false,
                     });
                 }
                 None => {
-                    // 支持对话端点但无可靠默认模型（如 Kimi：平台模型名变动频繁）：
-                    // 发布空 model 占位，自定义模型面板可选该来源；分析模型下拉会过滤空项。
-                    if !chat_endpoint_candidates(&source.adapter_id, None).is_empty() {
+                    // 支持对话端点但无可靠默认模型（如 Kimi）：只有还没有自定义模型时
+                    // 才放空占位，方便在下方添加；已有自定义模型则不再占一行。
+                    if chat_endpoint_candidates(&source.adapter_id, None).is_empty() {
+                        continue;
+                    }
+                    let has_custom = custom_models.iter().any(|item| item.source_id == source.id);
+                    if !has_custom {
                         options.push(RadarModelOption {
                             source_id: source.id.clone(),
                             platform_id: platform.platform_id.clone(),
-                            display_name: platform.display_name.clone(),
+                            display_name: display_name.clone(),
                             model: String::new(),
-                            ready,
+                            ready: true,
                             custom: false,
                         });
                     }
@@ -1820,9 +1827,9 @@ fn chat_models(database: &Database) -> Result<Vec<RadarModelOption>, String> {
                 options.push(RadarModelOption {
                     source_id: source.id.clone(),
                     platform_id: platform.platform_id.clone(),
-                    display_name: display_name_for(&source, display.unwrap_or("对话来源")),
+                    display_name: display_name.clone(),
                     model: custom.model.clone(),
-                    ready,
+                    ready: true,
                     custom: true,
                 });
             }
