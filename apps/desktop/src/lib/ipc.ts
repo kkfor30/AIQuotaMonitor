@@ -535,12 +535,25 @@ export async function deleteRadarChatEndpoint(endpointId: string): Promise<Radar
   return invoke<RadarSnapshot>("delete_radar_chat_endpoint", { endpointId });
 }
 
+export type LocalDataLocationsView = {
+  appDataDir: string;
+  databasePath: string;
+  webSessionsDir: string;
+  extraCodexDir: string;
+  webviewDir: string;
+  credentialStore: string;
+  codexCliDir: string;
+  claudeCliDir: string;
+  grokCliDir: string;
+};
+
 export type AppSettingsView = {
   theme: string;
   autostart: boolean;
   refreshIntervalMinutes: number;
   hoverbarSortMode: "manual" | "smart" | string;
   hoverbarAutoRadarCheck: boolean;
+  localData: LocalDataLocationsView;
 };
 
 export async function fetchAppSettings(): Promise<AppSettingsView> {
@@ -573,6 +586,10 @@ export async function setHoverbarAutoRadarCheck(enabled: boolean): Promise<AppSe
 
 export async function clearLocalCache(): Promise<void> {
   return invoke<void>("clear_local_cache");
+}
+
+export async function openLocalDataDir(): Promise<void> {
+  return invoke<void>("open_local_data_dir");
 }
 
 /** 悬浮详情窗口事件名（迁移自旧项目，保持不变） */

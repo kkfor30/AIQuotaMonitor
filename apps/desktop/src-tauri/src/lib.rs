@@ -166,6 +166,7 @@ pub fn run() {
             commands::settings_commands::set_hoverbar_sort_mode,
             commands::settings_commands::set_hoverbar_auto_radar_check,
             commands::settings_commands::clear_local_cache,
+            commands::settings_commands::open_local_data_dir,
             commands::settings_commands::refresh_all_platforms,
         ])
         .on_window_event(|window, event| {

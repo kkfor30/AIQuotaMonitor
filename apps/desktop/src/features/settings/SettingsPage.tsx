@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Info, Monitor, Palette, RefreshCw } from "lucide-react";
+import { Copy, FolderOpen, Info, Monitor, Palette, RefreshCw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,8 @@ import {
   fetchHoverbarPreferences,
   fetchPlatformSummaries,
   ipcErrorMessage,
+  type LocalDataLocationsView,
+  openLocalDataDir,
   reorderPlatforms,
   setAppTheme,
   setAutostart,
@@ -561,6 +563,7 @@ function RefreshDataSection() {
         </SettingRow>
         {message ? <p className="text-xs text-q-text-secondary">{message}</p> : null}
       </div>
+      <LocalDataLocationsCard locations={settings?.localData} />
       {confirmClear && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm"
@@ -592,6 +595,125 @@ function RefreshDataSection() {
         </div>
       )}
     </>
+  );
+}
+
+function LocalDataLocationsCard({
+  locations,
+}: {
+  locations: LocalDataLocationsView | undefined;
+}) {
+  const openMutation = useMutation({
+    mutationFn: openLocalDataDir,
+  });
+
+  return (
+    <div className="glass-panel flex flex-col gap-4 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-q-text-primary">本机数据位置</p>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-q-text-secondary">
+            以下为当前机器解析出的真实路径。API Key、Cookie 与会话 Token 不在这些文件夹明文保存。
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          className="shrink-0"
+          onClick={() => openMutation.mutate()}
+          disabled={openMutation.isPending || !locations}
+        >
+          <FolderOpen size={14} aria-hidden className="mr-1.5" />
+          {openMutation.isPending ? "打开中…" : "打开应用目录"}
+        </Button>
+      </div>
+      {openMutation.error ? (
+        <ErrorText error={openMutation.error} fallback="无法打开应用数据目录" />
+      ) : null}
+      {locations ? (
+        <div className="flex flex-col gap-3">
+          <DataLocationRow
+            title="应用数据目录"
+            description="SQLite、网页登录会话、额外 Codex 账号目录"
+            value={locations.appDataDir}
+          />
+          <DataLocationRow
+            title="数据库"
+            description="额度快照、平台配置与雷达数据。清除缓存只删快照和刷新记录，不删这个文件。"
+            value={locations.databasePath}
+          />
+          <DataLocationRow
+            title="API Key 与会话"
+            description="平台中心与雷达对话接入的密钥只进凭据管理器，SQLite 只保存指针。"
+            value={locations.credentialStore}
+          />
+          <DataLocationRow
+            title="网页登录会话"
+            description="DeepSeek / GLM / MiMo 隔离登录窗的本机会话目录"
+            value={locations.webSessionsDir}
+          />
+          <DataLocationRow
+            title="额外 Codex 账号"
+            description="独立 CODEX_HOME，不覆盖本机默认 ~/.codex"
+            value={locations.extraCodexDir}
+          />
+          <DataLocationRow
+            title="本机 Codex / Claude / Grok 登录"
+            description="官方 CLI 自己的目录，本应用只读，不写入明文到产品库。"
+            value={[locations.codexCliDir, locations.claudeCliDir, locations.grokCliDir].join("\n")}
+          />
+          <DataLocationRow
+            title="WebView 运行缓存"
+            description="应用内嵌页面缓存，清除本地缓存按钮不会删除这里。"
+            value={locations.webviewDir}
+          />
+        </div>
+      ) : (
+        <p className="text-[13px] text-q-text-secondary">正在读取本机路径…</p>
+      )}
+    </div>
+  );
+}
+
+function DataLocationRow({
+  title,
+  description,
+  value,
+}: {
+  title: string;
+  description: string;
+  value: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-q-border pt-3 first:border-t-0 first:pt-0">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-q-text-primary">{title}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-q-text-secondary">{description}</p>
+          <p
+            className="mt-1.5 whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-q-text-primary"
+            data-selectable="true"
+          >
+            {value}
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" className="shrink-0" onClick={() => void copy()}>
+          <Copy size={13} aria-hidden className="mr-1" />
+          {copied ? "已复制" : "复制"}
+        </Button>
+      </div>
+    </div>
   );
 }
 

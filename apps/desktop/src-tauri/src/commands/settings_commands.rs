@@ -3,8 +3,26 @@ use crate::radar;
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
+
+const WEBVIEW_IDENTIFIER: &str = "com.aiquotamonitor.desktop";
+const CREDENTIAL_STORE_LABEL: &str =
+    "Windows 凭据管理器 · Windows 凭据 · 通用凭据（目标名以 AIQuotaMonitor/ 开头）";
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalDataLocationsView {
+    pub app_data_dir: String,
+    pub database_path: String,
+    pub web_sessions_dir: String,
+    pub extra_codex_dir: String,
+    pub webview_dir: String,
+    pub credential_store: String,
+    pub codex_cli_dir: String,
+    pub claude_cli_dir: String,
+    pub grok_cli_dir: String,
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,6 +32,7 @@ pub struct AppSettingsView {
     pub refresh_interval_minutes: i64,
     pub hoverbar_sort_mode: String,
     pub hoverbar_auto_radar_check: bool,
+    pub local_data: LocalDataLocationsView,
 }
 
 #[tauri::command]
@@ -36,7 +55,56 @@ pub fn get_app_settings(database: State<'_, Database>) -> Result<AppSettingsView
             .setting_string("hoverbar_sort_mode")?
             .unwrap_or_else(|| "manual".into()),
         hoverbar_auto_radar_check: database.setting_bool("hoverbar_auto_radar_check")?,
+        local_data: local_data_locations(database.path()),
     })
+}
+
+fn path_string(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn env_dir(key: &str, fallback: &str) -> PathBuf {
+    std::env::var_os(key)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(fallback))
+}
+
+pub(crate) fn local_data_locations(database_path: &Path) -> LocalDataLocationsView {
+    let app_data_dir = database_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| database_path.to_path_buf());
+    let profile = env_dir("USERPROFILE", r"%USERPROFILE%");
+    let local_app_data = env_dir("LOCALAPPDATA", r"%LOCALAPPDATA%");
+    LocalDataLocationsView {
+        app_data_dir: path_string(&app_data_dir),
+        database_path: path_string(database_path),
+        web_sessions_dir: path_string(&app_data_dir.join("web-sessions")),
+        extra_codex_dir: path_string(&app_data_dir.join("codex-accounts")),
+        webview_dir: path_string(&local_app_data.join(WEBVIEW_IDENTIFIER)),
+        credential_store: CREDENTIAL_STORE_LABEL.into(),
+        codex_cli_dir: path_string(&profile.join(".codex")),
+        claude_cli_dir: path_string(&profile.join(".claude")),
+        grok_cli_dir: path_string(&profile.join(".grok")),
+    }
+}
+
+#[tauri::command]
+pub fn open_local_data_dir(
+    window: WebviewWindow,
+    database: State<'_, Database>,
+) -> Result<(), String> {
+    require_label(&window, &["main"])?;
+    let path = local_data_locations(database.path()).app_data_dir;
+    open_in_explorer(Path::new(&path))
+}
+
+fn open_in_explorer(path: &Path) -> Result<(), String> {
+    std::process::Command::new("explorer")
+        .arg(path.as_os_str())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开目录：{error}"))
 }
 
 #[tauri::command]
@@ -264,5 +332,24 @@ mod tests {
             autostart_command_line(exe),
             r#""C:\Program Files\AIQuotaMonitor\AIQuotaMonitor.exe" --autostart"#
         );
+    }
+
+    #[test]
+    fn local_data_locations_use_database_parent() {
+        let view = super::local_data_locations(Path::new(
+            r"C:\Users\demo\AppData\Roaming\com.aiquotamonitor.desktop\ai-quota-monitor.db",
+        ));
+        assert_eq!(
+            view.app_data_dir,
+            r"C:\Users\demo\AppData\Roaming\com.aiquotamonitor.desktop"
+        );
+        assert!(view.database_path.ends_with("ai-quota-monitor.db"));
+        assert!(view.web_sessions_dir.ends_with("web-sessions"));
+        assert!(view.extra_codex_dir.ends_with("codex-accounts"));
+        assert!(view.credential_store.contains("AIQuotaMonitor/"));
+        assert!(view.codex_cli_dir.ends_with(".codex"));
+        assert!(view.claude_cli_dir.ends_with(".claude"));
+        assert!(view.grok_cli_dir.ends_with(".grok"));
+        assert!(view.webview_dir.ends_with("com.aiquotamonitor.desktop"));
     }
 }
