@@ -1,5 +1,6 @@
 import { SidebarNavigation } from "@/features/navigation/SidebarNavigation";
 import { WindowTitleBar } from "@/components/ui/WindowTitleBar";
+import { WindowResizeHandles } from "@/components/ui/WindowResizeHandles";
 import { ToastContainer } from "@/components/ui/Toast";
 import type { NavId } from "@/app/navigation";
 
@@ -18,6 +19,7 @@ export function AppShell({
 }) {
   return (
     <div className="app-backdrop flex h-full w-full flex-col">
+      <WindowResizeHandles />
       <WindowTitleBar />
       <div className="flex min-h-0 flex-1">
         <SidebarNavigation active={active} onSelect={onNavigate} />
