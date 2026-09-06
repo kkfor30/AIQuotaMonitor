@@ -140,7 +140,6 @@ pub fn run() {
             commands::window_commands::get_hoverbar_preferences,
             commands::window_commands::set_hoverbar_enabled,
             commands::window_commands::open_external_url,
-            commands::window_commands::show_hoverbar_context_menu,
             commands::platform_commands::remove_user_platform,
             commands::platform_commands::reveal_source_secret,
             commands::platform_commands::test_api_endpoints,

@@ -202,22 +202,10 @@ export function HoverbarAnchorApp() {
     [clearCollapseTimer, clearEnterTimer, detailVisible, requestHide, showDetail, snapToEdge],
   );
 
-  const handleContextMenu = useCallback(
-    (event: React.MouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      clearEnterTimer();
-      clearCollapseTimer();
-      if (detailVisible) {
-        requestHide();
-      } else {
-        void invoke("show_hoverbar_context_menu").catch((error) =>
-          console.error("无法打开悬浮球右键微菜单", error),
-        );
-      }
-    },
-    [clearCollapseTimer, clearEnterTimer, detailVisible, requestHide],
-  );
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
 
   useEffect(
     () => () => {

@@ -15,10 +15,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronRight,
   ExternalLink,
   EyeOff,
-  LayoutDashboard,
   Moon,
   RefreshCw,
   SunMedium,
@@ -221,8 +219,6 @@ export function HoverbarDetailApp() {
       setAnchor(normalizeHoverbarAnchor(nextAnchor));
       if (nextView) {
         setView(nextView);
-      } else {
-        setView((prev) => (prev === "menu" ? "quota" : prev));
       }
       void refetchRadar();
       setMotion("opening");
@@ -255,13 +251,6 @@ export function HoverbarDetailApp() {
       } catch {
         // 仍等待后续 hoverbar-detail-open。
       }
-    });
-    void listen<HoverbarAnchor>("hoverbar-detail-open-menu", (event) => {
-      if (disposed) return;
-      applyOpen(event.payload, "menu");
-    }).then((unlisten) => {
-      if (disposed) unlisten();
-      else unlisteners.push(unlisten);
     });
     void listen("hoverbar-detail-close", () => {
       if (!disposed) finishClose();
@@ -336,42 +325,18 @@ export function HoverbarDetailApp() {
       onMouseEnter={() => void invoke("set_hoverbar_detail_pointer_inside", { inside: true })}
       onMouseLeave={() => void invoke("set_hoverbar_detail_pointer_inside", { inside: false })}
     >
-      {view === "menu" ? (
-        <section ref={panelRef} className="hb-panel hb-panel-menu">
-          <div ref={contentRef}>
-            <HoverbarAcrylicMenu
-              onRefreshAll={() => {
-                if (!refreshPlatforms.isPending) refreshPlatforms.mutate();
-              }}
-              refreshing={platformsRefreshing}
-              onOpenQuota={() => setView("quota")}
-              onOpenMain={() => {
-                void openMainWindow();
-                finishClose();
-              }}
-              onToggleTheme={toggleTheme}
-              theme={theme}
-              onHideOrb={() => {
-                finishClose();
-                void invoke("set_hoverbar_enabled", { enabled: false });
-              }}
-              onClose={finishClose}
-            />
-          </div>
-        </section>
-      ) : (
-        <section ref={panelRef} className="hb-panel">
-          <header ref={headerRef} className="hb-head">
-            <p
-              className="hb-refresh-status"
-              data-error={Boolean(refreshPlatforms.error) || statusText.includes("失败") || undefined}
-            >
-              {refreshPlatforms.error
-                ? ipcErrorMessage(refreshPlatforms.error, "刷新平台失败")
-                : platformsRefreshing
-                  ? "正在刷新平台额度…"
-                  : statusText}
-            </p>
+      <section ref={panelRef} className="hb-panel">
+        <header ref={headerRef} className="hb-head">
+          <p
+            className="hb-refresh-status"
+            data-error={Boolean(refreshPlatforms.error) || statusText.includes("失败") || undefined}
+          >
+            {refreshPlatforms.error
+              ? ipcErrorMessage(refreshPlatforms.error, "刷新平台失败")
+              : platformsRefreshing
+                ? "正在刷新平台额度…"
+                : statusText}
+          </p>
             <div className="hb-actions">
               <DetailIconButton
                 label={platformsRefreshing ? "正在刷新" : "刷新平台额度"}
@@ -458,7 +423,6 @@ export function HoverbarDetailApp() {
           </footer>
 
         </section>
-      )}
     </div>
   );
 }
@@ -493,103 +457,3 @@ function DetailIconButton({
   );
 }
 
-/**
- * 悬浮球 Aurora 亚克力玻璃微菜单：
- * 与悬浮小球深度呼应的快捷浮层，纯矢量 SVG 图标 + 玻璃拟态圆角质感。
- */
-function HoverbarAcrylicMenu({
-  onRefreshAll,
-  refreshing,
-  onOpenQuota,
-  onOpenMain,
-  onToggleTheme,
-  theme,
-  onHideOrb,
-  onClose,
-}: {
-  onRefreshAll: () => void;
-  refreshing: boolean;
-  onOpenQuota: () => void;
-  onOpenMain: () => void;
-  onToggleTheme: () => void;
-  theme: "dark" | "light";
-  onHideOrb: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="hb-acrylic-menu select-none">
-      <div className="hb-menu-head">
-        <div className="hb-menu-title-wrap">
-          <span className="hb-menu-pulse-orb" aria-hidden />
-          <span className="hb-menu-title">快捷微菜单</span>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="hb-menu-close-btn"
-          aria-label="关闭微菜单"
-          title="关闭"
-        >
-          <X size={13} aria-hidden />
-        </button>
-      </div>
-
-      <div className="hb-menu-items">
-        <button
-          type="button"
-          className="hb-menu-item"
-          onClick={onRefreshAll}
-          disabled={refreshing}
-        >
-          <RefreshCw size={14} className={refreshing ? "animate-spin text-q-primary" : "text-q-primary"} aria-hidden />
-          <span className="hb-menu-item-text">刷新所有平台额度</span>
-          {refreshing && <span className="hb-menu-badge">刷新中</span>}
-        </button>
-
-        <button
-          type="button"
-          className="hb-menu-item"
-          onClick={onOpenQuota}
-        >
-          <LayoutDashboard size={14} className="text-emerald-500" aria-hidden />
-          <span className="hb-menu-item-text">展开额度详情</span>
-          <ChevronRight size={13} className="ml-auto opacity-40" aria-hidden />
-        </button>
-
-        <button
-          type="button"
-          className="hb-menu-item"
-          onClick={onOpenMain}
-        >
-          <ExternalLink size={14} className="text-sky-500" aria-hidden />
-          <span className="hb-menu-item-text">打开应用主窗口</span>
-        </button>
-
-        <button
-          type="button"
-          className="hb-menu-item"
-          onClick={onToggleTheme}
-        >
-          {theme === "dark" ? (
-            <SunMedium size={14} className="text-amber-400" aria-hidden />
-          ) : (
-            <Moon size={14} className="text-indigo-500" aria-hidden />
-          )}
-          <span className="hb-menu-item-text">{theme === "dark" ? "切换为浅色模式" : "切换为深色模式"}</span>
-        </button>
-
-        <div className="hb-menu-divider" />
-
-        <button
-          type="button"
-          className="hb-menu-item hb-menu-item-danger"
-          onClick={onHideOrb}
-          title="暂时收起悬浮球，可在主窗口设置页重新开启"
-        >
-          <EyeOff size={14} aria-hidden />
-          <span className="hb-menu-item-text">暂时收起悬浮球</span>
-        </button>
-      </div>
-    </div>
-  );
-}

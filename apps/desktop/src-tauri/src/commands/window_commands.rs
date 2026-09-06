@@ -137,24 +137,6 @@ fn snap_and_persist(window: &WebviewWindow) -> Result<HoverbarAnchor, String> {
     Ok(anchor)
 }
 
-/// 悬浮球右键微菜单：通过详情窗口呼出 Aurora 亚克力玻璃微菜单，与小球设计风格完全呼应。
-#[tauri::command]
-pub fn show_hoverbar_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
-    require_label(&window, &["hoverbar"])?;
-    let anchor = storage::load_preferences(&app).anchor;
-    let detail = hoverbar::ensure_hoverbar_detail_window(&app)?;
-    let (width, height) = (210.0, 240.0);
-    hoverbar::apply_detail_layout(&detail, &window, &anchor, width, height)?;
-    let _ = detail.show();
-    hoverbar::keep_anchor_above_detail(&window)?;
-    let _ = app.emit("hoverbar-detail-open-menu", &anchor);
-    let _ = app.emit("hoverbar-detail-visibility", true);
-    if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
-        runtime.detail_visible.store(true, Ordering::SeqCst);
-    }
-    Ok(())
-}
-
 /// 打开（显示并聚焦）主窗口。
 #[tauri::command]
 pub fn open_main_window(app: AppHandle) {

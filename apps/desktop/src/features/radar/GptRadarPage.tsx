@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BrainCircuit,
+  Calendar,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -16,6 +17,7 @@ import {
   ShieldCheck,
   ThumbsDown,
   ThumbsUp,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
@@ -174,6 +176,20 @@ export function GptRadarPage() {
   const customRange = customRangeOf(rangeKey);
   const customActive = !QUICK_RANGES.some((range) => range.id === rangeKey) && customRange !== null;
   const todayIso = toIsoDate(new Date());
+  const [customPickerOpen, setCustomPickerOpen] = useState(false);
+  const customPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!customPickerOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (customPickerRef.current && !customPickerRef.current.contains(e.target as Node)) {
+        setCustomPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [customPickerOpen]);
+
   // 记住最近一次自定义区间：切到快捷档再切回「自定义」时恢复，而不是重置成默认 30 天
   const lastCustomRangeRef = useRef<string | null>(
     customRange ? `range:${customRange.start}:${customRange.end}` : null,
@@ -245,51 +261,75 @@ export function GptRadarPage() {
             </Button>
           )}
         </div>
-        {/* 动态范围：flex-1 + min-w-0 让整组始终留在 Tab 行内，放不下时只在组内换行（自定义日期框掉到右对齐第二行），不把整组挤下去 */}
-        <div className="ml-auto mr-4 flex min-w-0 max-w-full flex-1 flex-wrap items-center justify-end gap-2">
+        {/* 动态范围：单行紧凑对齐，自定义使用浮动卡片 Popover，不撑大工具栏行高 */}
+        <div className="ml-auto mr-4 flex shrink-0 items-center justify-end gap-2">
           <span className="shrink-0 whitespace-nowrap text-[13.5px] font-medium text-q-text-secondary">动态范围：</span>
           {QUICK_RANGES.map((range) => (
             <button
               key={range.id}
               type="button"
               aria-pressed={rangeKey === range.id}
-              onClick={() => setRangeKey(range.id)}
+              onClick={() => {
+                setRangeKey(range.id);
+                setCustomPickerOpen(false);
+              }}
               className={rangeChipClass(rangeKey === range.id)}
             >
               {range.label}
             </button>
           ))}
-          <button
-            type="button"
-            aria-pressed={customActive}
-            onClick={() => {
-              if (!customActive) switchToCustom();
-            }}
-            className={rangeChipClass(customActive)}
-          >
-            自定义
-          </button>
-          {customActive && customRange && (
-            <div className="flex flex-wrap items-center gap-2 rounded-q-control border border-q-border bg-q-surface-strong px-3 py-1.5">
-              <input
-                type="date"
-                value={customRange.start}
-                max={todayIso}
-                onChange={(event) => applyCustomRange(event.target.value, customRange.end)}
-                aria-label="动态范围开始日期"
-                className={dateInputClass}
-              />
-              <span className="text-xs text-q-text-muted">至</span>
-              <input
-                type="date"
-                value={customRange.end}
-                max={todayIso}
-                onChange={(event) => applyCustomRange(customRange.start, event.target.value)}
-                aria-label="动态范围结束日期"
-                className={dateInputClass}
-              />
-            </div>
-          )}
+          <div className="relative inline-flex items-center" ref={customPickerRef}>
+            <button
+              type="button"
+              aria-pressed={customActive}
+              onClick={() => {
+                if (!customActive) switchToCustom();
+                setCustomPickerOpen((v) => !v);
+              }}
+              className={cn(rangeChipClass(customActive), "inline-flex items-center gap-1.5")}
+            >
+              <span>
+                {customActive && customRange
+                  ? `自定义 (${customRange.start.slice(5).replace("-", "/")}~${customRange.end.slice(5).replace("-", "/")})`
+                  : "自定义"}
+              </span>
+              <Calendar size={12} className="opacity-70" aria-hidden />
+            </button>
+            {customPickerOpen && customRange && (
+              <div className="absolute right-0 top-[calc(100%+8px)] z-50 flex flex-col gap-2.5 rounded-q-card border border-q-border bg-q-surface-strong p-3 shadow-q-xl backdrop-blur-xl animate-scale-in min-w-[280px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-q-text-secondary">自定义动态范围</span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomPickerOpen(false)}
+                    className="rounded p-1 text-q-text-muted hover:bg-q-surface-hover hover:text-q-text-primary"
+                    aria-label="关闭日期选择"
+                  >
+                    <X size={13} aria-hidden />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={customRange.start}
+                    max={todayIso}
+                    onChange={(event) => applyCustomRange(event.target.value, customRange.end)}
+                    aria-label="动态范围开始日期"
+                    className={dateInputClass}
+                  />
+                  <span className="text-xs text-q-text-muted shrink-0">至</span>
+                  <input
+                    type="date"
+                    value={customRange.end}
+                    max={todayIso}
+                    onChange={(event) => applyCustomRange(customRange.start, event.target.value)}
+                    aria-label="动态范围结束日期"
+                    className={dateInputClass}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -519,60 +559,19 @@ function SignalSummaryView({
 
   return (
     <div className="radar-console flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
-      {/* 首屏研判结论胶囊 Banner */}
-      {decision && (
-        <section className="glass-panel relative flex shrink-0 flex-wrap items-center justify-between gap-4 p-4 border border-q-border-strong/80 shadow-q-sm animate-fade-in">
-          <div className="flex items-center gap-4 min-w-0 flex-1">
-            <RadarStatusGauge status={decision.status} />
-            <div className="flex flex-col gap-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="rounded-q-pill bg-q-primary-soft px-2.5 py-0.5 text-[11px] font-semibold text-q-primary">
-                  {radarDecisionBadge(decision)}
-                </span>
-                {decision.observationPeriodText && (
-                  <span className="rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[10.5px] font-medium text-q-success">
-                    {decision.observationPeriodText}
-                  </span>
-                )}
-                <span className="text-[11.5px] text-q-text-muted">
-                  {radarDecisionTimeText(decision)}
-                </span>
-              </div>
-              <p className="text-[16px] font-bold tracking-tight text-q-text-primary truncate" data-selectable="true">
-                {decision.headline}
-              </p>
-              {decision.verificationHint && (
-                <p className="text-[12px] text-q-text-secondary truncate">
-                  {decision.verificationHint}
-                </p>
-              )}
-            </div>
-          </div>
-          {(decision.canConfirmReset || decision.canUndoConfirm) && (
-            <div className="flex items-center gap-2 shrink-0">
-              {decision.canConfirmReset && (
-                <Button variant="secondary" size="sm" onClick={() => setConfirmOpen(true)}>
-                  {radarConfirmResetLabel(decision.eventType)}
-                </Button>
-              )}
-              {decision.canUndoConfirm && (
-                <Button variant="ghost" size="sm" disabled={undoReset.isPending} onClick={() => undoReset.mutate()}>
-                  撤销人工确认
-                </Button>
-              )}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* 两张状态卡：判断（含最近一次重置）+ 本机验证（宽屏等高，窄屏自动换行） */}
+      {/* 两张状态卡：研判（含微型雷达仪表盘与最近一次重置）+ 本机验证（宽屏等高，窄屏自动换行） */}
       <div className="radar-status-grid shrink-0">
-        <section className="glass-panel flex flex-col gap-2 p-4">
+        <section className="glass-panel flex flex-col gap-3 p-4">
           <div className="flex items-center gap-2">
             <h2 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">当前判断</h2>
             {decision ? (
               <span className="rounded-q-pill bg-q-primary-soft px-2 py-0.5 text-[11px] font-medium text-q-primary">
                 {radarDecisionBadge(decision)}
+              </span>
+            ) : null}
+            {decision?.observationPeriodText ? (
+              <span className="rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[10.5px] font-medium text-q-success">
+                {decision.observationPeriodText}
               </span>
             ) : null}
             {data ? (
@@ -583,16 +582,18 @@ function SignalSummaryView({
           </div>
           {decision ? (
             <>
-              <p className="text-[16px] font-semibold leading-snug text-q-text-primary" data-selectable="true">
-                {decision.headline}
-              </p>
-              <p className="text-[13px] leading-relaxed text-q-text-secondary">{radarDecisionTimeText(decision)}</p>
-              {observedCauseUnknown ? <p className="text-[13px] text-q-text-secondary">原因未知</p> : null}
+              <div className="flex items-start gap-3.5">
+                <RadarStatusGauge status={decision.status} />
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <p className="text-[16px] font-bold leading-snug text-q-text-primary" data-selectable="true">
+                    {decision.headline}
+                  </p>
+                  <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{radarDecisionTimeText(decision)}</p>
+                  {observedCauseUnknown ? <p className="text-[12px] text-q-text-muted">原因未知</p> : null}
+                </div>
+              </div>
               {decision.verificationHint ? (
                 <p className="text-[13px] leading-relaxed text-q-text-secondary">{decision.verificationHint}</p>
-              ) : null}
-              {decision.observationPeriodText ? (
-                <p className="text-[12px] font-medium text-q-success">{decision.observationPeriodText}</p>
               ) : null}
               {data ? <p className="text-[13px] leading-relaxed text-q-text-secondary">{radarDeltaImpactLine(data)}</p> : null}
               {decision.status === "no_signal" && decision.recentSummaryText ? (

@@ -13,7 +13,6 @@
  * stale 保留真实值与进度色，仅以低饱和蓝灰缓存提示；
  * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
-import { useState, useCallback } from "react";
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, CircleX, Radar, RefreshCw, TimerReset, Wallet } from "lucide-react";
 import {
   FlashCrystalIcon,
@@ -43,8 +42,18 @@ import { hoverbarProviderVisual } from "./provider-visuals";
 const DEEPSEEK_EXTRA_IDS = new Set<string>(["today_spend", "month_spend", "cache_hit_rate"]);
 const DEEPSEEK_MODEL_ORDER = ["model_usage_v4_flash", "model_usage_v4_flash_vision", "model_usage_v4_pro"] as const;
 const DEEPSEEK_MODEL_IDS = new Set<string>(DEEPSEEK_MODEL_ORDER);
-const ALLOWED_IDS = new Set<string>(["balance", "credits", "banked_reset_count", "plan_level", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
-const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
+const ALLOWED_IDS = new Set<string>(["balance", "credits", "banked_reset_count", "plan_level", "account_name", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
+const WINDOW_ORDER = [
+  "quota_window_5h",
+  "quota_window_7d",
+  "quota_window_30d",
+  "quota_window_7d_opus",
+  "quota_window_7d_sonnet",
+  "quota_window_5h_gemini",
+  "quota_window_7d_gemini",
+  "quota_window_5h_3p",
+  "quota_window_7d_3p",
+];
 
 /**
  * 悬浮模型行身份元数据（重设计 V2）：独立身份图标 + 语义副标题。
@@ -112,6 +121,12 @@ const METRIC_LABEL: Record<string, string> = {
   quota_window_5h: "5小时窗口",
   quota_window_7d: "7天窗口",
   quota_window_30d: "30天窗口",
+  quota_window_7d_opus: "周窗口 · Opus",
+  quota_window_7d_sonnet: "周窗口 · Sonnet",
+  quota_window_5h_gemini: "Gemini 5h",
+  quota_window_7d_gemini: "Gemini 周窗口",
+  quota_window_5h_3p: "Claude/GPT 5h",
+  quota_window_7d_3p: "Claude/GPT 周窗口",
 };
 
 function isQuotaWindow(id: string): boolean {
@@ -274,42 +289,6 @@ function StatusChip({
   );
 }
 
-function CopyableValue({
-  value,
-  children,
-}: {
-  value: string | null;
-  children: React.ReactNode;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (!value) return;
-      void navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
-    },
-    [value],
-  );
-
-  if (!value || value === "暂不可用") {
-    return <>{children}</>;
-  }
-
-  return (
-    <span
-      data-copyable="true"
-      title={`点击复制: ${value}`}
-      onClick={handleCopy}
-    >
-      {children}
-      {copied && <span className="hb-copied-tag">已复制</span>}
-    </span>
-  );
-}
-
 /**
  * 账户分区头：套餐徽章 + 账户别名独占一行，别名过长只在本行内截断，不与平台名争抢空间。
  * 单账户且无套餐的平台（DeepSeek/Kimi/MiMo 等）不渲染此行，与认可稿一致；
@@ -419,14 +398,10 @@ function QuotaLine({ item }: { item: HoverbarWindow }) {
         style={missing ? undefined : { color }}
         data-selectable="true"
       >
-        <CopyableValue value={missing ? null : item.percentText}>
-          {missing ? "暂不可用" : item.percentText}
-        </CopyableValue>
+        {missing ? "暂不可用" : item.percentText}
       </span>
       <span className="hb-quota-time" data-selectable="true">
-        {!missing && item.time ? (
-          <CopyableValue value={item.time}>{item.time}</CopyableValue>
-        ) : null}
+        {!missing && item.time ? item.time : null}
       </span>
     </div>
   );
@@ -445,9 +420,7 @@ function BalanceBar({ balance }: { balance: HoverbarFinance }) {
         data-freshness={balance.freshness}
         data-selectable="true"
       >
-        <CopyableValue value={missing ? null : balance.value}>
-          {missing ? "暂不可用" : balance.value}
-        </CopyableValue>
+        {missing ? "暂不可用" : balance.value}
       </span>
     </div>
   );
@@ -466,9 +439,7 @@ function BankedResetBar({ item }: { item: HoverbarFinance }) {
         data-freshness={item.freshness}
         data-selectable="true"
       >
-        <CopyableValue value={missing ? null : `${item.value} 张`}>
-          {missing ? "暂不可用" : `${item.value} 张`}
-        </CopyableValue>
+        {missing ? "暂不可用" : `${item.value} 张`}
       </span>
     </div>
   );
@@ -487,9 +458,7 @@ function CreditsBar({ credits }: { credits: HoverbarFinance }) {
         data-freshness={credits.freshness}
         data-selectable="true"
       >
-        <CopyableValue value={missing ? null : credits.value}>
-          {missing ? "暂不可用" : credits.value}
-        </CopyableValue>
+        {missing ? "暂不可用" : credits.value}
       </span>
     </div>
   );
@@ -506,9 +475,7 @@ function SpendCell({ label, item }: { label: string; item: HoverbarFinance }) {
         data-freshness={item.freshness}
         data-selectable="true"
       >
-        <CopyableValue value={missing ? null : item.value}>
-          {missing ? "暂不可用" : item.value}
-        </CopyableValue>
+        {missing ? "暂不可用" : item.value}
       </span>
     </div>
   );
@@ -529,9 +496,7 @@ function CacheLine({ cache }: { cache: HoverbarCache }) {
           总缓存命中率<span className="hb-cache-scope">（全部模型）</span>
         </span>
         <span className="hb-cache-value" data-missing={missing || undefined} data-selectable="true">
-          <CopyableValue value={missing ? null : cache.percentText}>
-            {missing ? "暂不可用" : cache.percentText}
-          </CopyableValue>
+          {missing ? "暂不可用" : cache.percentText}
         </span>
       </div>
       <span
@@ -583,9 +548,7 @@ function ModelLine({ model }: { model: HoverbarModel }) {
         data-freshness={model.freshness}
         data-selectable="true"
       >
-        <CopyableValue value={missing ? null : model.value}>
-          {missing ? "暂不可用" : model.value}
-        </CopyableValue>
+        {missing ? "暂不可用" : model.value}
       </span>
     </div>
   );
@@ -671,7 +634,12 @@ function RadarStrip({
 
 function planKey(plan: string): string {
   const key = plan.trim().toLowerCase();
-  return key === "plus" || key === "pro" || key === "free" || key === "lite" ? key : "other";
+  if (key.includes("pro")) return "pro";
+  if (key.includes("plus")) return "plus";
+  if (key.includes("ultra")) return "pro";
+  if (key.includes("free")) return "free";
+  if (key.includes("lite")) return "lite";
+  return "other";
 }
 
 /**

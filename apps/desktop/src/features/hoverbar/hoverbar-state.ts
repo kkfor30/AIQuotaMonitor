@@ -52,7 +52,7 @@ export type HoverbarAnchor = {
   ratio: number;
 };
 
-export type HoverbarViewMode = "quota" | "radar" | "menu";
+export type HoverbarViewMode = "quota" | "radar";
 
 export const HOVERBAR_ENTER_DELAY_MS = 350;
 export const HOVERBAR_LEAVE_DELAY_MS = 450;
@@ -90,12 +90,9 @@ export function measureHoverbar(
   edge: HoverbarEdge,
   state: HoverbarViewState,
   contentHeight: number,
-  mode: HoverbarViewMode = "quota",
+  _mode: HoverbarViewMode = "quota",
 ): { width: number; height: number } {
   if (state === "anchor") return { width: 40, height: 40 };
-  if (mode === "menu") {
-    return { width: 210, height: Math.min(260, Math.max(160, contentHeight)) };
-  }
   if (edge === "top" || edge === "bottom") {
     return { width: 420, height: Math.min(420, Math.max(180, contentHeight)) };
   }

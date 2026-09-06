@@ -362,11 +362,6 @@ html.hoverbar-window #root {
     transform 210ms cubic-bezier(0.2, 0.78, 0.24, 1);
 }
 
-.hb-detail-root .hb-panel.hb-panel-menu {
-  padding: 8px 10px;
-  border-radius: 20px;
-}
-
 .hb-detail-root .hb-panel::before {
   content: "";
   position: absolute;
@@ -442,128 +437,7 @@ html.hoverbar-window #root {
   color: var(--q-hoverbar-danger);
 }
 
-/* ============================================================
-   Aurora 亚克力玻璃微菜单（右键唤出）
-   ============================================================ */
-.hb-acrylic-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 100%;
-}
 
-.hb-menu-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 5px 6px 6px 8px;
-}
-
-.hb-menu-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.hb-menu-pulse-orb {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--q-hoverbar-primary);
-  box-shadow: 0 0 8px var(--q-hoverbar-primary);
-  animation: hb-orb-breathe 2.4s ease-in-out infinite;
-}
-
-.hb-menu-title {
-  font-size: 12px;
-  font-weight: 750;
-  color: var(--q-hoverbar-ink);
-  letter-spacing: -0.01em;
-}
-
-.hb-menu-close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--q-hoverbar-muted);
-  cursor: pointer;
-  transition: all 140ms ease;
-}
-
-.hb-menu-close-btn:hover {
-  background: var(--q-hoverbar-action-hover);
-  color: var(--q-hoverbar-ink);
-}
-
-.hb-menu-items {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.hb-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--q-hoverbar-ink);
-  font-size: 13px;
-  font-weight: 650;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 140ms ease, transform 140ms ease, color 140ms ease;
-}
-
-.hb-menu-item:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--q-hoverbar-primary) 10%, var(--q-hoverbar-empty-bg));
-  color: var(--q-hoverbar-primary);
-}
-
-.hb-menu-item:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.hb-menu-item:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.hb-menu-item-text {
-  flex: 1 1 auto;
-}
-
-.hb-menu-badge {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--q-hoverbar-primary);
-  background: color-mix(in srgb, var(--q-hoverbar-primary) 14%, transparent);
-}
-
-.hb-menu-divider {
-  height: 1px;
-  margin: 4px 6px;
-  background: color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
-}
-
-.hb-menu-item-danger {
-  color: var(--q-hoverbar-danger) !important;
-}
-
-.hb-menu-item-danger:hover:not(:disabled) {
-  background: var(--q-danger-soft) !important;
-}
 
 .hb-actions {
   display: inline-flex;
@@ -851,36 +725,7 @@ button.hb-status-chip:hover,
   transform: translateY(-0.5px);
 }
 
-/* 点击复制与悬浮微交互 */
-[data-copyable="true"] {
-  cursor: copy;
-  border-radius: 4px;
-  padding: 0 3px;
-  margin: 0 -3px;
-  transition: background-color 120ms ease, color 120ms ease, transform 100ms ease;
-  position: relative;
-}
 
-[data-copyable="true"]:hover {
-  background-color: var(--q-hoverbar-item-hover);
-}
-
-[data-copyable="true"]:active {
-  transform: scale(0.96);
-}
-
-.hb-copied-tag {
-  display: inline-block;
-  font-size: 10px;
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: 3px;
-  background: var(--q-hoverbar-success);
-  color: #fff;
-  font-weight: 600;
-  margin-left: 4px;
-  animation: q-scale-in 140ms ease-out both;
-}
 
 /* 套餐徽章：按账户类型配色（Pro 紫 / Plus 蓝 / Lite 青 / Free 灰）；未知套餐中性底。 */
 .hb-plan-chip {
