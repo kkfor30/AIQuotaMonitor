@@ -1,7 +1,7 @@
 /*
  * 全局样式含悬浮球卡片/停靠布局与状态卡样式，
  * 迁移自 DeepSeekMonitorWindows/src/styles.css 的 hoverbar 段（提交 af6cfe07，MIT），
- * 颜色接入本项目语义 Token，详见 THIRD_PARTY_NOTICES.md。
+ * 颜色接入本项目语义 Token。
  */
 @import "tailwindcss";
 @import "./tokens.css";

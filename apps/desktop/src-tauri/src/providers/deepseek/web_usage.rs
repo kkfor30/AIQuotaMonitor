@@ -5,7 +5,7 @@
 //! amount/cost/summary 独立解析，允许能力级部分成功；金额用 Decimal。
 //!
 //! 迁移来源：DeepSeekMonitorWindows-final `src-tauri/src/lib.rs` 的 `fetch_usage`
-//! （提交 f3ab3ec6，MIT），改造为能力级快照与 RefreshError，详见 THIRD_PARTY_NOTICES.md。
+//! （提交 f3ab3ec6，MIT），改造为能力级快照与 RefreshError。
 
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput, StoredTrendPoint};
 use crate::providers::money::format_percent;

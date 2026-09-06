@@ -8,7 +8,7 @@
 //   - Tauri 命令拆分至 commands/window_commands.rs，本模块只保留窗口几何与生命周期
 //   - 配置持久化由旧项目 config.json 改为 storage::HoverbarPreferences
 //   - 移除旧版单窗口 HoverbarApp 相关死代码与托盘联动
-// 许可证：MIT（见仓库根 THIRD_PARTY_NOTICES.md）
+// 许可证：MIT（原 DeepSeekMonitorWindows-final，提交 f3ab3ec6）
 
 use crate::storage::{self, HoverbarAnchor};
 use std::sync::atomic::{AtomicBool, Ordering};

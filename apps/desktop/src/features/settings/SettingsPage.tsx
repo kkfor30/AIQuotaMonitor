@@ -206,7 +206,7 @@ function GeneralSection() {
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-q-text-secondary">第三方许可</span>
-          <span className="text-q-text-primary">见仓库 THIRD_PARTY_NOTICES.md</span>
+          <span className="text-q-text-primary">MIT License</span>
         </div>
       </div>
     </>

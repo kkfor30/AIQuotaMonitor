@@ -31,7 +31,7 @@
 - 跟随现有 Tauri 2 + React/TypeScript + Rust 结构，不引入独立 HTTP 后端。
 - 平台差异放在 Rust Source adapter，不在 React 页面解析原始响应。
 - 不复制旧项目的整页 UI、`main.tsx` 或大段 `styles.css`。
-- 迁移第三方代码时更新 `THIRD_PARTY_NOTICES.md`，记录来源提交、目标文件和改造内容。
+- 迁移第三方代码时在文件头保留来源仓库、审计提交与 MIT 许可声明。
 - 只读参考仓库：`DeepSeekMonitorWindows-final`（curry880314）与 `cc-switch`（farion1231），不得在本项目任务中修改。
 - 不提交 `node_modules`、`dist`、Rust `target`、`_internal/`、IDE 配置、日志或任何凭据。
 

@@ -77,7 +77,7 @@ AIQuotaMonitor/
 │  └─ ui-design/           # 设计稿归档
 ├─ tooling/                # 开发、迁移和打包脚本
 ├─ LICENSE
-└─ THIRD_PARTY_NOTICES.md  # 迁移代码来源、许可与改造记录
+└─ docs/                   # 各迁移文件头保留来源与许可声明
 ```
 
 详细说明见 [架构概览](docs/architecture/overview.md)、[技术选型](docs/architecture/technology-decision.md)、[产品需求](docs/product/requirements.md) 与 [平台接入说明](docs/product/platform-access.md)。
@@ -93,6 +93,6 @@ AIQuotaMonitor/
 
 ## 许可证
 
-MIT License，详见 [LICENSE](LICENSE)。部分代码迁移自 MIT 许可项目（DeepSeekMonitorWindows 系列、cc-switch），来源、审计提交与迁移内容见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+MIT License，详见 [LICENSE](LICENSE)。部分代码迁移自 MIT 许可项目（DeepSeekMonitorWindows 系列、cc-switch），来源与许可声明保留在各迁移文件头注释中。
 
 欢迎提交 Issue 与 Pull Request。

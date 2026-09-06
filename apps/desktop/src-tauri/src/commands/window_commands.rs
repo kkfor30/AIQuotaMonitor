@@ -6,7 +6,7 @@
 //   - 配置持久化改为 storage::HoverbarPreferences（旧项目为 config.json）
 //   - save_hoverbar_enabled 改名 set_hoverbar_enabled，返回 Unit 而非整份 AppConfig
 //   - 权限校验统一为 require_label 单函数
-// 许可证：MIT（见仓库根 THIRD_PARTY_NOTICES.md）
+// 许可证：MIT（原 DeepSeekMonitorWindows-final，提交 f3ab3ec6）
 
 use crate::commands::require_label;
 use crate::storage::{self, HoverbarAnchor};
