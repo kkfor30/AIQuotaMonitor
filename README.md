@@ -35,12 +35,7 @@
 
 ## 界面
 
-主窗口与悬浮球视觉设计（Aurora Acrylic V2，设计稿）：
-
-- 总览（浅色）：`docs/ui-design/2026-08-31-aurora-acrylic-approved-v2/01-overview-light.png`
-- 总览（深色）：`docs/ui-design/2026-08-31-aurora-acrylic-approved-v2/02-overview-dark.png`
-
-设计稿归档在 `docs/ui-design/`，实际界面以发布版本为准。
+真实产品界面截图（总览浅色 / 深色、悬浮球）整理中，见 `docs/screenshots/`。
 
 ## 安装与运行
 
