@@ -93,6 +93,6 @@ AIQuotaMonitor/
 
 ## 许可证
 
-MIT License，详见 [LICENSE](LICENSE)。部分代码迁移自 MIT 许可项目（DeepSeekMonitorWindows 系列、cc-switch），来源与许可声明保留在各迁移文件头注释中。
+MIT License，详见 [LICENSE](LICENSE)。
 
 欢迎提交 Issue 与 Pull Request。
