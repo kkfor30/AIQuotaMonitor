@@ -35,22 +35,28 @@
 
 ## 界面
 
+**总览** —— 所有平台的门户：额度卡片、消费趋势与最近刷新记录。
+
 ![总览](docs/screenshots/overview.png)
+
+**平台中心** —— 单平台深度视图：账户窗口额度、资金余额、模型用量与缓存效率。
 
 ![平台中心](docs/screenshots/platform-center.png)
 
+**GPT 重置雷达** —— 重置判断中心：Codex Radar 来源、本机额度观察与可选 AI 分析三路证据。
+
 ![GPT 重置雷达](docs/screenshots/radar-signal.png)
 
-悬浮球（额度卡 / 雷达详情）：
+**悬浮球** —— 常驻屏幕边缘的即时额度速览，悬停展开详情：
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/hoverbar.png" alt="悬浮球额度卡" width="48%"></td>
-    <td><img src="docs/screenshots/hoverbar-glm.png" alt="悬浮球 GLM 卡" width="48%"></td>
+    <td align="center"><img src="docs/screenshots/hoverbar.png" alt="悬浮球额度卡" width="48%"><br><sub>额度卡：窗口进度、可用重置卡、额外余额</sub></td>
+    <td align="center"><img src="docs/screenshots/hoverbar-glm.png" alt="悬浮球 GLM 卡" width="48%"><br><sub>多平台卡片：额度与雷达状态速览</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/hoverbar-radar.png" alt="悬浮球雷达详情" width="48%"></td>
-    <td><img src="docs/screenshots/hoverbar-radar-ai.png" alt="悬浮球雷达 AI 分析" width="48%"></td>
+    <td align="center"><img src="docs/screenshots/hoverbar-radar.png" alt="悬浮球雷达详情" width="48%"><br><sub>雷达详情：来源动态、最近一次重置</sub></td>
+    <td align="center"><img src="docs/screenshots/hoverbar-radar-ai.png" alt="悬浮球雷达 AI 分析" width="48%"><br><sub>AI 分析：结论、依据与原帖引用</sub></td>
   </tr>
 </table>
 
