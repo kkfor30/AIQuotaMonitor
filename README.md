@@ -35,7 +35,13 @@
 
 ## 界面
 
-真实产品界面截图（总览浅色 / 深色、悬浮球）整理中，见 `docs/screenshots/`。
+![总览](docs/screenshots/overview.png)
+
+![平台中心](docs/screenshots/platform-center.png)
+
+![GPT 重置雷达](docs/screenshots/radar-signal.png)
+
+![悬浮球](docs/screenshots/hoverbar.png)
 
 ## 安装与运行
 
