@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, FolderOpen, Info, Monitor, Palette, RefreshCw } from "lucide-react";
+import { Copy, FolderOpen, GripVertical, Info, Monitor, Palette, RefreshCw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -268,62 +268,138 @@ function HoverbarSettingsSection() {
   const mode = settings?.hoverbarSortMode === "smart" ? "smart" : "manual";
   const byId = new Map(platforms.map((platform) => [platform.providerId, platform]));
 
-  // 整条平台行均可拖动；用初始行中心计算目标位，避免拖动时读取已变换节点造成跳位。
+  // 平台列表拖拽重排序：基于 Window 指针追踪与迟滞算法，实现 1:1 跟手与丝滑位移
   type RowDrag = {
     id: string;
     startIndex: number;
     startY: number;
     target: number;
-    centers: number[];
-    latestY: number;
-    frame: number | null;
+    step: number;
     dragging: boolean;
   };
   const rowDrag = useRef<RowDrag | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const commitRef = useRef<(next: string[]) => void>(() => {});
 
-  const applyRowShifts = (state: RowDrag, nextTarget: number) => {
-    if (nextTarget === state.target) return;
-    state.target = nextTarget;
-    for (let i = 0; i < order.length; i++) {
-      const oid = order[i];
-      if (oid === state.id) continue;
-      const el = rowRefs.current.get(oid);
-      if (!el) continue;
-      const shift =
-        nextTarget > state.startIndex && i > state.startIndex && i <= nextTarget
-          ? -(state.centers[i] - state.centers[i - 1])
-          : nextTarget < state.startIndex && i >= nextTarget && i < state.startIndex
-            ? state.centers[i + 1] - state.centers[i]
-            : 0;
-      el.style.transition = "transform 150ms cubic-bezier(0.2, 0.78, 0.24, 1)";
-      el.style.transform = shift !== 0 ? `translate3d(0, ${shift}px, 0)` : "translate3d(0, 0, 0)";
+  const onGlobalPointerMove = (event: PointerEvent) => {
+    const state = rowDrag.current;
+    if (!state) return;
+    const dy = event.clientY - state.startY;
+    if (!state.dragging) {
+      if (Math.abs(dy) < 3) return;
+      state.dragging = true;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "grabbing";
+      const row = rowRefs.current.get(state.id);
+      if (row) {
+        row.classList.add("sort-row-dragging");
+        row.style.zIndex = "30";
+      }
+    }
+
+    const row = rowRefs.current.get(state.id);
+    if (row) {
+      row.style.transition = "none";
+      row.style.transform = `translate3d(0, ${dy}px, 0)`;
+    }
+
+    // 迟滞检测（Hysteresis），位移越过 60% 卡片高度才切换目标槽位，避免边界抖动
+    const relOffset = dy / state.step;
+    const rawTarget = state.startIndex + relOffset;
+    const targetDelta = rawTarget - state.target;
+    let nextTarget = state.target;
+    if (targetDelta > 0.6) {
+      nextTarget = Math.min(order.length - 1, state.target + Math.floor(targetDelta + 0.4));
+    } else if (targetDelta < -0.6) {
+      nextTarget = Math.max(0, state.target + Math.ceil(targetDelta - 0.4));
+    }
+
+    if (nextTarget !== state.target) {
+      state.target = nextTarget;
+      for (let i = 0; i < order.length; i++) {
+        const oid = order[i];
+        if (oid === state.id) continue;
+        const el = rowRefs.current.get(oid);
+        if (!el) continue;
+        const shift =
+          nextTarget > state.startIndex && i > state.startIndex && i <= nextTarget
+            ? -state.step
+            : nextTarget < state.startIndex && i >= nextTarget && i < state.startIndex
+              ? state.step
+              : 0;
+        el.style.transition = "transform 200ms cubic-bezier(0.2, 0.8, 0.25, 1)";
+        el.style.transform = shift !== 0 ? `translate3d(0, ${shift}px, 0)` : "translate3d(0, 0, 0)";
+      }
     }
   };
 
-  const paintRowDrag = () => {
+  const settleRowDrag = (commit: boolean) => {
+    window.removeEventListener("pointermove", onGlobalPointerMove);
+    window.removeEventListener("pointerup", onGlobalPointerUp);
+    window.removeEventListener("pointercancel", onGlobalPointerCancel);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+
     const state = rowDrag.current;
     if (!state) return;
-    state.frame = null;
-    const row = rowRefs.current.get(state.id);
-    if (!row) return;
-    const dy = state.latestY - state.startY;
-    if (!state.dragging && Math.abs(dy) < 4) return;
-    state.dragging = true;
-    row.classList.add("sort-row-dragging");
-    row.style.transition = "none";
-    row.style.transform = `translate3d(0, ${dy}px, 0)`;
-    row.style.zIndex = "20";
+    rowDrag.current = null;
 
-    const draggedCenter = state.centers[state.startIndex] + dy;
-    const target = state.centers.reduce(
-      (closest, center, index) =>
-        Math.abs(center - draggedCenter) < Math.abs(state.centers[closest] - draggedCenter) ? index : closest,
-      state.startIndex,
-    );
-    applyRowShifts(state, target);
+    const row = rowRefs.current.get(state.id);
+    const hasMoved = commit && state.dragging && state.target !== state.startIndex;
+
+    if (hasMoved && row) {
+      // 缓动平滑吸入目标槽位
+      const finalDy = (state.target - state.startIndex) * state.step;
+      row.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.25, 1)";
+      row.style.transform = `translate3d(0, ${finalDy}px, 0)`;
+
+      setTimeout(() => {
+        if (row) {
+          row.style.transition = "";
+          row.style.transform = "";
+          row.style.zIndex = "";
+          row.classList.remove("sort-row-dragging");
+        }
+        for (const el of rowRefs.current.values()) {
+          el.style.transition = "";
+          el.style.transform = "";
+          el.style.zIndex = "";
+        }
+        const next = [...order];
+        const moved = next.splice(state.startIndex, 1)[0];
+        if (moved) {
+          next.splice(state.target, 0, moved);
+          setOrder(next);
+          commitRef.current(next);
+        }
+      }, 180);
+    } else {
+      if (row) {
+        row.style.transition = state.dragging ? "transform 180ms ease-out" : "";
+        row.style.transform = "translate3d(0, 0, 0)";
+        row.classList.remove("sort-row-dragging");
+        setTimeout(() => {
+          row.style.transition = "";
+          row.style.transform = "";
+          row.style.zIndex = "";
+          for (const el of rowRefs.current.values()) {
+            el.style.transition = "";
+            el.style.transform = "";
+            el.style.zIndex = "";
+          }
+        }, 180);
+      } else {
+        for (const el of rowRefs.current.values()) {
+          el.style.transition = "";
+          el.style.transform = "";
+          el.style.zIndex = "";
+        }
+      }
+    }
   };
+
+  const onGlobalPointerUp = () => settleRowDrag(true);
+  const onGlobalPointerCancel = () => settleRowDrag(false);
 
   const onRowPointerDown = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
     if (event.button !== 0) return;
@@ -331,61 +407,36 @@ function HoverbarSettingsSection() {
     const index = order.indexOf(id);
     if (!row || index < 0 || rowDrag.current) return;
     event.preventDefault();
+
     const centers = order.map((providerId) => {
       const bounds = rowRefs.current.get(providerId)?.getBoundingClientRect();
       return bounds ? bounds.top + bounds.height / 2 : 0;
     });
+    const step = centers.length > 1 ? Math.max(40, centers[1] - centers[0]) : 54;
+
     rowDrag.current = {
       id,
       startIndex: index,
       startY: event.clientY,
       target: index,
-      centers,
-      latestY: event.clientY,
-      frame: null,
+      step,
       dragging: false,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+
+    window.addEventListener("pointermove", onGlobalPointerMove, { passive: true });
+    window.addEventListener("pointerup", onGlobalPointerUp);
+    window.addEventListener("pointercancel", onGlobalPointerCancel);
   };
 
-  const onRowPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const state = rowDrag.current;
-    if (!state) return;
-    state.latestY = event.clientY;
-    if (state.frame === null) {
-      state.frame = window.requestAnimationFrame(paintRowDrag);
-    }
-  };
-
-  const settleRowDrag = (commit: boolean) => {
-    const state = rowDrag.current;
-    if (!state) return;
-    if (state.frame !== null) {
-      window.cancelAnimationFrame(state.frame);
-      state.frame = null;
-      paintRowDrag();
-    }
-    rowDrag.current = null;
-    const row = rowRefs.current.get(state.id);
-    if (row) {
-      row.style.transition = "";
-      row.style.transform = "";
-      row.style.zIndex = "";
-      row.classList.remove("sort-row-dragging");
-    }
-    for (const el of rowRefs.current.values()) {
-      el.style.transition = "";
-      el.style.transform = "";
-      el.style.zIndex = "";
-    }
-    if (!commit || !state.dragging || state.target === state.startIndex) return;
-    const next = [...order];
-    const moved = next.splice(state.startIndex, 1)[0];
-    if (!moved) return;
-    next.splice(state.target, 0, moved);
-    setOrder(next);
-    commitRef.current(next);
-  };
+  useEffect(() => {
+    return () => {
+      window.removeEventListener("pointermove", onGlobalPointerMove);
+      window.removeEventListener("pointerup", onGlobalPointerUp);
+      window.removeEventListener("pointercancel", onGlobalPointerCancel);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, []);
 
   commitRef.current = (next: string[]) => reorderMutation.mutate(next);
 
@@ -473,19 +524,17 @@ function HoverbarSettingsSection() {
                     else rowRefs.current.delete(id);
                   }}
                   onPointerDown={(event) => onRowPointerDown(event, id)}
-                  onPointerMove={onRowPointerMove}
-                  onPointerUp={() => settleRowDrag(true)}
-                  onPointerCancel={() => settleRowDrag(false)}
-                  onLostPointerCapture={() => settleRowDrag(true)}
-                  className="flex cursor-grab touch-none select-none items-center gap-3 rounded-q-control border border-q-border bg-q-surface-muted px-3 py-2"
-                  title="按住任意位置拖动调整顺序"
+                  className="group flex cursor-grab touch-none select-none items-center justify-between gap-3 rounded-q-control border border-q-border bg-q-surface-muted px-3 py-2.5 transition-colors duration-150 hover:border-q-border-selected hover:bg-q-surface-hover active:cursor-grabbing"
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                    <PlatformMark providerId={id} size={30} />
+                    <PlatformMark providerId={id} size={32} />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-q-text-primary">{platform.displayName}</p>
                       <p className="truncate text-[11px] text-q-text-muted">{platform.accessSummary}</p>
                     </div>
+                  </div>
+                  <div className="flex shrink-0 items-center justify-center text-q-text-muted/40 transition-colors group-hover:text-q-text-secondary">
+                    <GripVertical size={16} aria-hidden />
                   </div>
                 </div>
               );

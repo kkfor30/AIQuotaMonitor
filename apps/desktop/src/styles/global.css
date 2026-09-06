@@ -769,11 +769,11 @@ button.hb-status-chip:hover,
 
 /* 设置页悬浮球排序：拖拽中的行 */
 .sort-row-dragging {
-  z-index: 20;
-  cursor: grabbing;
+  z-index: 30;
+  cursor: grabbing !important;
   will-change: transform;
-  box-shadow: var(--q-shadow-lg);
-  outline: 1px solid var(--q-border-selected);
+  box-shadow: var(--q-shadow-lg), 0 8px 24px -4px rgba(0, 0, 0, 0.28);
+  outline: 1.5px solid var(--q-primary);
   background: var(--q-surface-solid);
 }
 

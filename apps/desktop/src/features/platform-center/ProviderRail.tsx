@@ -190,7 +190,7 @@ export function ProviderRail({
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-2 py-2.5 text-left"
               >
                 <PlatformMark providerId={platform.providerId} />
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex min-w-0 flex-1 flex-col gap-1 pr-6">
                   <span
                     className={cn(
                       "truncate text-sm font-medium",
@@ -199,7 +199,9 @@ export function ProviderRail({
                   >
                     {platform.displayName}
                   </span>
-                  <AggregateStatusBadge status={platform.aggregateStatus} />
+                  <div className="flex items-center">
+                    <AggregateStatusBadge status={platform.aggregateStatus} />
+                  </div>
                 </div>
               </button>
               {onRemove && (
@@ -207,13 +209,13 @@ export function ProviderRail({
                   type="button"
                   aria-label={`移除 ${platform.displayName}`}
                   title="移除平台"
-                  className="absolute right-1.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md bg-q-surface text-q-text-muted shadow-q-sm hover:bg-q-danger-soft hover:text-q-danger group-hover:flex"
+                  className="absolute right-2 top-2.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-q-text-muted/60 opacity-0 transition-all duration-150 hover:bg-q-danger-soft hover:text-q-danger group-hover:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation();
                     onRemove(platform.providerId);
                   }}
                 >
-                  <Trash2 size={14} aria-hidden />
+                  <Trash2 size={13} aria-hidden />
                 </button>
               )}
             </div>
