@@ -390,6 +390,66 @@ function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "pri
 
 /* ————————————————— 信号摘要（设计稿 04） ————————————————— */
 
+/**
+ * 半环形雷达置信/状态刻度仪表盘（SVG Arc Gauge）：
+ * 配合 Aurora Acrylic 午夜石墨蓝基底，直观呈现当前重置事件的确定性与信号强度。
+ */
+function RadarStatusGauge({
+  status,
+}: {
+  status: string;
+}) {
+  const { percent, color, label } = (() => {
+    switch (status) {
+      case "landed_observed":
+        return { percent: 100, color: "var(--q-success)", label: "已落地" };
+      case "claimed_unverified":
+        return { percent: 70, color: "var(--q-primary)", label: "预告中" };
+      case "unscheduled_reset":
+      case "possible_reset":
+        return { percent: 85, color: "var(--q-warning)", label: "疑似刷新" };
+      case "expired":
+        return { percent: 35, color: "var(--q-neutral)", label: "已截止" };
+      case "no_signal":
+      default:
+        return { percent: 15, color: "var(--q-neutral)", label: "平稳" };
+    }
+  })();
+
+  const circumference = Math.PI * 22;
+  const strokeDashoffset = circumference - (percent / 100) * circumference;
+
+  return (
+    <div className="relative flex flex-col items-center justify-center shrink-0" title={`信号置信度: ${label} (${percent}%)`}>
+      <svg width="56" height="34" viewBox="0 0 56 34" className="overflow-visible" aria-hidden="true">
+        <path
+          d="M 6 30 A 22 22 0 0 1 50 30"
+          fill="none"
+          stroke="var(--q-border)"
+          strokeWidth="5"
+          strokeLinecap="round"
+        />
+        <path
+          d="M 6 30 A 22 22 0 0 1 50 30"
+          fill="none"
+          stroke={color}
+          strokeWidth="5"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          className="transition-all duration-700 ease-out"
+        />
+      </svg>
+      <span
+        className="text-[10.5px] font-bold tabular-nums -mt-2.5 tracking-tight"
+        style={{ color }}
+      >
+        {percent}%
+      </span>
+    </div>
+  );
+}
+
 function SignalSummaryView({
   data,
 }: {
@@ -459,6 +519,52 @@ function SignalSummaryView({
 
   return (
     <div className="radar-console flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+      {/* 首屏研判结论胶囊 Banner */}
+      {decision && (
+        <section className="glass-panel relative flex shrink-0 flex-wrap items-center justify-between gap-4 p-4 border border-q-border-strong/80 shadow-q-sm animate-fade-in">
+          <div className="flex items-center gap-4 min-w-0 flex-1">
+            <RadarStatusGauge status={decision.status} />
+            <div className="flex flex-col gap-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="rounded-q-pill bg-q-primary-soft px-2.5 py-0.5 text-[11px] font-semibold text-q-primary">
+                  {radarDecisionBadge(decision)}
+                </span>
+                {decision.observationPeriodText && (
+                  <span className="rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[10.5px] font-medium text-q-success">
+                    {decision.observationPeriodText}
+                  </span>
+                )}
+                <span className="text-[11.5px] text-q-text-muted">
+                  {radarDecisionTimeText(decision)}
+                </span>
+              </div>
+              <p className="text-[16px] font-bold tracking-tight text-q-text-primary truncate" data-selectable="true">
+                {decision.headline}
+              </p>
+              {decision.verificationHint && (
+                <p className="text-[12px] text-q-text-secondary truncate">
+                  {decision.verificationHint}
+                </p>
+              )}
+            </div>
+          </div>
+          {(decision.canConfirmReset || decision.canUndoConfirm) && (
+            <div className="flex items-center gap-2 shrink-0">
+              {decision.canConfirmReset && (
+                <Button variant="secondary" size="sm" onClick={() => setConfirmOpen(true)}>
+                  {radarConfirmResetLabel(decision.eventType)}
+                </Button>
+              )}
+              {decision.canUndoConfirm && (
+                <Button variant="ghost" size="sm" disabled={undoReset.isPending} onClick={() => undoReset.mutate()}>
+                  撤销人工确认
+                </Button>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* 两张状态卡：判断（含最近一次重置）+ 本机验证（宽屏等高，窄屏自动换行） */}
       <div className="radar-status-grid shrink-0">
         <section className="glass-panel flex flex-col gap-2 p-4">
