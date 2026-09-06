@@ -1,6 +1,7 @@
 node_modules/
 dist/
 target/
+_internal/
 *.tsbuildinfo
 *.local
 .DS_Store

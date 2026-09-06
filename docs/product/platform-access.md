@@ -23,7 +23,7 @@
 
 ### A. 官方查询（默认，填 API Key 或检测本地登录）
 
-有官方余额、Token Plan 或本机 CLI/OAuth 可读额度时用这条路径。实现参考只读仓库 `D:\AIproject\cc-switch`：
+有官方余额、Token Plan 或本机 CLI/OAuth 可读额度时用这条路径。实现参考 https://github.com/farion1231/cc-switch ：
 
 | 能力 | cc-switch 文件 |
 | --- | --- |
