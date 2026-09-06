@@ -16,7 +16,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ExternalLink,
-  EyeOff,
   Moon,
   RefreshCw,
   SunMedium,
@@ -366,13 +365,6 @@ export function HoverbarDetailApp() {
               </DetailIconButton>
               <DetailIconButton label="打开主窗口" title="打开主窗口" onClick={() => void openMainWindow()}>
                 <ExternalLink size={16} aria-hidden />
-              </DetailIconButton>
-              <DetailIconButton
-                label="收起悬浮球"
-                title="暂时收起悬浮球 (可在设置中重新开启)"
-                onClick={() => void invoke("set_hoverbar_enabled", { enabled: false })}
-              >
-                <EyeOff size={15} aria-hidden />
               </DetailIconButton>
               <DetailIconButton label="收起详情" title="收起详情" onClick={finishClose}>
                 <X size={17} aria-hidden />
