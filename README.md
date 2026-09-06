@@ -113,4 +113,10 @@ AIQuotaMonitor/
 
 MIT License，详见 [LICENSE](LICENSE)。
 
-欢迎提交 Issue 与 Pull Request。
+## 参与贡献
+
+- 提交 Bug / 功能建议：请使用 [Issue 模板](.github/ISSUE_TEMPLATE/bug_report.md)，安全问题请走 [SECURITY.md](SECURITY.md) 私密渠道；
+- 提交代码：阅读 [CONTRIBUTING.md](CONTRIBUTING.md)；
+- 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)；
+- 版本变更：[CHANGELOG.md](CHANGELOG.md)。
+
