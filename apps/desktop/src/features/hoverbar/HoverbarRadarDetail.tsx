@@ -186,7 +186,7 @@ export function HoverbarRadarDetail({
               </p>
             ) : null}
             {radar ? <p className="hb-radar-copy">{radarDeltaImpactLine(radar)}</p> : null}
-            {decision.status === "no_signal" && decision.recentSummaryText ? (
+            {!recentCard && decision.status === "no_signal" && decision.recentSummaryText ? (
               <p className="hb-radar-meta">{decision.recentSummaryText}</p>
             ) : null}
             {decision.canConfirmReset ? (

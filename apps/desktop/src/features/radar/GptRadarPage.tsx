@@ -596,7 +596,7 @@ function SignalSummaryView({
                 <p className="text-[13px] leading-relaxed text-q-text-secondary">{decision.verificationHint}</p>
               ) : null}
               {data ? <p className="text-[13px] leading-relaxed text-q-text-secondary">{radarDeltaImpactLine(data)}</p> : null}
-              {decision.status === "no_signal" && decision.recentSummaryText ? (
+              {!recentCard && decision.status === "no_signal" && decision.recentSummaryText ? (
                 <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{decision.recentSummaryText}</p>
               ) : null}
               {decision.canConfirmReset || decision.canUndoConfirm ? (

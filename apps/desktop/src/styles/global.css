@@ -855,8 +855,15 @@ button.hb-status-chip:hover,
 .hb-group-head {
   display: flex;
   min-width: 0;
+  width: 100%;
   align-items: center;
   gap: 7px;
+}
+
+.hb-group-status,
+.hb-group-head .hb-status-chip {
+  margin-left: auto;
+  flex: none;
 }
 
 /* 卡头账户别名：空间不足时先于平台名截断（shrink 权重更高），平台名保持完整 */

@@ -303,7 +303,7 @@ function GroupHead({
   showAlias: boolean;
   showStatus: boolean;
 }) {
-  if (!section.plan && !showAlias) return null;
+  if (!section.plan && !showAlias && (!showStatus || section.status === "healthy")) return null;
   return (
     <div className="hb-group-head">
       {section.plan ? (
@@ -312,7 +312,11 @@ function GroupHead({
         </span>
       ) : null}
       {showAlias ? <span className="hb-group-name">{section.title}</span> : null}
-      {showStatus && section.status !== "healthy" ? <StatusChip status={section.status} /> : null}
+      {showStatus && section.status !== "healthy" ? (
+        <span className="hb-group-status">
+          <StatusChip status={section.status} />
+        </span>
+      ) : null}
     </div>
   );
 }
