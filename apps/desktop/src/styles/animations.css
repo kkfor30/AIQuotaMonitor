@@ -1,0 +1,93 @@
+/*
+ * AIQuotaMonitor 微动效与关键帧规范
+ * 配合 Aurora Acrylic 与午夜石墨蓝主题，提供轻量硬件加速的微动效。
+ */
+
+@keyframes q-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes q-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes q-slide-in-right {
+  from {
+    opacity: 0.7;
+    transform: translate3d(100%, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes q-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes q-pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* 动效实用类 */
+.animate-fade-in {
+  animation: q-fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-slide-in-right {
+  animation: q-slide-in-right 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-scale-in {
+  animation: q-scale-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-pulse-subtle {
+  animation: q-pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 骨架屏专用流光容器 */
+.skeleton-shimmer-container {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--q-surface-muted);
+}
+
+.skeleton-shimmer-container::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--q-surface-highlight) 50%,
+    transparent 100%
+  );
+  animation: q-shimmer 1.8s infinite ease-in-out;
+}

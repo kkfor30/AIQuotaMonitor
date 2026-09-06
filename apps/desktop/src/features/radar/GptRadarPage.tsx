@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { RadarSkeleton } from "@/components/ui/PageSkeletons";
 import { cn } from "@/lib/cn";
 import {
   addRadarCustomModel,
@@ -188,7 +189,7 @@ export function GptRadarPage() {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 pt-2 pr-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 pt-2 pr-2 animate-fade-in">
       <header className="glass-panel flex shrink-0 items-center gap-x-2.5 gap-y-0.5 px-4 py-2.5">
         <span
           aria-hidden
@@ -292,37 +293,42 @@ export function GptRadarPage() {
         </div>
       </div>
 
-      {isLoading && <p className="shrink-0 text-sm text-q-text-muted">正在加载雷达数据…</p>}
-      {tab === "signal" && <SignalSummaryView data={data} />}
-      {tab === "tibo" && (
-        <TiboFeedView
-          posts={visible}
-          rangeLabel="全部"
-          totalCount={posts.length}
-          signalCount={posts.filter((p) => p.explicitReset || p.filter === "signal").length}
-          relatedCount={posts.filter((p) => p.filter === "related").length}
-          noneCount={posts.filter((p) => p.filter === "none" && !p.explicitReset).length}
-          selected={selected}
-          filter={filter}
-          onFilter={setFilter}
-          onSelect={setSelectedId}
-        />
-      )}
-      {tab === "ai" && (
-        <AiAnalysisView
-          data={data}
-          analyze={analyze}
-          sourceId={chosenModel?.sourceId || sourceId}
-          modelChoice={chosenModel ? chosenModel.model : modelChoice}
-          models={modelOptions}
-          onAnalyzeChange={setAnalyze}
-          onSourceChange={setSourceId}
-          onModelChange={setModelChoice}
-          userPrompt={userPrompt}
-          defaultUserPrompt={data?.analysisPrefs.defaultUserPrompt ?? ""}
-          rangeKey={rangeKey}
-          onUserPromptChange={setUserPrompt}
-        />
+      {isLoading ? (
+        <RadarSkeleton />
+      ) : (
+        <>
+          {tab === "signal" && <SignalSummaryView data={data} />}
+          {tab === "tibo" && (
+            <TiboFeedView
+              posts={visible}
+              rangeLabel="全部"
+              totalCount={posts.length}
+              signalCount={posts.filter((p) => p.explicitReset || p.filter === "signal").length}
+              relatedCount={posts.filter((p) => p.filter === "related").length}
+              noneCount={posts.filter((p) => p.filter === "none" && !p.explicitReset).length}
+              selected={selected}
+              filter={filter}
+              onFilter={setFilter}
+              onSelect={setSelectedId}
+            />
+          )}
+          {tab === "ai" && (
+            <AiAnalysisView
+              data={data}
+              analyze={analyze}
+              sourceId={chosenModel?.sourceId || sourceId}
+              modelChoice={chosenModel ? chosenModel.model : modelChoice}
+              models={modelOptions}
+              onAnalyzeChange={setAnalyze}
+              onSourceChange={setSourceId}
+              onModelChange={setModelChoice}
+              userPrompt={userPrompt}
+              defaultUserPrompt={data?.analysisPrefs.defaultUserPrompt ?? ""}
+              rangeKey={rangeKey}
+              onUserPromptChange={setUserPrompt}
+            />
+          )}
+        </>
       )}
     </div>
   );

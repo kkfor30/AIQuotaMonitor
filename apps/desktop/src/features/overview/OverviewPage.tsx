@@ -10,6 +10,9 @@ import {
   Settings2,
 } from "lucide-react";
 import { TrendLineChart, type TrendSeries } from "@/components/ui/TrendLineChart";
+import { OverviewSkeleton } from "@/components/ui/PageSkeletons";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Button } from "@/components/ui/Button";
 import { PlatformMark } from "@/features/platform-center/ProviderRail";
 import { KeyPlatformWindow } from "@/features/platform-center/KeyPlatformWindow";
 import {
@@ -40,7 +43,7 @@ export function OverviewPage({
 }: {
   onOpenPlatform: (target: PlatformCenterTarget) => void;
 }) {
-  const { data: platforms = [] } = useQuery({
+  const { data: platforms = [], isLoading } = useQuery({
     queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
     queryFn: fetchPlatformSummaries,
   });
@@ -142,8 +145,36 @@ export function OverviewPage({
 
   const refreshRows = useMemo(() => buildRefreshRows(platforms), [platforms]);
 
+  if (isLoading) {
+    return <OverviewSkeleton />;
+  }
+
+  if (platforms.length === 0) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-2 pr-2 animate-fade-in">
+        <header className="flex items-center justify-between gap-4 px-1">
+          <h1 className="text-[22px] font-bold tracking-tight text-q-text-primary">总览</h1>
+        </header>
+        <EmptyState
+          icon={Boxes}
+          tone="primary"
+          title="欢迎使用 AIQuotaMonitor"
+          description="多模型平台统一额度监控中心。当前尚未添加任何平台，请前往平台中心添加首个监控平台（如 DeepSeek、GPT/Codex、GLM、Kimi 等）。"
+          action={
+            <Button
+              onClick={() => onOpenPlatform({ providerId: "deepseek", tab: "sources" })}
+              className="mt-2"
+            >
+              前往添加平台
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-2 pr-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-2 pr-2 animate-fade-in">
       {/* 页头：总览 + 全局刷新 + 最后更新 */}
       <header className="flex items-center justify-between gap-4 px-1">
         <h1 className="text-[22px] font-bold tracking-tight text-q-text-primary">总览</h1>
@@ -269,7 +300,11 @@ export function OverviewPage({
         </div>
         <div className="flex flex-col">
           {refreshRows.length === 0 && (
-            <p className="px-2 py-3 text-xs text-q-text-muted">暂无刷新记录</p>
+            <EmptyState
+              variant="inline"
+              title="暂无刷新记录"
+              description="平台刷新后此处记录单次调用的状态与详情"
+            />
           )}
           {refreshRows.map((row) => (
             <div
@@ -459,10 +494,14 @@ function AttentionCard({
       <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">需要关注</h2>
       <div className="mt-1 flex flex-col">
         {rows.length === 0 && (
-          <div className="flex items-center gap-2.5 px-1 py-3">
-            <CircleCheck size={16} className="shrink-0 text-q-success" aria-hidden />
-            <p className="text-xs text-q-text-secondary">全部平台运行正常。</p>
-          </div>
+          <EmptyState
+            variant="compact"
+            icon={CircleCheck}
+            tone="success"
+            title="全部平台运行正常"
+            description="当前无凭据异常或低额度窗口需要处理。"
+            className="py-6"
+          />
         )}
         {rows.map((row) => (
           <button

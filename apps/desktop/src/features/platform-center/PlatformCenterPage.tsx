@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { Boxes, Plus, Trash2 } from "lucide-react";
 import { AddPlatformDialog } from "./AddPlatformDialog";
 import { PlatformTabs, type PlatformTabId } from "./PlatformTabs";
 import { ProviderHeader } from "./ProviderHeader";
@@ -9,6 +9,7 @@ import { SourcesView } from "./SourcesView";
 import { UsageView } from "./UsageView";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { PlatformCenterSkeleton } from "@/components/ui/PageSkeletons";
 import { fetchPlatformSummaries, ipcErrorMessage, refreshPlatform, removeUserPlatform } from "@/lib/ipc";
 import { useContainerWidth } from "@/lib/use-container-width";
 import { listen } from "@tauri-apps/api/event";
@@ -108,16 +109,12 @@ export function PlatformCenterPage({
   const page = useContainerWidth<HTMLDivElement>();
 
   if (isLoading) {
-    return (
-      <div className="flex flex-1 items-center justify-center text-sm text-q-text-muted">
-        正在加载平台数据…
-      </div>
-    );
+    return <PlatformCenterSkeleton />;
   }
 
   if (!platform) {
     return (
-      <div ref={page.ref} className="flex min-h-0 min-w-0 flex-1 p-4 pt-2">
+      <div ref={page.ref} className="flex min-h-0 min-w-0 flex-1 p-4 pt-2 animate-fade-in">
         {page.mode !== "compact" && (
           <ProviderRail
             mode={page.mode === "medium" ? "icons" : "full"}
@@ -129,6 +126,8 @@ export function PlatformCenterPage({
         )}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <EmptyState
+            icon={Boxes}
+            tone="primary"
             title="还没有监控任何平台"
             description="从产品提供的平台列表中添加。大多数平台填写官方 API Key 并验证连接即可；个别没有官方额度接口的能力再使用网页登录。"
             action={<Button onClick={() => setAddOpen(true)}>添加平台</Button>}
@@ -150,7 +149,7 @@ export function PlatformCenterPage({
   }
 
   return (
-    <div ref={page.ref} className="flex min-h-0 min-w-0 flex-1 p-4 pt-2">
+    <div ref={page.ref} className="flex min-h-0 min-w-0 flex-1 p-4 pt-2 animate-fade-in">
       {page.mode !== "compact" && (
         <ProviderRail
           mode="full"

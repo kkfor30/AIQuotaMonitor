@@ -5,6 +5,7 @@
  */
 @import "tailwindcss";
 @import "./tokens.css";
+@import "./animations.css";
 
 /* 全局基础样式 */
 html,

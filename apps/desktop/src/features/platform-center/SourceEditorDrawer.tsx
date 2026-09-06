@@ -236,9 +236,9 @@ export function SourceEditorDrawer({
   const activeStage = STAGE_INDEX[loginStage];
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-sm" role="presentation" onMouseDown={close}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-sm animate-fade-in" role="presentation" onMouseDown={close}>
       <aside
-        className="flex h-full w-full max-w-md flex-col border-l border-q-border bg-q-surface-solid p-5 shadow-xl"
+        className="flex h-full w-full max-w-md flex-col border-l border-q-border bg-q-surface-solid p-5 shadow-xl animate-slide-in-right"
         role="dialog"
         aria-modal="true"
         aria-label="编辑来源"
