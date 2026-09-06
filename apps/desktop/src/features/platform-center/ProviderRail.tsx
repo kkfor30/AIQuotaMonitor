@@ -1,5 +1,5 @@
-import { Trash2, Plus } from "lucide-react";
-import { Boxes } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Boxes, Plus, Search, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { providerBrand } from "@/lib/provider-brand";
 import type { PlatformSummaryViewModel } from "@/lib/types";
@@ -59,6 +59,18 @@ export function ProviderRail({
   mode?: "full" | "icons";
 }) {
   const icons = mode === "icons";
+  const [filterQuery, setFilterQuery] = useState("");
+
+  const filteredPlatforms = useMemo(() => {
+    if (!filterQuery.trim()) return platforms;
+    const query = filterQuery.trim().toLowerCase();
+    return platforms.filter(
+      (platform) =>
+        platform.displayName.toLowerCase().includes(query) ||
+        platform.providerId.toLowerCase().includes(query),
+    );
+  }, [platforms, filterQuery]);
+
   return (
     <aside
       className={cn(
@@ -83,10 +95,39 @@ export function ProviderRail({
           <Button variant="secondary" onClick={onAdd}>
             + 添加平台
           </Button>
+          {platforms.length > 3 && (
+            <div className="relative my-0.5">
+              <Search
+                size={12}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-q-text-muted"
+                aria-hidden
+              />
+              <input
+                type="text"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                placeholder="快速筛选…"
+                className="w-full rounded-q-control border border-q-border bg-q-surface-solid/70 py-1 pl-7 pr-6 text-[11px] text-q-text-primary placeholder:text-q-text-muted/80 focus:border-q-border-selected focus:outline-none"
+              />
+              {filterQuery && (
+                <button
+                  type="button"
+                  aria-label="清除搜索"
+                  onClick={() => setFilterQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-q-text-muted hover:text-q-text-primary"
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
-        {platforms.map((platform) => {
+        {filteredPlatforms.length === 0 && (
+          <p className="px-2 py-4 text-center text-xs text-q-text-muted">无匹配平台</p>
+        )}
+        {filteredPlatforms.map((platform) => {
           const selected = platform.providerId === selectedId;
           if (icons) {
             return (
@@ -118,7 +159,7 @@ export function ProviderRail({
                         : platform.aggregateStatus === "partial"
                           ? "bg-q-warning"
                           : platform.aggregateStatus === "error"
-                            ? "bg-q-danger"
+                            ? "bg-q-danger animate-pulse-subtle"
                             : "bg-q-neutral",
                     )}
                   />

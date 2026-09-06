@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/Button";
 import { SecretField } from "@/components/ui/SecretField";
+import { toast } from "@/components/ui/Toast";
 import { EndpointSpeedPanel } from "./EndpointSpeedPanel";
 import {
   clearSourceCredential,
@@ -178,19 +179,26 @@ export function SourceEditorDrawer({
   // 验证并保存：save_source_credential 后端先验证再写入 Vault，失败整体报错且不落库
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const startTime = performance.now();
       const saved = await saveSourceCredential(
         source!.sourceId,
         secret,
         isApiKeySource ? apiBaseUrl || undefined : undefined,
       );
+      const elapsed = Math.round(performance.now() - startTime);
       try {
-        return await refreshPlatform(platformId);
+        const refreshed = await refreshPlatform(platformId);
+        return { platforms: refreshed, elapsed };
       } catch {
-        return saved;
+        return { platforms: saved, elapsed };
       }
     },
-    onSuccess: (platforms) => {
+    onSuccess: ({ platforms, elapsed }) => {
       applyPlatforms(platforms);
+      toast.success(
+        "配置已验证并保存",
+        `${source?.displayName} 连通正常（耗时 ${elapsed}ms），已更新额度快照`,
+      );
       close();
     },
     onError: (cause) => setError(ipcErrorMessage(cause, "验证或保存失败，请检查凭据后重试。")),
@@ -199,6 +207,7 @@ export function SourceEditorDrawer({
     mutationFn: () => clearSourceCredential(source!.sourceId),
     onSuccess: (platforms) => {
       applyPlatforms(platforms);
+      toast.success("凭据已清除", `${source?.displayName} 凭据已清除`);
       close();
     },
     onError: (cause) => setError(ipcErrorMessage(cause, "清除凭据失败，请稍后重试。")),
@@ -492,8 +501,8 @@ export function SourceEditorDrawer({
           )}
         </div>
 
-        {/* 底部：API Key 抽屉有主按钮；网页抽屉自动保存型只有「关闭」 */}
-        <div className="mt-4 flex justify-end gap-2 border-t border-q-border pt-4">
+        {/* 底部：固定吸底，操作始终触手可及 */}
+        <div className="mt-auto flex shrink-0 justify-end gap-2 border-t border-q-border bg-q-surface-solid/95 pt-3.5 backdrop-blur-md">
           <Button variant="ghost" onClick={close} disabled={saveMutation.isPending || clearMutation.isPending}>
             关闭
           </Button>
