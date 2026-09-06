@@ -1,5 +1,6 @@
 import { SidebarNavigation } from "@/features/navigation/SidebarNavigation";
 import { WindowTitleBar } from "@/components/ui/WindowTitleBar";
+import { ToastContainer } from "@/components/ui/Toast";
 import type { NavId } from "@/app/navigation";
 
 /**
@@ -22,6 +23,7 @@ export function AppShell({
         <SidebarNavigation active={active} onSelect={onNavigate} />
         <div className="app-content flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
       </div>
+      <ToastContainer />
     </div>
   );
 }

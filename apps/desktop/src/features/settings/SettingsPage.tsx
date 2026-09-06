@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
+import { toast } from "@/components/ui/Toast";
 import {
   clearLocalCache,
   fetchAppSettings,
@@ -509,10 +510,13 @@ function RefreshDataSection() {
     onSuccess: () => {
       setConfirmClear(false);
       setMessage("已清除额度快照和刷新记录。凭据与平台配置仍保留。");
+      toast.success("已清除本地缓存", "额度快照和刷新记录已清除，平台配置与凭据仍保留。");
       void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
     },
     onError: (error) => {
-      setMessage(ipcErrorMessage(error, "清除缓存失败"));
+      const msg = ipcErrorMessage(error, "清除缓存失败");
+      setMessage(msg);
+      toast.error("清除缓存失败", msg);
     },
   });
   const minutes = settings?.refreshIntervalMinutes ?? 15;
@@ -683,15 +687,12 @@ function DataLocationRow({
   description: string;
   value: string;
 }) {
-  const [copied, setCopied] = useState(false);
-
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      toast.success("已复制到剪贴板", `${title}路径已复制`);
     } catch {
-      setCopied(false);
+      toast.error("复制失败", "无法访问剪贴板，请手动复制");
     }
   };
 
@@ -710,7 +711,7 @@ function DataLocationRow({
         </div>
         <Button variant="ghost" size="sm" className="shrink-0" onClick={() => void copy()}>
           <Copy size={13} aria-hidden className="mr-1" />
-          {copied ? "已复制" : "复制"}
+          复制
         </Button>
       </div>
     </div>
