@@ -2,6 +2,9 @@
 //!
 //! 先调用 `codex app-server` 的 `account/rateLimits/read`，仅在 CLI/协议不可用时
 //! 回退到 ChatGPT WHAM。认证只读本机 Codex OAuth，不复制到本项目数据库或 Vault。
+//!
+//! 迁移来源：DeepSeekMonitorWindows-final `providers/codex.rs`（提交 f3ab3ec6，MIT），
+//! 改造为 Source/Capability 快照与 stale/missing 语义，详见 THIRD_PARTY_NOTICES.md。
 
 use crate::domain::refresh::{CapabilityData, RefreshError, SourceRefreshOutput};
 use crate::providers::money::{decimal_from_json, format_percent};

@@ -2,7 +2,11 @@
 name = "ai-quota-monitor"
 version = "0.1.0"
 description = "多模型平台统一额度监控中心"
-authors = ["AIQuotaMonitor"]
+authors = ["AIQuotaMonitor contributors"]
+license = "MIT"
+repository = "https://github.com/kkfor30/AIQuotaMonitor"
+keywords = ["quota", "monitor", "tauri", "ai", "usage"]
+categories = ["command-line-utilities", "development-tools"]
 edition = "2021"
 rust-version = "1.85"
 
