@@ -28,6 +28,7 @@ const BRAND_BY_ID: Record<string, ProviderBrand> = {
   openrouter: { logo: "/assets/providers/openrouter.png", color: "#7624f4" },
   novita: { logo: "/assets/providers/novita.svg", color: "#020145" },
   grok: { logo: "/assets/providers/grok.svg", color: "#050505" },
+  antigravity: { logo: "/assets/providers/antigravity.png", color: "#1a73e8" },
 };
 
 /** 未提供官方资产的平台使用的中性回退色序列（按 id 稳定取值）。 */
