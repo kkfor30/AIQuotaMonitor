@@ -1,6 +1,7 @@
 import { CapabilityDashboard } from "./CapabilityDashboard";
 import { RefreshHistory } from "./RefreshHistory";
 import { SourceHealthSummary } from "./SourceHealthSummary";
+import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
@@ -47,7 +48,13 @@ function isVisibleWindow(capability: CapabilitySnapshotViewModel): boolean {
  * - medium/compact：单栏，刷新记录折叠卡放在来源状态之后、账号额度之前。
  * 滚动由外层 TabContent 统一承担，本组件自身不产生第二个滚动区。
  */
-export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) {
+export function UsageView({
+  platform,
+  onSwitchToSources,
+}: {
+  platform: PlatformSummaryViewModel;
+  onSwitchToSources?: () => void;
+}) {
   const { ref, mode } = useContainerWidth<HTMLDivElement>();
   const wide = mode === "wide";
 
@@ -56,6 +63,13 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
       <EmptyState
         title={`${platform.displayName} 尚未接入`}
         description="配置数据来源后即可在此查看额度与用量。切换到「接入与来源」开始配置。"
+        action={
+          onSwitchToSources && (
+            <Button size="sm" onClick={onSwitchToSources} className="mt-1">
+              前往「接入与来源」配置
+            </Button>
+          )
+        }
       />
     );
   }
@@ -66,6 +80,13 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
       <EmptyState
         title={`${platform.displayName} 暂无可用账户`}
         description="该平台尚未初始化账户配置，请切换到「接入与来源」配置数据来源。"
+        action={
+          onSwitchToSources && (
+            <Button size="sm" onClick={onSwitchToSources} className="mt-1">
+              前往「接入与来源」配置
+            </Button>
+          )
+        }
       />
     );
   }

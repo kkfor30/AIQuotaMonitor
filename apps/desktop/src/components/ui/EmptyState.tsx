@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { isValidElement, type ComponentType, type ReactNode } from "react";
 import { Inbox, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -35,6 +35,25 @@ const TONE_STYLES: Record<
   },
 };
 
+function renderIcon(icon: LucideIcon | ReactNode, size: number): ReactNode {
+  if (!icon) return null;
+  if (isValidElement(icon)) {
+    return icon;
+  }
+  if (
+    typeof icon === "function" ||
+    (typeof icon === "object" && icon !== null && "$$typeof" in icon)
+  ) {
+    const IconComponent = icon as ComponentType<{
+      size?: number;
+      className?: string;
+      "aria-hidden"?: boolean;
+    }>;
+    return <IconComponent size={size} aria-hidden />;
+  }
+  return icon as ReactNode;
+}
+
 /**
  * 统一空状态组件：
  * - 适用于未配置平台、无刷新记录、无关注项、图表无点等各种场景
@@ -44,7 +63,7 @@ export function EmptyState({
   title,
   description,
   action,
-  icon: Icon = Inbox,
+  icon = Inbox,
   tone = "neutral",
   variant = "default",
   className,
@@ -58,7 +77,6 @@ export function EmptyState({
   className?: string;
 }) {
   const toneStyle = TONE_STYLES[tone];
-  const isComponentIcon = typeof Icon === "function";
 
   if (variant === "inline") {
     return (
@@ -77,7 +95,7 @@ export function EmptyState({
             toneStyle.iconText,
           )}
         >
-          {isComponentIcon ? <Icon size={13} aria-hidden /> : Icon}
+          {renderIcon(icon, 13)}
         </span>
         <span className="font-medium text-q-text-secondary">{title}</span>
         {description && <span className="text-q-text-muted">· {description}</span>}
@@ -103,7 +121,7 @@ export function EmptyState({
             toneStyle.iconText,
           )}
         >
-          {isComponentIcon ? <Icon size={17} aria-hidden /> : Icon}
+          {renderIcon(icon, 17)}
         </div>
         <p className="text-[13px] font-medium text-q-text-primary">{title}</p>
         {description && (
@@ -132,7 +150,7 @@ export function EmptyState({
           toneStyle.iconText,
         )}
       >
-        {isComponentIcon ? <Icon size={22} aria-hidden /> : Icon}
+        {renderIcon(icon, 22)}
       </div>
       <div className="flex flex-col items-center gap-1">
         <p className="text-[15px] font-semibold tracking-tight text-q-text-primary">

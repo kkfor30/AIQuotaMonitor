@@ -189,7 +189,11 @@ export function PlatformCenterPage({
         {tab === "usage" ? (
           <div key={`${platform.providerId}-usage-scroll`} className="min-h-0 flex-1 overflow-y-auto pr-1">
             <ErrorBoundary title={`${platform.displayName} 额度与用量展示遇到问题`}>
-              <UsageView key={`${platform.providerId}-usage`} platform={platform} />
+              <UsageView
+                key={`${platform.providerId}-usage`}
+                platform={platform}
+                onSwitchToSources={() => setTab("sources")}
+              />
             </ErrorBoundary>
           </div>
         ) : (
