@@ -85,14 +85,13 @@ export function HoverbarAnchorApp() {
     if (dragging.current || Date.now() - dragFinishedAt.current < HOVERBAR_DRAG_SUPPRESS_MS) return;
     clearEnterTimer();
     clearCollapseTimer();
-    void snapToEdge()
-      .then(() => invoke<HoverbarAnchor>("show_hoverbar_detail"))
+    void invoke<HoverbarAnchor>("show_hoverbar_detail")
       .then((next) => {
         setAnchor(normalizeHoverbarAnchor(next));
         setDetailVisible(true);
       })
       .catch((error) => console.error("无法展开悬浮详情", error));
-  }, [clearCollapseTimer, clearEnterTimer, snapToEdge]);
+  }, [clearCollapseTimer, clearEnterTimer]);
 
   const requestHide = useCallback(() => {
     clearEnterTimer();
@@ -209,11 +208,15 @@ export function HoverbarAnchorApp() {
       event.stopPropagation();
       clearEnterTimer();
       clearCollapseTimer();
-      void invoke("show_hoverbar_context_menu").catch((error) =>
-        console.error("无法打开悬浮球右键菜单", error),
-      );
+      if (detailVisible) {
+        requestHide();
+      } else {
+        void invoke("show_hoverbar_context_menu").catch((error) =>
+          console.error("无法打开悬浮球右键微菜单", error),
+        );
+      }
     },
-    [clearCollapseTimer, clearEnterTimer],
+    [clearCollapseTimer, clearEnterTimer, detailVisible, requestHide],
   );
 
   useEffect(

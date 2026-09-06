@@ -352,13 +352,19 @@ html.hoverbar-window #root {
   pointer-events: none;
   background: var(--q-hoverbar-panel-bg);
   box-shadow:
+    0 18px 42px -8px rgba(0, 0, 0, 0.22),
     inset 0 1px 0 var(--q-hoverbar-panel-highlight),
     inset 0 -1px 0 var(--q-hoverbar-panel-shadow);
-  backdrop-filter: blur(22px) saturate(1.12);
+  backdrop-filter: blur(28px) saturate(1.35);
   will-change: opacity, transform;
   transition:
     opacity 180ms ease-out,
     transform 210ms cubic-bezier(0.2, 0.78, 0.24, 1);
+}
+
+.hb-detail-root .hb-panel.hb-panel-menu {
+  padding: 8px 10px;
+  border-radius: 20px;
 }
 
 .hb-detail-root .hb-panel::before {
@@ -434,6 +440,129 @@ html.hoverbar-window #root {
 
 .hb-refresh-status[data-error="true"] {
   color: var(--q-hoverbar-danger);
+}
+
+/* ============================================================
+   Aurora 亚克力玻璃微菜单（右键唤出）
+   ============================================================ */
+.hb-acrylic-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+
+.hb-menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 6px 6px 8px;
+}
+
+.hb-menu-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.hb-menu-pulse-orb {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--q-hoverbar-primary);
+  box-shadow: 0 0 8px var(--q-hoverbar-primary);
+  animation: hb-orb-breathe 2.4s ease-in-out infinite;
+}
+
+.hb-menu-title {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--q-hoverbar-ink);
+  letter-spacing: -0.01em;
+}
+
+.hb-menu-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--q-hoverbar-muted);
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.hb-menu-close-btn:hover {
+  background: var(--q-hoverbar-action-hover);
+  color: var(--q-hoverbar-ink);
+}
+
+.hb-menu-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hb-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--q-hoverbar-ink);
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, transform 140ms ease, color 140ms ease;
+}
+
+.hb-menu-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 10%, var(--q-hoverbar-empty-bg));
+  color: var(--q-hoverbar-primary);
+}
+
+.hb-menu-item:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.hb-menu-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.hb-menu-item-text {
+  flex: 1 1 auto;
+}
+
+.hb-menu-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 14%, transparent);
+}
+
+.hb-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+}
+
+.hb-menu-item-danger {
+  color: var(--q-hoverbar-danger) !important;
+}
+
+.hb-menu-item-danger:hover:not(:disabled) {
+  background: var(--q-danger-soft) !important;
 }
 
 .hb-actions {
@@ -547,12 +676,20 @@ html.hoverbar-window #root {
   min-width: 0;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 13px 14px;
   border: 1px solid var(--q-hoverbar-card-border);
   border-radius: 18px;
   overflow: hidden;
   background: var(--q-hoverbar-card-bg);
-  box-shadow: inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.04), inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease, border-color 180ms ease;
+}
+
+@media (hover: hover) {
+  .hb-service-card:hover {
+    box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.08), inset 0 1px 0 var(--q-hoverbar-card-shadow);
+    transform: translateY(-1px);
+  }
 }
 
 .hb-service-card[data-status="healthy"] {
@@ -619,34 +756,46 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+.hb-card-head-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
+
 .hb-status-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex: none;
-  margin-left: auto;
   padding: 3px 9px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
   line-height: 15px;
   white-space: nowrap;
+  border: 1px solid transparent;
+  transition: all 140ms ease;
 }
 
 .hb-status-chip[data-status="healthy"] {
   color: var(--q-hoverbar-success);
   background: var(--q-success-soft);
+  border-color: color-mix(in srgb, var(--q-hoverbar-success) 22%, transparent);
 }
 
 .hb-status-chip[data-status="partial"],
 .hb-status-chip[data-status="setup_required"] {
   color: var(--q-hoverbar-warning);
   background: var(--q-warning-soft);
+  border-color: color-mix(in srgb, var(--q-hoverbar-warning) 25%, transparent);
 }
 
 .hb-status-chip[data-status="error"] {
   color: var(--q-hoverbar-danger);
   background: var(--q-danger-soft);
+  border-color: color-mix(in srgb, var(--q-hoverbar-danger) 28%, transparent);
 }
 
 /* 单卡即时刷新按钮与可交互状态 Chip */
@@ -654,29 +803,34 @@ html.hoverbar-window #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin-left: auto;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: 0;
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   background: transparent;
   color: var(--q-hoverbar-muted);
   cursor: pointer;
   flex: none;
-  opacity: 0.35;
-  transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease;
+  opacity: 0.45;
+  transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .hb-service-card:hover .hb-card-refresh-btn,
 .hb-card-refresh-btn[data-refreshing="true"] {
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
-.hb-card-refresh-btn:hover {
+.hb-card-refresh-btn:hover:not(:disabled) {
   opacity: 1 !important;
-  color: var(--q-hoverbar-ink);
-  background: var(--q-hoverbar-item-hover);
+  color: var(--q-hoverbar-primary);
+  background: var(--q-hoverbar-action-hover);
+  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 18%, transparent);
+  transform: scale(1.05);
+}
+
+.hb-card-refresh-btn:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .hb-card-refresh-btn:disabled {
@@ -905,7 +1059,8 @@ button.hb-status-chip:hover,
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: 999px;
-  transition: width 300ms ease;
+  transition: width 350ms cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 6px -1px currentColor;
 }
 
 .hb-quota-percent {
@@ -938,16 +1093,35 @@ button.hb-status-chip:hover,
   white-space: nowrap;
 }
 
+/* 资金组合胶囊容器：宽停靠下双列并排，侧停靠下单列堆叠 */
+.hb-finance-capsules {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-finance-capsules,
+.hb-detail-root[data-edge="right"] .hb-finance-capsules {
+  grid-template-columns: 1fr;
+}
+
 /* 统一余额财务条：钱包线性图标 + 「个人余额」，金额严格右对齐、tabular 等宽 */
 .hb-balance-bar {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  border-radius: 11px;
+  gap: 7px;
+  padding: 8px 11px;
+  border-radius: 12px;
   background: var(--q-hoverbar-empty-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 75%, transparent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: all 160ms ease;
+}
+
+.hb-balance-bar:hover {
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 6%, var(--q-hoverbar-empty-bg));
+  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 28%, transparent);
 }
 
 .hb-balance-bar > svg {
@@ -1309,14 +1483,22 @@ button.hb-status-chip:hover,
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: 5px;
-  margin-top: 2px;
-  padding: 9px 11px;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 10px 12px;
   overflow: hidden;
-  border: 1px solid var(--q-hoverbar-card-border);
-  border-radius: 12px;
-  background: var(--q-hoverbar-card-bg);
-  box-shadow: 0 1px 2px rgba(16, 42, 67, 0.05);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-primary) 24%, var(--q-hoverbar-card-border));
+  border-radius: 14px;
+  background:
+    radial-gradient(100% 120% at 100% 0%, color-mix(in srgb, var(--q-hoverbar-primary) 8%, transparent), transparent 70%),
+    var(--q-hoverbar-card-bg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  transition: all 180ms ease;
+}
+
+.hb-radar-strip:hover {
+  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 40%, var(--q-hoverbar-card-border));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
 .hb-radar-strip-head {
@@ -1676,11 +1858,50 @@ button.hb-status-chip:hover,
   min-width: 0;
   flex: none;
   flex-direction: column;
-  padding: 11px 13px;
+  padding: 12px 14px;
   border: 1px solid var(--q-hoverbar-card-border);
   border-radius: 16px;
   background: var(--q-hoverbar-card-bg);
-  box-shadow: inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03), inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  transition: all 180ms ease;
+}
+
+.hb-radar-hero-card {
+  position: relative;
+  overflow: hidden;
+  padding: 13px 15px;
+  border-radius: 18px;
+  border: 1px solid var(--q-hoverbar-card-border);
+  background: var(--q-hoverbar-card-bg);
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.05), inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  transition: all 220ms ease;
+}
+
+.hb-radar-hero-card[data-status="landed_claimed"],
+.hb-radar-hero-card[data-status="landed_observed"],
+.hb-radar-hero-card[data-status="user_confirmed"],
+.hb-radar-hero-card[data-status="expected_time_passed"] {
+  border-color: color-mix(in srgb, var(--q-hoverbar-success) 45%, var(--q-hoverbar-card-border));
+  background:
+    radial-gradient(120% 100% at 90% 10%, color-mix(in srgb, var(--q-hoverbar-success) 14%, transparent), transparent 60%),
+    var(--q-hoverbar-card-bg);
+}
+
+.hb-radar-hero-card[data-status="watching"],
+.hb-radar-hero-card[data-status="signal_surging"],
+.hb-radar-hero-card[data-status="anomaly_detected"] {
+  border-color: color-mix(in srgb, var(--q-hoverbar-warning) 45%, var(--q-hoverbar-card-border));
+  background:
+    radial-gradient(120% 100% at 90% 10%, color-mix(in srgb, var(--q-hoverbar-warning) 14%, transparent), transparent 60%),
+    var(--q-hoverbar-card-bg);
+}
+
+.hb-radar-hero-tag {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  color: var(--q-hoverbar-muted);
+  text-transform: uppercase;
 }
 
 .hb-radar-kv {
@@ -2935,6 +3156,18 @@ button.hb-status-chip:hover,
 @keyframes hb-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes hb-orb-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+    filter: brightness(1.2);
   }
 }
 

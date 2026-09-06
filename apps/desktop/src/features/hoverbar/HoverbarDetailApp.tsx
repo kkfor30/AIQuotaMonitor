@@ -14,7 +14,16 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
+import {
+  ChevronRight,
+  ExternalLink,
+  EyeOff,
+  LayoutDashboard,
+  Moon,
+  RefreshCw,
+  SunMedium,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PlatformCenterTarget } from "@/app/navigation";
 import {
@@ -48,16 +57,15 @@ import {
   summarizeHoverbarStatus,
   type HoverbarAnchor,
   type HoverbarMotionPhase,
+  type HoverbarViewMode,
 } from "./hoverbar-state";
-
-type HoverbarView = "quota" | "radar";
 
 export function HoverbarDetailApp() {
   const queryClient = useQueryClient();
   const { theme, toggleTheme } = useHoverbarTheme();
   const [motionPhase, setMotionPhase] = useState<HoverbarMotionPhase>("anchor");
   const [anchor, setAnchor] = useState<HoverbarAnchor>({ edge: "right", ratio: 0.4 });
-  const [view, setView] = useState<HoverbarView>("quota");
+  const [view, setView] = useState<HoverbarViewMode>("quota");
   const [contentHeight, setContentHeight] = useState(0);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
@@ -204,13 +212,18 @@ export function HoverbarDetailApp() {
     }, HOVERBAR_EXIT_ANIMATION_MS);
   }, [setMotion]);
 
-  // 打开/收起事件驱动动画状态机；重新展开保留上次视图（含雷达二级页），由用户点返回回到额度列表
+  // 打开/收起事件驱动动画状态机；重新展开保留上次视图（含雷达二级页与微菜单）
   useEffect(() => {
     let disposed = false;
     const unlisteners: Array<() => void> = [];
-    const applyOpen = (nextAnchor: HoverbarAnchor) => {
+    const applyOpen = (nextAnchor: HoverbarAnchor, nextView?: HoverbarViewMode) => {
       window.clearTimeout(exitTimer.current);
       setAnchor(normalizeHoverbarAnchor(nextAnchor));
+      if (nextView) {
+        setView(nextView);
+      } else {
+        setView((prev) => (prev === "menu" ? "quota" : prev));
+      }
       void refetchRadar();
       setMotion("opening");
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -226,7 +239,7 @@ export function HoverbarDetailApp() {
     };
     void listen<HoverbarAnchor>("hoverbar-detail-open", (event) => {
       if (disposed) return;
-      applyOpen(event.payload);
+      applyOpen(event.payload, "quota");
     }).then(async (unlisten) => {
       if (disposed) {
         unlisten();
@@ -237,11 +250,18 @@ export function HoverbarDetailApp() {
       try {
         if (await getCurrentWindow().isVisible()) {
           const prefs = await fetchHoverbarPreferences();
-          if (!disposed) applyOpen(normalizeHoverbarAnchor(prefs.anchor));
+          if (!disposed) applyOpen(normalizeHoverbarAnchor(prefs.anchor), "quota");
         }
       } catch {
         // 仍等待后续 hoverbar-detail-open。
       }
+    });
+    void listen<HoverbarAnchor>("hoverbar-detail-open-menu", (event) => {
+      if (disposed) return;
+      applyOpen(event.payload, "menu");
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else unlisteners.push(unlisten);
     });
     void listen("hoverbar-detail-close", () => {
       if (!disposed) finishClose();
@@ -289,11 +309,11 @@ export function HoverbarDetailApp() {
   // 上报期望尺寸，后端 clamp 并重排窗口
   useEffect(() => {
     if (contentHeight <= 0) return;
-    const { width, height } = measureHoverbar(anchor.edge, "detail", contentHeight);
+    const { width, height } = measureHoverbar(anchor.edge, "detail", contentHeight, view);
     void invoke<HoverbarAnchor>("set_hoverbar_detail_size", { width, height })
       .then((next) => setAnchor(normalizeHoverbarAnchor(next)))
       .catch((error) => console.error("无法调整悬浮详情尺寸", error));
-  }, [anchor.edge, contentHeight]);
+  }, [anchor.edge, contentHeight, view]);
 
   const providerOrder =
     platforms.length > 0 ? platforms.map((platform) => platform.providerId) : DEFAULT_HOVERBAR_PROVIDER_ORDER;
@@ -312,100 +332,133 @@ export function HoverbarDetailApp() {
       className="hb-detail-root h-full w-full"
       data-edge={anchor.edge}
       data-motion={motionPhase}
+      data-view={view}
       onMouseEnter={() => void invoke("set_hoverbar_detail_pointer_inside", { inside: true })}
       onMouseLeave={() => void invoke("set_hoverbar_detail_pointer_inside", { inside: false })}
     >
-      <section ref={panelRef} className="hb-panel">
-        <header ref={headerRef} className="hb-head">
-          <p
-            className="hb-refresh-status"
-            data-error={Boolean(refreshPlatforms.error) || statusText.includes("失败") || undefined}
-          >
-            {refreshPlatforms.error
-              ? ipcErrorMessage(refreshPlatforms.error, "刷新平台失败")
-              : platformsRefreshing
-                ? "正在刷新平台额度…"
-                : statusText}
-          </p>
-          <div className="hb-actions">
-            <DetailIconButton
-              label={platformsRefreshing ? "正在刷新" : "刷新平台额度"}
-              title={platformsRefreshing ? "正在刷新各平台额度" : "重新拉取各平台额度"}
-              onClick={() => {
+      {view === "menu" ? (
+        <section ref={panelRef} className="hb-panel hb-panel-menu">
+          <div ref={contentRef}>
+            <HoverbarAcrylicMenu
+              onRefreshAll={() => {
                 if (!refreshPlatforms.isPending) refreshPlatforms.mutate();
               }}
-              disabled={platformsRefreshing}
-              loading={platformsRefreshing}
-            >
-              <RefreshCw size={16} aria-hidden />
-            </DetailIconButton>
-            <DetailIconButton
-              label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
-              title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
-              onClick={toggleTheme}
-            >
-              {theme === "dark" ? (
-                <SunMedium size={16} aria-hidden />
-              ) : (
-                <Moon size={16} aria-hidden />
-              )}
-            </DetailIconButton>
-            <DetailIconButton label="打开主窗口" title="打开主窗口" onClick={() => void openMainWindow()}>
-              <ExternalLink size={16} aria-hidden />
-            </DetailIconButton>
-            <DetailIconButton label="收起详情" title="收起详情" onClick={finishClose}>
-              <X size={17} aria-hidden />
-            </DetailIconButton>
+              refreshing={platformsRefreshing}
+              onOpenQuota={() => setView("quota")}
+              onOpenMain={() => {
+                void openMainWindow();
+                finishClose();
+              }}
+              onToggleTheme={toggleTheme}
+              theme={theme}
+              onHideOrb={() => {
+                finishClose();
+                void invoke("set_hoverbar_enabled", { enabled: false });
+              }}
+              onClose={finishClose}
+            />
           </div>
-        </header>
+        </section>
+      ) : (
+        <section ref={panelRef} className="hb-panel">
+          <header ref={headerRef} className="hb-head">
+            <p
+              className="hb-refresh-status"
+              data-error={Boolean(refreshPlatforms.error) || statusText.includes("失败") || undefined}
+            >
+              {refreshPlatforms.error
+                ? ipcErrorMessage(refreshPlatforms.error, "刷新平台失败")
+                : platformsRefreshing
+                  ? "正在刷新平台额度…"
+                  : statusText}
+            </p>
+            <div className="hb-actions">
+              <DetailIconButton
+                label={platformsRefreshing ? "正在刷新" : "刷新平台额度"}
+                title={platformsRefreshing ? "正在刷新各平台额度" : "重新拉取各平台额度"}
+                onClick={() => {
+                  if (!refreshPlatforms.isPending) refreshPlatforms.mutate();
+                }}
+                disabled={platformsRefreshing}
+                loading={platformsRefreshing}
+              >
+                <RefreshCw size={16} aria-hidden />
+              </DetailIconButton>
+              <DetailIconButton
+                label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+                title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+                onClick={toggleTheme}
+              >
+                {theme === "dark" ? (
+                  <SunMedium size={16} aria-hidden />
+                ) : (
+                  <Moon size={16} aria-hidden />
+                )}
+              </DetailIconButton>
+              <DetailIconButton label="打开主窗口" title="打开主窗口" onClick={() => void openMainWindow()}>
+                <ExternalLink size={16} aria-hidden />
+              </DetailIconButton>
+              <DetailIconButton
+                label="收起悬浮球"
+                title="暂时收起悬浮球 (可在设置中重新开启)"
+                onClick={() => void invoke("set_hoverbar_enabled", { enabled: false })}
+              >
+                <EyeOff size={15} aria-hidden />
+              </DetailIconButton>
+              <DetailIconButton label="收起详情" title="收起详情" onClick={finishClose}>
+                <X size={17} aria-hidden />
+              </DetailIconButton>
+            </div>
+          </header>
 
-        <div className="hb-service-list">
-          <div ref={contentRef} className="hb-service-scroll">
-            {view === "radar" ? (
-              <HoverbarRadarDetail
-                radar={radar}
-                onBack={() => setView("quota")}
-                onRefresh={refreshRadar}
-                refreshing={radarChecking}
-                refreshError={radarCheckCancelled ? null : radarRefreshError}
-                onCancel={cancelRadar}
-                onRetryQuota={() => quotaRetry.mutate()}
-                quotaRefreshing={quotaRetry.isPending}
-              />
-            ) : orderedPlatforms.length === 0 ? (
-              <div className="hb-empty">
-                <strong>暂无可展示额度</strong>
-                <span>请在主窗口的平台中心完成接入</span>
-              </div>
-            ) : (
-              orderedPlatforms.map((platform) => (
-                <HoverbarPlatformCard
-                  key={platform.providerId}
-                  platform={platform}
-                  onRefreshSinglePlatform={() => refreshSinglePlatform.mutate(platform.providerId)}
-                  singleRefreshing={refreshingProviderId === platform.providerId}
-                  onNavigateToPlatform={(tab) => handleNavigateToPlatform(platform.providerId, tab)}
-                  radar={platform.providerId === "openai" ? radar : undefined}
-                  onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
-                  onRefreshRadar={platform.providerId === "openai" ? refreshRadar : undefined}
-                  onCancelRadar={platform.providerId === "openai" ? cancelRadar : undefined}
-                  radarRefreshing={platform.providerId === "openai" ? radarChecking : false}
-                  radarRefreshError={platform.providerId === "openai" ? (radarCheckCancelled ? null : radarRefreshError) : null}
+          <div className="hb-service-list">
+            <div ref={contentRef} className="hb-service-scroll">
+              {view === "radar" ? (
+                <HoverbarRadarDetail
+                  radar={radar}
+                  onBack={() => setView("quota")}
+                  onRefresh={refreshRadar}
+                  refreshing={radarChecking}
+                  refreshError={radarCheckCancelled ? null : radarRefreshError}
+                  onCancel={cancelRadar}
+                  onRetryQuota={() => quotaRetry.mutate()}
+                  quotaRefreshing={quotaRetry.isPending}
                 />
-              ))
-            )}
+              ) : orderedPlatforms.length === 0 ? (
+                <div className="hb-empty">
+                  <strong>暂无可展示额度</strong>
+                  <span>请在主窗口的平台中心完成接入</span>
+                </div>
+              ) : (
+                orderedPlatforms.map((platform) => (
+                  <HoverbarPlatformCard
+                    key={platform.providerId}
+                    platform={platform}
+                    onRefreshSinglePlatform={() => refreshSinglePlatform.mutate(platform.providerId)}
+                    singleRefreshing={refreshingProviderId === platform.providerId}
+                    onNavigateToPlatform={(tab) => handleNavigateToPlatform(platform.providerId, tab)}
+                    radar={platform.providerId === "openai" ? radar : undefined}
+                    onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
+                    onRefreshRadar={platform.providerId === "openai" ? refreshRadar : undefined}
+                    onCancelRadar={platform.providerId === "openai" ? cancelRadar : undefined}
+                    radarRefreshing={platform.providerId === "openai" ? radarChecking : false}
+                    radarRefreshError={platform.providerId === "openai" ? (radarCheckCancelled ? null : radarRefreshError) : null}
+                  />
+                ))
+              )}
+            </div>
           </div>
-        </div>
 
-        <footer ref={footRef} className="hb-foot">
-          <span>数据仅供参考{appVersion ? ` · v${appVersion}` : ""}</span>
-          <span>共 {orderedPlatforms.length} 个平台</span>
-          <span className="hb-foot-time">
-            最后更新：{latestUpdate ? formatHoverbarClock(latestUpdate) : "—"}
-          </span>
-        </footer>
+          <footer ref={footRef} className="hb-foot">
+            <span>数据仅供参考{appVersion ? ` · v${appVersion}` : ""}</span>
+            <span>共 {orderedPlatforms.length} 个平台</span>
+            <span className="hb-foot-time">
+              最后更新：{latestUpdate ? formatHoverbarClock(latestUpdate) : "—"}
+            </span>
+          </footer>
 
-      </section>
+        </section>
+      )}
     </div>
   );
 }
@@ -437,5 +490,106 @@ function DetailIconButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * 悬浮球 Aurora 亚克力玻璃微菜单：
+ * 与悬浮小球深度呼应的快捷浮层，纯矢量 SVG 图标 + 玻璃拟态圆角质感。
+ */
+function HoverbarAcrylicMenu({
+  onRefreshAll,
+  refreshing,
+  onOpenQuota,
+  onOpenMain,
+  onToggleTheme,
+  theme,
+  onHideOrb,
+  onClose,
+}: {
+  onRefreshAll: () => void;
+  refreshing: boolean;
+  onOpenQuota: () => void;
+  onOpenMain: () => void;
+  onToggleTheme: () => void;
+  theme: "dark" | "light";
+  onHideOrb: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="hb-acrylic-menu select-none">
+      <div className="hb-menu-head">
+        <div className="hb-menu-title-wrap">
+          <span className="hb-menu-pulse-orb" aria-hidden />
+          <span className="hb-menu-title">快捷微菜单</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="hb-menu-close-btn"
+          aria-label="关闭微菜单"
+          title="关闭"
+        >
+          <X size={13} aria-hidden />
+        </button>
+      </div>
+
+      <div className="hb-menu-items">
+        <button
+          type="button"
+          className="hb-menu-item"
+          onClick={onRefreshAll}
+          disabled={refreshing}
+        >
+          <RefreshCw size={14} className={refreshing ? "animate-spin text-q-primary" : "text-q-primary"} aria-hidden />
+          <span className="hb-menu-item-text">刷新所有平台额度</span>
+          {refreshing && <span className="hb-menu-badge">刷新中</span>}
+        </button>
+
+        <button
+          type="button"
+          className="hb-menu-item"
+          onClick={onOpenQuota}
+        >
+          <LayoutDashboard size={14} className="text-emerald-500" aria-hidden />
+          <span className="hb-menu-item-text">展开额度详情</span>
+          <ChevronRight size={13} className="ml-auto opacity-40" aria-hidden />
+        </button>
+
+        <button
+          type="button"
+          className="hb-menu-item"
+          onClick={onOpenMain}
+        >
+          <ExternalLink size={14} className="text-sky-500" aria-hidden />
+          <span className="hb-menu-item-text">打开应用主窗口</span>
+        </button>
+
+        <button
+          type="button"
+          className="hb-menu-item"
+          onClick={onToggleTheme}
+        >
+          {theme === "dark" ? (
+            <SunMedium size={14} className="text-amber-400" aria-hidden />
+          ) : (
+            <Moon size={14} className="text-indigo-500" aria-hidden />
+          )}
+          <span className="hb-menu-item-text">{theme === "dark" ? "切换为浅色模式" : "切换为深色模式"}</span>
+        </button>
+
+        <div className="hb-menu-divider" />
+
+        <button
+          type="button"
+          className="hb-menu-item hb-menu-item-danger"
+          onClick={onHideOrb}
+          title="暂时收起悬浮球，可在主窗口设置页重新开启"
+        >
+          <EyeOff size={14} aria-hidden />
+          <span className="hb-menu-item-text">暂时收起悬浮球</span>
+        </button>
+      </div>
+    </div>
   );
 }

@@ -189,7 +189,7 @@ pub fn run() {
                 commands::window_commands::show_main_window(app);
             }
             "hb_toggle_detail" => {
-                let _ = app.emit_to("hoverbar", "hoverbar-action-toggle-detail", ());
+                let _ = app.emit("hoverbar-action-toggle-detail", ());
             }
             "hb_hide_orb" => {
                 let app = app.clone();

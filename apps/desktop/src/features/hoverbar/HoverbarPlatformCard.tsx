@@ -177,27 +177,29 @@ export function HoverbarPlatformCard({
           )}
         </span>
         <b className="hb-card-name" title={platform.displayName}>{platform.displayName}</b>
-        {onRefreshSinglePlatform && (
-          <button
-            type="button"
-            className="hb-card-refresh-btn"
-            aria-label={`刷新 ${platform.displayName} 额度`}
-            title={singleRefreshing ? "正在刷新…" : `重新拉取 ${platform.displayName} 额度`}
-            disabled={singleRefreshing}
-            data-refreshing={singleRefreshing || undefined}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRefreshSinglePlatform();
-            }}
-          >
-            <RefreshCw size={12} className={singleRefreshing ? "animate-spin text-q-primary" : ""} aria-hidden />
-          </button>
-        )}
-        <StatusChip
-          status={platform.aggregateStatus}
-          interactive={Boolean(onNavigateToPlatform)}
-          onClick={onNavigateToPlatform ? () => onNavigateToPlatform(platform.aggregateStatus === "error" ? "sources" : "usage") : undefined}
-        />
+        <div className="hb-card-head-end">
+          {onRefreshSinglePlatform && (
+            <button
+              type="button"
+              className="hb-card-refresh-btn"
+              aria-label={`刷新 ${platform.displayName} 额度`}
+              title={singleRefreshing ? "正在刷新…" : `重新拉取 ${platform.displayName} 额度`}
+              disabled={singleRefreshing}
+              data-refreshing={singleRefreshing || undefined}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRefreshSinglePlatform();
+              }}
+            >
+              <RefreshCw size={12} className={singleRefreshing ? "animate-spin text-q-primary" : ""} aria-hidden />
+            </button>
+          )}
+          <StatusChip
+            status={platform.aggregateStatus}
+            interactive={Boolean(onNavigateToPlatform)}
+            onClick={onNavigateToPlatform ? () => onNavigateToPlatform(platform.aggregateStatus === "error" ? "sources" : "usage") : undefined}
+          />
+        </div>
       </header>
 
       {sections.length === 0 || !first ? (
@@ -355,8 +357,12 @@ function SectionBody({ section }: { section: HoverbarSection }) {
       {section.windows.map((item) => (
         <QuotaLine key={item.id} item={item} />
       ))}
-      {section.bankedReset ? <BankedResetBar item={section.bankedReset} /> : null}
-      {section.credits ? <CreditsBar credits={section.credits} /> : null}
+      {(section.bankedReset || section.credits) && (
+        <div className="hb-finance-capsules">
+          {section.bankedReset ? <BankedResetBar item={section.bankedReset} /> : null}
+          {section.credits ? <CreditsBar credits={section.credits} /> : null}
+        </div>
+      )}
       {(section.balance || hasSpend) && (
         /* 资金组合组：四个停靠方向统一堆叠布局（余额胶囊行 + 今日/本月双胶囊） */
         <div className="hb-finance-group">

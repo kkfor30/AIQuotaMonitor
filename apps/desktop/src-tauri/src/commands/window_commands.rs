@@ -14,7 +14,6 @@ use crate::windows::hoverbar::{self, HoverbarRuntime};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
-use tauri::menu::{ContextMenu, Menu, MenuItem};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 pub fn show_main_window(app: &AppHandle) {
@@ -42,8 +41,8 @@ pub fn show_hoverbar_detail(
     let _ = detail.show();
     // 两个独立窗口发生视觉重叠时，小球必须始终位于详情面板上方。
     hoverbar::keep_anchor_above_detail(&window)?;
-    let _ = app.emit_to("hoverbar-detail", "hoverbar-detail-open", &anchor);
-    let _ = app.emit_to("hoverbar", "hoverbar-detail-visibility", true);
+    let _ = app.emit("hoverbar-detail-open", &anchor);
+    let _ = app.emit("hoverbar-detail-visibility", true);
     if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
         runtime.detail_visible.store(true, Ordering::SeqCst);
     }
@@ -54,7 +53,7 @@ pub fn show_hoverbar_detail(
 #[tauri::command]
 pub fn request_hide_hoverbar_detail(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
     require_label(&window, &["hoverbar", "hoverbar-detail"])?;
-    app.emit_to("hoverbar-detail", "hoverbar-detail-close", ())
+    app.emit("hoverbar-detail-close", ())
         .map_err(|error| error.to_string())
 }
 
@@ -66,7 +65,7 @@ pub fn finish_hide_hoverbar_detail(app: AppHandle, window: WebviewWindow) -> Res
     if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
         runtime.detail_visible.store(false, Ordering::SeqCst);
     }
-    let _ = app.emit_to("hoverbar", "hoverbar-detail-visibility", false);
+    let _ = app.emit("hoverbar-detail-visibility", false);
     Ok(())
 }
 
@@ -105,7 +104,7 @@ pub fn set_hoverbar_detail_pointer_inside(
     inside: bool,
 ) -> Result<(), String> {
     require_label(&window, &["hoverbar-detail"])?;
-    app.emit_to("hoverbar", "hoverbar-detail-pointer", inside)
+    app.emit("hoverbar-detail-pointer", inside)
         .map_err(|error| error.to_string())
 }
 
@@ -138,28 +137,21 @@ fn snap_and_persist(window: &WebviewWindow) -> Result<HoverbarAnchor, String> {
     Ok(anchor)
 }
 
-/// 悬浮球原生右键微菜单（操作系统托管弹出，全边缘自适应避让）。仅悬浮球窗口可调用。
+/// 悬浮球右键微菜单：通过详情窗口呼出 Aurora 亚克力玻璃微菜单，与小球设计风格完全呼应。
 #[tauri::command]
 pub fn show_hoverbar_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
     require_label(&window, &["hoverbar"])?;
-    let refresh = MenuItem::with_id(&app, "hb_refresh_all", "立即刷新所有平台额度", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let open_main = MenuItem::with_id(&app, "hb_open_main", "打开主窗口", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let toggle_detail = MenuItem::with_id(&app, "hb_toggle_detail", "展开/收起详情面板", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let hide_orb = MenuItem::with_id(&app, "hb_hide_orb", "暂时收起悬浮球 (可在设置重新开启)", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-
-    let menu = Menu::with_items(&app, &[
-        &refresh,
-        &open_main,
-        &toggle_detail,
-        &hide_orb,
-    ]).map_err(|e| e.to_string())?;
-
-    let win = window.as_ref().window().clone();
-    menu.popup(win).map_err(|e| e.to_string())?;
+    let anchor = storage::load_preferences(&app).anchor;
+    let detail = hoverbar::ensure_hoverbar_detail_window(&app)?;
+    let (width, height) = (210.0, 240.0);
+    hoverbar::apply_detail_layout(&detail, &window, &anchor, width, height)?;
+    let _ = detail.show();
+    hoverbar::keep_anchor_above_detail(&window)?;
+    let _ = app.emit("hoverbar-detail-open-menu", &anchor);
+    let _ = app.emit("hoverbar-detail-visibility", true);
+    if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
+        runtime.detail_visible.store(true, Ordering::SeqCst);
+    }
     Ok(())
 }
 

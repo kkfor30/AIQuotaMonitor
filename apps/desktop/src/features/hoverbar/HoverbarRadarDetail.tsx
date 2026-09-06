@@ -162,8 +162,9 @@ export function HoverbarRadarDetail({
         <span className="hb-radar-pill">仅为推测</span>
       </div>
 
-      <section className="hb-radar-card">
+      <section className="hb-radar-card hb-radar-hero-card" data-status={decision?.status}>
         <div className="hb-radar-card-head">
+          <span className="hb-radar-hero-tag">核心判断</span>
           {decision ? (
             <span className="radar-phase-badge ml-auto" data-phase={decision.status}>
               {radarDecisionBadge(decision)}

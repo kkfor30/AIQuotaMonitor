@@ -62,12 +62,12 @@ pub fn logical_size(
     match (position, state) {
         (_, HoverbarWindowState::Anchor) => (40.0, 40.0),
         ("left" | "right", HoverbarWindowState::Detail) => (
-            requested_width.unwrap_or(300.0).clamp(300.0, 300.0),
-            requested_height.unwrap_or(180.0).clamp(180.0, 480.0),
+            requested_width.unwrap_or(300.0).clamp(200.0, 300.0),
+            requested_height.unwrap_or(180.0).clamp(160.0, 480.0),
         ),
         (_, HoverbarWindowState::Detail) => (
-            requested_width.unwrap_or(420.0).clamp(420.0, 420.0),
-            requested_height.unwrap_or(180.0).clamp(180.0, 420.0),
+            requested_width.unwrap_or(420.0).clamp(200.0, 420.0),
+            requested_height.unwrap_or(180.0).clamp(160.0, 420.0),
         ),
     }
 }
@@ -381,7 +381,7 @@ pub fn hide_hoverbar_windows(app: &AppHandle) {
     if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
         runtime.detail_visible.store(false, Ordering::SeqCst);
     }
-    let _ = app.emit_to("hoverbar", "hoverbar-detail-visibility", false);
+    let _ = app.emit("hoverbar-detail-visibility", false);
 }
 
 /// 设置页切换悬浮球开关：写偏好并立即同步窗口可见性。
@@ -499,7 +499,7 @@ pub fn start_fullscreen_watcher(app: AppHandle) {
                 if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
                     runtime.detail_visible.store(false, Ordering::SeqCst);
                 }
-                let _ = app.emit_to("hoverbar", "hoverbar-detail-visibility", false);
+                let _ = app.emit("hoverbar-detail-visibility", false);
             } else {
                 let enabled = storage::load_preferences(&app).enabled;
                 if enabled {
