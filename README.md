@@ -41,7 +41,18 @@
 
 ![GPT 重置雷达](docs/screenshots/radar-signal.png)
 
-![悬浮球](docs/screenshots/hoverbar.png)
+悬浮球（额度卡 / 雷达详情）：
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/hoverbar.png" alt="悬浮球额度卡" width="48%"></td>
+    <td><img src="docs/screenshots/hoverbar-glm.png" alt="悬浮球 GLM 卡" width="48%"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/hoverbar-radar.png" alt="悬浮球雷达详情" width="48%"></td>
+    <td><img src="docs/screenshots/hoverbar-radar-ai.png" alt="悬浮球雷达 AI 分析" width="48%"></td>
+  </tr>
+</table>
 
 ## 安装与运行
 
