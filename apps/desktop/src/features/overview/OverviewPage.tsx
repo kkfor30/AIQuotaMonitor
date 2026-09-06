@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Boxes,
@@ -13,6 +13,7 @@ import { TrendLineChart, type TrendSeries } from "@/components/ui/TrendLineChart
 import { OverviewSkeleton } from "@/components/ui/PageSkeletons";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
+import { toast } from "@/components/ui/Toast";
 import { PlatformMark } from "@/features/platform-center/ProviderRail";
 import { KeyPlatformWindow } from "@/features/platform-center/KeyPlatformWindow";
 import {
@@ -173,6 +174,17 @@ export function OverviewPage({
     );
   }
 
+  const attentionRef = useRef<HTMLDivElement>(null);
+
+  const scrollToAttention = () => {
+    if (!attentionRef.current) return;
+    attentionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    attentionRef.current.classList.add("ring-2", "ring-q-warning/60");
+    setTimeout(() => {
+      attentionRef.current?.classList.remove("ring-2", "ring-q-warning/60");
+    }, 1500);
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-2 pr-2 animate-fade-in">
       {/* 页头：总览 + 全局刷新 + 最后更新 */}
@@ -205,24 +217,37 @@ export function OverviewPage({
           tone="primary"
           value={platforms.length}
           label="个平台"
+          title="点击查看所有平台来源"
+          onClick={() =>
+            onOpenPlatform({
+              providerId: platforms[0]?.providerId ?? "deepseek",
+              tab: "sources",
+            })
+          }
         />
         <StatusSegment
           icon={<CircleCheck size={17} aria-hidden />}
           tone="success"
           value={healthy}
           label="正常"
+          title="点击查看服务状态"
+          onClick={() => toast.info("监控状态", `${healthy} 个平台运行正常`)}
         />
         <StatusSegment
           icon={<CircleAlert size={17} aria-hidden />}
           tone="warning"
           value={partial}
           label="部分可用"
+          title={partial > 0 ? "点击滚动定位至需要关注的平台" : undefined}
+          onClick={partial > 0 ? scrollToAttention : undefined}
         />
         <StatusSegment
           icon={<Settings2 size={17} aria-hidden />}
           tone="danger"
           value={pending}
           label="待处理"
+          title={pending > 0 ? "点击滚动定位至待处理的平台" : undefined}
+          onClick={pending > 0 ? scrollToAttention : undefined}
         />
       </section>
 
@@ -231,7 +256,9 @@ export function OverviewPage({
 
       {/* 需要关注 + 窗口压力趋势 + 消费趋势 */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(280px,0.95fr)_minmax(0,1.25fr)_minmax(0,1fr)]">
-        <AttentionCard platforms={platforms} onOpenPlatform={onOpenPlatform} />
+        <div ref={attentionRef} className="rounded-[18px] transition-all duration-300">
+          <AttentionCard platforms={platforms} onOpenPlatform={onOpenPlatform} />
+        </div>
 
         <section className="glass-panel flex flex-col gap-2.5 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -349,11 +376,15 @@ function StatusSegment({
   tone,
   value,
   label,
+  onClick,
+  title,
 }: {
   icon: React.ReactNode;
   tone: "primary" | "success" | "warning" | "danger";
   value: number;
   label: string;
+  onClick?: () => void;
+  title?: string;
 }) {
   const toneText =
     tone === "primary"
@@ -371,11 +402,16 @@ function StatusSegment({
         : tone === "warning"
           ? "bg-q-warning-soft"
           : "bg-q-danger-soft";
-  return (
-    <div className="flex items-center gap-2.5">
+
+  const content = (
+    <>
       <span
         aria-hidden
-        className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]", toneBg, toneText)}
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] transition-transform duration-150 group-hover:scale-105",
+          toneBg,
+          toneText,
+        )}
       >
         {icon}
       </span>
@@ -383,8 +419,23 @@ function StatusSegment({
         {value}
       </span>
       <span className="text-[12px] text-q-text-secondary">{label}</span>
-    </div>
+    </>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        className="group flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1 -mx-2 text-left transition-all duration-150 hover:bg-q-surface-hover hover:scale-[1.03] active:scale-[0.98]"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div className="flex items-center gap-2.5">{content}</div>;
 }
 
 /** 趋势卡筛选下拉：紧凑行内样式，选项全部来自真实 ViewModel。 */

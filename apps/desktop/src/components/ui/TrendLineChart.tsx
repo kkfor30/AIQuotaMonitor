@@ -115,7 +115,7 @@ export function TrendLineChart({
               tickFormatter={(value: number) => formatValue(value, valueKind)}
             />
             <Tooltip
-              cursor={{ stroke: "var(--q-border-strong)", strokeDasharray: "4 4" }}
+              cursor={{ stroke: "var(--q-primary)", strokeWidth: 1, strokeDasharray: "3 3", strokeOpacity: 0.5 }}
               contentStyle={{
                 borderRadius: 12,
                 border: "1px solid var(--q-border-strong)",
@@ -145,7 +145,7 @@ export function TrendLineChart({
                 type="monotone"
                 connectNulls
                 dot={{ r: 2.5, fill: item.color, strokeWidth: 0 }}
-                activeDot={{ r: 4, fill: item.color, strokeWidth: 0 }}
+                activeDot={{ r: 5, fill: item.color, stroke: "var(--q-surface-solid)", strokeWidth: 2 }}
               />
             ))}
           </LineChart>

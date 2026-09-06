@@ -466,6 +466,27 @@ export function KeyPlatformWindow({
     scheduleFrameRef.current();
   };
 
+  const maskStyle = useMemo(() => {
+    const { atStart, atEnd } = scrollState;
+    if (atStart && atEnd) return undefined;
+    if (atStart && !atEnd) {
+      return {
+        maskImage: "linear-gradient(to right, black 0%, black calc(100% - 48px), transparent 100%)",
+        WebkitMaskImage: "linear-gradient(to right, black 0%, black calc(100% - 48px), transparent 100%)",
+      };
+    }
+    if (!atStart && atEnd) {
+      return {
+        maskImage: "linear-gradient(to right, transparent 0%, black 48px, black 100%)",
+        WebkitMaskImage: "linear-gradient(to right, transparent 0%, black 48px, black 100%)",
+      };
+    }
+    return {
+      maskImage: "linear-gradient(to right, transparent 0%, black 36px, black calc(100% - 48px), transparent 100%)",
+      WebkitMaskImage: "linear-gradient(to right, transparent 0%, black 36px, black calc(100% - 48px), transparent 100%)",
+    };
+  }, [scrollState]);
+
   // 窗口失焦 / 页面隐藏时指针事件不再派发（如切窗、系统截图覆盖层），
   // 拖拽会永久挂在"悬浮态"——此时立即取消：卡片回原位、不提交排序。
   const onWindowBlurCancel = useCallback(() => {
@@ -572,7 +593,8 @@ export function KeyPlatformWindow({
         onPointerMove={onStripPointerMove}
         onPointerUp={onStripPointerUp}
         onPointerLeave={onStripPointerUp}
-        className="no-scrollbar flex items-stretch gap-[14px] overflow-x-auto py-1 pl-0.5 pr-0.5"
+        style={maskStyle}
+        className="no-scrollbar flex items-stretch gap-[14px] overflow-x-auto py-1 pl-0.5 pr-0.5 transition-[mask-image] duration-200"
       >
         {connected.map((platform) => (
           <PlatformDeckCard
@@ -792,17 +814,17 @@ function AccountCardBody({
           <GripVertical size={15} aria-hidden />
         </div>
         {multiAccount && (
-          <span className="flex shrink-0 items-center gap-0.5">
+          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-q-border bg-q-surface/80 px-1 py-0.5 shadow-q-sm backdrop-blur-sm">
             <button
               type="button"
               aria-label="上一个账号"
               disabled={index === 0}
               onClick={() => onSelectAccount(platform.accounts[index - 1].accountId)}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-soft hover:text-q-primary disabled:cursor-default disabled:opacity-25 disabled:hover:bg-transparent"
             >
-              <ChevronLeft size={14} aria-hidden />
+              <ChevronLeft size={13} aria-hidden />
             </button>
-            <span className="min-w-[24px] text-center text-[11px] tabular-nums text-q-text-muted">
+            <span className="min-w-[20px] text-center text-[10.5px] tabular-nums font-medium text-q-text-muted">
               {index + 1}/{total}
             </span>
             <button
@@ -810,9 +832,9 @@ function AccountCardBody({
               aria-label="下一个账号"
               disabled={index >= total - 1}
               onClick={() => onSelectAccount(platform.accounts[index + 1].accountId)}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-soft hover:text-q-primary disabled:cursor-default disabled:opacity-25 disabled:hover:bg-transparent"
             >
-              <ChevronRight size={14} aria-hidden />
+              <ChevronRight size={13} aria-hidden />
             </button>
           </span>
         )}
