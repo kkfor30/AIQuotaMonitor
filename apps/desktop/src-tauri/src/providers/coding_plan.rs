@@ -466,14 +466,15 @@ pub(crate) fn window_capability(
     reset: Option<&Value>,
 ) -> CapabilityData {
     let used = (100.0 - remaining).clamp(0.0, 100.0);
+    let used_int = used.round() as i64;
     CapabilityData {
         capability_id: id.into(),
         display_name: label.into(),
         value_kind: "percent".into(),
         primary_value: Some(format_percent(remaining)),
         secondary_value: Some(match reset.and_then(reset_label) {
-            Some(reset) => format!("已使用 {} · {reset}", format_percent(used)),
-            None => format!("已使用 {}", format_percent(used)),
+            Some(reset) => format!("已使用 {used_int}% · {reset}"),
+            None => format!("已使用 {used_int}%"),
         }),
         progress: Some(remaining / 100.0),
         trend: vec![],

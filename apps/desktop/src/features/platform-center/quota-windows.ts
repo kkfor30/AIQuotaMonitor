@@ -38,6 +38,12 @@ export function windowShortLabel(capability: CapabilitySnapshotViewModel): strin
   return name.replace(/窗口$/, "").trim();
 }
 
+/** 规范化次级说明：将「已使用 57.7%」四舍五入取整为「已使用 58%」，去掉多余小数点。 */
+export function formatSecondaryText(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw.replace(/已使用\s*(\d+(?:\.\d+)?)/g, (_, num) => `已使用 ${Math.round(Number.parseFloat(num))}`);
+}
+
 /** 趋势折线稳定配色：按窗口类型固定，不随阈值变化（阈值颜色只用于剩余进度条）。 */
 export const WINDOW_TREND_COLORS: Record<string, string> = {
   quota_window_5h: "#E5484D",

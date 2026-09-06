@@ -46,7 +46,9 @@ import { QuotaProgress, capabilityRemainingPercent, quotaTone, quotaToneColor } 
 import { FreshnessTag } from "@/components/ui/StatusBadge";
 import { compactPercentText, formatTime } from "@/lib/format";
 import type { CapabilitySnapshotViewModel } from "@/lib/types";
+import { cn } from "@/lib/cn";
 import { UsageTrend } from "./UsageTrend";
+import { formatSecondaryText, sortWindowCapabilities } from "./quota-windows";
 
 /* ————————————————— 能力类型体系（capabilityId 语义归类，与平台名无关） ————————————————— */
 
@@ -220,7 +222,7 @@ function WindowQuotaCard({ capability }: { capability: CapabilitySnapshotViewMod
       <QuotaProgress capability={capability} />
       {capability.value.secondary && !missing && (
         <p className="truncate text-[11px] leading-4 text-q-text-muted" title={capability.value.secondary}>
-          {capability.value.secondary}
+          {formatSecondaryText(capability.value.secondary)}
         </p>
       )}
       {line && (
@@ -232,11 +234,20 @@ function WindowQuotaCard({ capability }: { capability: CapabilitySnapshotViewMod
   );
 }
 
+function windowGridCols(count: number): string {
+  if (count === 1) return "grid-cols-1 max-w-md";
+  if (count === 2 || count === 4) return "grid-cols-1 sm:grid-cols-2";
+  if (count === 3) return "grid-cols-1 sm:grid-cols-3";
+  return "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3";
+}
+
 function WindowQuotaSection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  const sorted = sortWindowCapabilities(capabilities);
+  const gridClass = windowGridCols(sorted.length);
   return (
     <ModulePanel icon={TimerReset} title="窗口额度">
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,250px),1fr))] gap-4">
-        {capabilities.map((capability) => (
+      <div className={cn("grid gap-4", gridClass)}>
+        {sorted.map((capability) => (
           <WindowQuotaCard key={`${capability.sourceId}-${capability.capabilityId}`} capability={capability} />
         ))}
       </div>

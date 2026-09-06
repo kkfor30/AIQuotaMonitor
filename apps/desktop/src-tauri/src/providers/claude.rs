@@ -429,7 +429,7 @@ mod tests {
             .secondary_value
             .as_deref()
             .unwrap()
-            .contains("已使用 36.2%"));
+            .contains("已使用 36%"));
         assert!(values[0]
             .secondary_value
             .as_deref()

@@ -9,7 +9,7 @@ import { compactPercentText, formatTime } from "@/lib/format";
 import { reorderPlatforms } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import { cn } from "@/lib/cn";
-import { sortWindowCapabilities, windowShortLabel } from "./quota-windows";
+import { formatSecondaryText, sortWindowCapabilities, windowShortLabel } from "./quota-windows";
 import type {
   AccountKind,
   AccountSummaryViewModel,
@@ -906,21 +906,33 @@ function AccountCardBody({
   );
 }
 
-/** 窗口行的辅助小字：紧凑数据说明（11.5px secondary，保持单行与基线位置，不抢占百分比主值）。 */
+/** 窗口行的辅助小字：紧凑数据说明（左右两翼分栏：左侧「已使用 xx%」取整无小数，右侧「重置时间」绝不截断）。 */
 function WindowFootnote({ capability }: { capability: CapabilitySnapshotViewModel }) {
   if (capability.freshness === "missing") return null;
   if (capability.freshness === "stale") {
     return (
-      <p className="truncate pl-[66px] text-[11.5px] leading-4 text-q-text-secondary">
-        缓存 · 上次成功 {formatTime(capability.lastGoodAt ?? capability.capturedAt)}
-      </p>
+      <div className="flex min-w-0 items-center justify-between text-[11px] leading-4 text-q-text-secondary">
+        <span>缓存</span>
+        <span className="shrink-0 tabular-nums">上次成功 {formatTime(capability.lastGoodAt ?? capability.capturedAt)}</span>
+      </div>
     );
   }
   if (capability.value.secondary) {
+    const raw = capability.value.secondary;
+    const clean = formatSecondaryText(raw);
+    const parts = clean.split("·").map((p) => p.trim());
+    if (parts.length >= 2) {
+      return (
+        <div className="flex min-w-0 items-center justify-between text-[11px] leading-4 text-q-text-secondary" title={raw}>
+          <span className="truncate text-q-text-muted">{parts[0]}</span>
+          <span className="shrink-0 text-right tabular-nums">{parts.slice(1).join(" · ")}</span>
+        </div>
+      );
+    }
     return (
-      <p className="truncate pl-[66px] text-[11.5px] leading-4 text-q-text-secondary" title={capability.value.secondary}>
-        {capability.value.secondary}
-      </p>
+      <div className="truncate text-[11px] leading-4 text-q-text-secondary" title={raw}>
+        {clean}
+      </div>
     );
   }
   return null;
