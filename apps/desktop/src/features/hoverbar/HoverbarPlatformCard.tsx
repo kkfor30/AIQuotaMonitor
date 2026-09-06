@@ -124,9 +124,9 @@ const METRIC_LABEL: Record<string, string> = {
   quota_window_7d_opus: "周窗口 · Opus",
   quota_window_7d_sonnet: "周窗口 · Sonnet",
   quota_window_5h_gemini: "Gemini 5h",
-  quota_window_7d_gemini: "Gemini 周窗口",
-  quota_window_5h_3p: "Claude/GPT 5h",
-  quota_window_7d_3p: "Claude/GPT 周窗口",
+  quota_window_7d_gemini: "Gemini 周",
+  quota_window_5h_3p: "Claude 5h",
+  quota_window_7d_3p: "Claude 周",
 };
 
 function isQuotaWindow(id: string): boolean {
@@ -389,7 +389,7 @@ function QuotaLine({ item }: { item: HoverbarWindow }) {
   const color = quotaToneColor(tone);
   return (
     <div className="hb-quota-line">
-      <span className="hb-quota-label">{item.label}</span>
+      <span className="hb-quota-label" title={item.label}>{item.label}</span>
       <span
         className="hb-quota-track"
         role="progressbar"

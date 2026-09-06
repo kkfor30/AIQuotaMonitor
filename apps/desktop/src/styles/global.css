@@ -888,8 +888,9 @@ button.hb-status-chip:hover,
 
 .hb-quota-label {
   flex: none;
-  width: 64px;
+  width: 68px;
   overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--q-hoverbar-ink);
   font-size: 12px;
   font-weight: 680;
@@ -2895,7 +2896,7 @@ button.hb-status-chip:hover,
 
 .hb-detail-root[data-edge="left"] .hb-quota-label,
 .hb-detail-root[data-edge="right"] .hb-quota-label {
-  width: 58px;
+  width: 68px;
   font-size: 11px;
 }
 

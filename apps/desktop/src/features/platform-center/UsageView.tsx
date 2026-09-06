@@ -30,6 +30,10 @@ function planOf(capabilities: CapabilitySnapshotViewModel[]): string | null {
   return capabilities.find((capability) => capability.capabilityId === "plan_level")?.value.primary ?? null;
 }
 
+function userNameOf(capabilities: CapabilitySnapshotViewModel[]): string | null {
+  return capabilities.find((capability) => capability.capabilityId === "account_name")?.value.primary ?? null;
+}
+
 /**
  * 窗口能力可见性：从未成功获取过的窗口不展示（官方拿掉或尚未返回的窗口不写「暂不可用」），
  * 其余能力全部参与组合渲染。
@@ -99,8 +103,11 @@ export function UsageView({
     return {
       account,
       plan: planOf(caps),
-      // usage_trend 等趋势能力随账号能力一起进入组合渲染；plan_level 只作徽章
-      capabilities: caps.filter((capability) => capability.capabilityId !== "plan_level"),
+      userName: userNameOf(caps),
+      // usage_trend 等趋势能力随账号能力一起进入组合渲染；plan_level 与 account_name 由账号头渲染为身份信息
+      capabilities: caps.filter(
+        (capability) => capability.capabilityId !== "plan_level" && capability.capabilityId !== "account_name",
+      ),
     };
   });
 
@@ -110,9 +117,9 @@ export function UsageView({
       {!wide && <RefreshHistory platform={platform} variant="inline" />}
       {multiAccount ? (
         <div className="flex flex-col gap-6">
-          {accountSections.map(({ account, plan, capabilities }) => (
+          {accountSections.map(({ account, plan, userName, capabilities }) => (
             <section key={account.accountId} className="flex min-w-0 flex-col gap-3">
-              <AccountHeader account={account} plan={plan} />
+              <AccountHeader account={account} plan={plan} userName={userName} />
               <CapabilityDashboard capabilities={capabilities} wide={wide} />
             </section>
           ))}
@@ -120,7 +127,11 @@ export function UsageView({
       ) : accountSections[0] ? (
         // 单账号平台同样展示账户头（套餐徽章挂在账户名旁，订阅计划不单独成卡）
         <div className="flex min-w-0 flex-col gap-3">
-          <AccountHeader account={accountSections[0].account} plan={accountSections[0].plan} />
+          <AccountHeader
+            account={accountSections[0].account}
+            plan={accountSections[0].plan}
+            userName={accountSections[0].userName}
+          />
           <CapabilityDashboard capabilities={accountSections[0].capabilities} wide={wide} />
         </div>
       ) : null}
@@ -143,8 +154,16 @@ export function UsageView({
   );
 }
 
-/** 账号区块头：账号名 + 类型 + 套餐徽章（悬浮球同款配色）+ 账号聚合状态。顺序沿用后端 accounts 顺序。 */
-function AccountHeader({ account, plan }: { account: AccountSummaryViewModel; plan?: string | null }) {
+/** 账号区块头：账号名（含实际用户别名） + 类型 + 套餐徽章（悬浮球同款配色）+ 账号聚合状态。顺序沿用后端 accounts 顺序。 */
+function AccountHeader({
+  account,
+  plan,
+  userName,
+}: {
+  account: AccountSummaryViewModel;
+  plan?: string | null;
+  userName?: string | null;
+}) {
   if (!account) return null;
   const statusMeta = (account.status && AGGREGATE_STATUS_META[account.status]) ?? {
     label: "未知",
@@ -152,9 +171,13 @@ function AccountHeader({ account, plan }: { account: AccountSummaryViewModel; pl
     tone: "neutral" as const,
   };
   const kindLabel = (account.kind && ACCOUNT_KIND_LABEL[account.kind]) ?? "默认";
+  const displayTitle = userName && account.displayName && !account.displayName.includes(userName)
+    ? `${account.displayName} · ${userName}`
+    : account.displayName || userName || "默认账户";
+
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-1">
-      <h3 className="text-[15px] font-semibold tracking-tight text-q-text-primary">{account.displayName || "默认账户"}</h3>
+      <h3 className="text-[15px] font-semibold tracking-tight text-q-text-primary">{displayTitle}</h3>
       <span
         className={`rounded-q-pill px-2 py-0.5 text-[11px] font-medium ${
           account.kind === "local" ? "bg-q-primary-softer text-q-primary" : "bg-q-neutral-soft text-q-neutral"

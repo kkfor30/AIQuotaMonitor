@@ -95,7 +95,7 @@ function ModelIdentityGlyph({ id }: { id: string }) {
 
 function classifyCapability(capability: CapabilitySnapshotViewModel): CapabilityGroup {
   const id = capability.capabilityId;
-  if (id === "plan_level") return "other";
+  if (id === "plan_level" || id === "account_name") return "other";
   if (id.startsWith("quota_window_")) return "window";
   if (id === "cache_hit_rate" || id.endsWith("_cache_hit_rate")) return "efficiency";
   // 请求数与四类 Token 计数归入调用效率模块的统计矩阵（模块渲染规则）
@@ -599,10 +599,14 @@ function EfficiencySection({ capabilities }: { capabilities: CapabilitySnapshotV
 /* ————————————————— 未知能力回退 ————————————————— */
 
 function OtherCapabilitySection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  const visible = capabilities.filter(
+    (capability) => capability.capabilityId !== "account_name" && capability.capabilityId !== "plan_level",
+  );
+  if (visible.length === 0) return null;
   return (
     <ModulePanel icon={Boxes} title="其他数据">
       <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
-        {capabilities.map((capability) => {
+        {visible.map((capability) => {
           const missing = isMissing(capability);
           return (
             <div key={`${capability.sourceId}-${capability.capabilityId}`} className="flex min-w-0 items-baseline justify-between gap-3">

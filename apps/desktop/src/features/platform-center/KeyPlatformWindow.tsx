@@ -140,20 +140,17 @@ export function KeyPlatformWindow({
     updateScrollState();
   }, [updateScrollState, order]);
 
-  // 垂直滚轮转横向滚动；仅当窗口确实可继续滚动时消费，否则放行给页面。
+  // 仅当用户主动按住 Shift + 滚轮时响应横向滚动；绝不拦截常规垂直滚轮，保证页面上下滑动绝对自然连贯。
   useEffect(() => {
     const el = stripRef.current;
     if (!el) return;
     const onWheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-      const max = el.scrollWidth - el.clientWidth;
-      if (max <= 0) return;
-      const canConsume =
-        (event.deltaY > 0 && el.scrollLeft < max - 1) ||
-        (event.deltaY < 0 && el.scrollLeft > 1);
-      if (!canConsume) return;
-      event.preventDefault();
-      el.scrollLeft += event.deltaY;
+      if (event.shiftKey && Math.abs(event.deltaY) > 0) {
+        const max = el.scrollWidth - el.clientWidth;
+        if (max <= 0) return;
+        event.preventDefault();
+        el.scrollLeft += event.deltaY;
+      }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -785,13 +782,20 @@ function AccountCardBody({
   onSelectAccount: (accountId: string) => void;
   onOpenAll: () => void;
 }) {
-  // 最多展示两个优先窗口（5h → 7d → 30d → 其他动态窗口），其余聚合为「+N 个窗口」
-  const windows = accountWindows(platform, account.accountId);
-  const priorityWindows = windows.slice(0, 2);
-  const hiddenWindowCount = windows.length - priorityWindows.length;
+  // 有余额/消费条时最多展示 2 个窗口（保持固定卡底）；
+  // 纯窗口账号（如 Antigravity）放宽至最多 4 个窗口，充分利用 296px 高度。
   const balance = accountCapability(platform, account.accountId, "balance");
   const totalSpend = accountCapability(platform, account.accountId, "total_spend");
+  const hasFinance = Boolean(balance || totalSpend);
+  const maxWindows = hasFinance ? 2 : 4;
+  const windows = accountWindows(platform, account.accountId);
+  const priorityWindows = windows.slice(0, maxWindows);
+  const hiddenWindowCount = windows.length - priorityWindows.length;
   const plan = planOf(platform, account.accountId);
+  const userName = accountCapability(platform, account.accountId, "account_name")?.value.primary;
+  const accountTitle = userName && account.displayName && !account.displayName.includes(userName)
+    ? `${account.displayName} · ${userName}`
+    : account.displayName || userName || "默认账户";
 
   return (
     <>
@@ -842,8 +846,8 @@ function AccountCardBody({
 
       {/* ② 账户行：别名 + 不可变类型标签 + 套餐徽章（订阅计划不单独成卡） */}
       <div className="mt-2 flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 truncate text-[12px] font-medium text-q-text-primary" title={account.displayName}>
-          {account.displayName}
+        <span className="min-w-0 truncate text-[12px] font-medium text-q-text-primary" title={accountTitle}>
+          {accountTitle}
         </span>
         <span className="shrink-0 rounded-q-pill bg-q-neutral-soft px-1.5 py-px text-[10px] font-medium text-q-text-secondary">
           {ACCOUNT_KIND_LABEL[account.kind]}
@@ -907,14 +911,14 @@ function WindowFootnote({ capability }: { capability: CapabilitySnapshotViewMode
   if (capability.freshness === "missing") return null;
   if (capability.freshness === "stale") {
     return (
-      <p className="truncate pl-[52px] text-[11.5px] leading-4 text-q-text-secondary">
+      <p className="truncate pl-[66px] text-[11.5px] leading-4 text-q-text-secondary">
         缓存 · 上次成功 {formatTime(capability.lastGoodAt ?? capability.capturedAt)}
       </p>
     );
   }
   if (capability.value.secondary) {
     return (
-      <p className="truncate pl-[52px] text-[11.5px] leading-4 text-q-text-secondary" title={capability.value.secondary}>
+      <p className="truncate pl-[66px] text-[11.5px] leading-4 text-q-text-secondary" title={capability.value.secondary}>
         {capability.value.secondary}
       </p>
     );
