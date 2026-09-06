@@ -17,6 +17,7 @@ import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import type { PlatformCenterTarget } from "@/app/navigation";
 import { PlatformMark } from "./ProviderRail";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AGGREGATE_STATUS_META, type PlatformAggregateStatus } from "@/lib/types";
 
 /**
@@ -171,12 +172,14 @@ export function PlatformCenterPage({
             onRemove={() => setPendingRemoveId(platform.providerId)}
           />
         )}
-        <ProviderHeader
-          platform={platform}
-          refreshing={refreshMutation.isPending}
-          onRefresh={() => refreshMutation.mutate(platform.providerId)}
-          onRemove={() => setPendingRemoveId(platform.providerId)}
-        />
+        <ErrorBoundary variant="inline">
+          <ProviderHeader
+            platform={platform}
+            refreshing={refreshMutation.isPending}
+            onRefresh={() => refreshMutation.mutate(platform.providerId)}
+            onRemove={() => setPendingRemoveId(platform.providerId)}
+          />
+        </ErrorBoundary>
         {refreshMutation.error && (
           <p className="shrink-0 rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
             {ipcErrorMessage(refreshMutation.error, "平台刷新失败，请稍后重试。")}
@@ -185,15 +188,19 @@ export function PlatformCenterPage({
         <PlatformTabs value={tab} onChange={setTab} />
         {tab === "usage" ? (
           <div key={`${platform.providerId}-usage-scroll`} className="min-h-0 flex-1 overflow-y-auto pr-1">
-            <UsageView key={`${platform.providerId}-usage`} platform={platform} />
+            <ErrorBoundary title={`${platform.displayName} 额度与用量展示遇到问题`}>
+              <UsageView key={`${platform.providerId}-usage`} platform={platform} />
+            </ErrorBoundary>
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            <SourcesView
-              key={`${platform.providerId}-sources`}
-              platform={platform}
-              focusSourceId={focusSourceId}
-            />
+            <ErrorBoundary title={`${platform.displayName} 接入与来源展示遇到问题`}>
+              <SourcesView
+                key={`${platform.providerId}-sources`}
+                platform={platform}
+                focusSourceId={focusSourceId}
+              />
+            </ErrorBoundary>
           </div>
         )}
       </main>

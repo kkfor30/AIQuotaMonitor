@@ -868,15 +868,24 @@ function AccountCardBody({
             +{hiddenWindowCount} 个窗口
           </p>
         )}
-        {windows.length === 0 && balance && <BalanceBlock balance={balance} totalSpend={totalSpend} large />}
-        {windows.length === 0 && !balance && (
+        {windows.length === 0 && (balance || totalSpend) && (
+          <BalanceBlock
+            primary={balance ?? totalSpend!}
+            secondary={balance ? totalSpend : null}
+            large
+          />
+        )}
+        {windows.length === 0 && !balance && !totalSpend && (
           <p className="flex flex-1 items-center text-[11px] leading-relaxed text-q-text-muted">
             暂无该账号的额度数据，刷新后展示。
           </p>
         )}
-        {windows.length > 0 && balance && (
+        {windows.length > 0 && (balance || totalSpend) && (
           <div className="mt-auto">
-            <BalanceBlock balance={balance} totalSpend={totalSpend} />
+            <BalanceBlock
+              primary={balance ?? totalSpend!}
+              secondary={balance ? totalSpend : null}
+            />
           </div>
         )}
       </div>
@@ -916,18 +925,18 @@ function WindowFootnote({ capability }: { capability: CapabilitySnapshotViewMode
 /** 资金行：有窗口账号为紧凑底行（mt-auto 固定卡底），纯余额账号为资金主行；
  *  金额右对齐 tabular 使用 money Token，消费次级行使用 money-secondary，不画比例。 */
 function BalanceBlock({
-  balance,
-  totalSpend,
+  primary,
+  secondary,
   large = false,
 }: {
-  balance: CapabilitySnapshotViewModel;
-  totalSpend: CapabilitySnapshotViewModel | null;
+  primary: CapabilitySnapshotViewModel;
+  secondary?: CapabilitySnapshotViewModel | null;
   large?: boolean;
 }) {
   return (
     <div className="rounded-[10px] border border-q-border bg-q-surface-muted/60 px-3 py-2">
       <div className="flex min-w-0 items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate text-[11px] text-q-text-muted">{balance.displayName}</span>
+        <span className="min-w-0 truncate text-[11px] text-q-text-muted">{primary.displayName}</span>
         <span
           className={cn(
             "min-w-0 truncate text-right font-bold tabular-nums text-[var(--q-money)]",
@@ -935,17 +944,17 @@ function BalanceBlock({
           )}
           data-selectable="true"
         >
-          {compactPercentText(balance.value.primary ?? "")}
+          {compactPercentText(primary.value.primary ?? "")}
         </span>
       </div>
-      {totalSpend && (
+      {secondary && (
         <div className="mt-0.5 flex min-w-0 items-baseline justify-between gap-2">
-          <span className="min-w-0 truncate text-[11px] text-q-text-muted">{totalSpend.displayName}</span>
+          <span className="min-w-0 truncate text-[11px] text-q-text-muted">{secondary.displayName}</span>
           <span
             className="min-w-0 truncate text-right text-[11px] font-semibold tabular-nums text-[var(--q-money-secondary)]"
             data-selectable="true"
           >
-            {compactPercentText(totalSpend.value.primary ?? "")}
+            {compactPercentText(secondary.value.primary ?? "")}
           </span>
         </div>
       )}

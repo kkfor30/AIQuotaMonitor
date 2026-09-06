@@ -253,13 +253,29 @@ fn claude_templates(
         .iter()
         .filter(|source| source.adapter_id == claude::SOURCE_ID)
     {
-        for snapshot in database.latest_window_snapshots(&source.id)? {
+        let windows = database.latest_window_snapshots(&source.id)?;
+        if windows.is_empty() {
             templates.push(template(
-                &snapshot.capability_id,
+                "quota_window_5h",
                 &source.id,
-                &snapshot.display_name,
+                "5 小时窗口",
                 "percent",
             ));
+            templates.push(template(
+                "quota_window_7d",
+                &source.id,
+                "周窗口",
+                "percent",
+            ));
+        } else {
+            for snapshot in windows {
+                templates.push(template(
+                    &snapshot.capability_id,
+                    &source.id,
+                    &snapshot.display_name,
+                    "percent",
+                ));
+            }
         }
     }
     Ok(templates)

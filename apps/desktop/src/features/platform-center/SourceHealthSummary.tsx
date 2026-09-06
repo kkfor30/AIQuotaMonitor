@@ -9,13 +9,17 @@ import { SOURCE_STATE_META, type PlatformSummaryViewModel } from "@/lib/types";
  * 多账号平台为额外账号标注账号名，避免不同账号的来源混淆。
  */
 export function SourceHealthSummary({ platform }: { platform: PlatformSummaryViewModel }) {
-  const multiAccount = platform.accounts.length > 1;
+  const multiAccount = (platform.accounts?.length ?? 0) > 1;
+  const sources = platform.sources ?? [];
   return (
     <div className="glass-panel flex flex-col gap-2.5 px-4 py-3.5">
       <p className="text-[13px] font-medium text-q-text-secondary">来源状态</p>
       <div className="flex flex-col gap-2">
-        {platform.sources.map((source) => {
-          const meta = SOURCE_STATE_META[source.state];
+        {sources.map((source) => {
+          const meta = (source.state && SOURCE_STATE_META[source.state]) ?? {
+            label: "未知",
+            tone: "neutral" as const,
+          };
           const unconfigured = source.state === "auth_required" && !source.credentialConfigured;
           const failed = source.state === "error" || (source.state === "auth_required" && source.credentialConfigured);
           return (

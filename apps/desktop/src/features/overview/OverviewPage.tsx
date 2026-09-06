@@ -12,6 +12,7 @@ import {
 import { TrendLineChart, type TrendSeries } from "@/components/ui/TrendLineChart";
 import { OverviewSkeleton } from "@/components/ui/PageSkeletons";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Button } from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import { PlatformMark } from "@/features/platform-center/ProviderRail";
@@ -65,24 +66,31 @@ export function OverviewPage({
   // （today_spend/month_spend/total_spend）的本地快照历史。余额不是消费，
   // 纯余额平台在接入官方消费字段前不进入本图，不画余额线冒充消费。
   const consumptionSeries: TrendSeries[] = platforms.flatMap((platform) => {
-    const adapterTrend = platform.capabilities.find(
-      (item) => item.value.kind === "trend" && item.trend.length > 0,
+    const adapterTrend = (platform.capabilities ?? []).find(
+      (item) => item.value?.kind === "trend" && (item.trend ?? []).length > 0,
     );
     const spendCap = ["today_spend", "month_spend", "total_spend"]
       .map((id) =>
-        platform.capabilities.find(
-          (item) => item.capabilityId === id && item.trend.length > 0,
+        (platform.capabilities ?? []).find(
+          (item) => item.capabilityId === id && (item.trend ?? []).length > 0,
         ),
       )
       .find((item): item is NonNullable<typeof item> => Boolean(item));
     const capability = adapterTrend ?? spendCap;
     if (!capability) return [];
+    const isUsd =
+      platform.providerId === "openrouter" ||
+      platform.providerId === "novita" ||
+      platform.providerId === "siliconflow_intl" ||
+      Boolean(capability.value?.primary?.includes("$")) ||
+      Boolean(capability.value?.secondary?.includes("$"));
     return [
       {
         id: platform.providerId,
         name: `${platform.displayName} 消费`,
         color: providerBrand(platform.providerId).color,
-        points: capability.trend.map((point) => ({ label: point.label, value: point.value })),
+        currency: isUsd ? "$" : "¥",
+        points: (capability.trend ?? []).map((point) => ({ label: point.label, value: point.value })),
       },
     ];
   });
@@ -252,12 +260,16 @@ export function OverviewPage({
       </section>
 
       {/* 关键平台：V7 账号卡组（叠卡/切换/手柄拖拽），「查看全部账户」进平台中心额度与用量 */}
-      <KeyPlatformWindow platforms={platforms} onOpenPlatform={(providerId) => onOpenPlatform({ providerId, tab: "usage" })} />
+      <ErrorBoundary variant="panel">
+        <KeyPlatformWindow platforms={platforms} onOpenPlatform={(providerId) => onOpenPlatform({ providerId, tab: "usage" })} />
+      </ErrorBoundary>
 
       {/* 需要关注 + 窗口压力趋势 + 消费趋势 */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(280px,0.95fr)_minmax(0,1.25fr)_minmax(0,1fr)]">
         <div ref={attentionRef} className="rounded-[18px] transition-all duration-300">
-          <AttentionCard platforms={platforms} onOpenPlatform={onOpenPlatform} />
+          <ErrorBoundary variant="panel">
+            <AttentionCard platforms={platforms} onOpenPlatform={onOpenPlatform} />
+          </ErrorBoundary>
         </div>
 
         <section className="glass-panel flex flex-col gap-2.5 p-4">
@@ -287,13 +299,15 @@ export function OverviewPage({
               />
             </div>
           </div>
-          <TrendLineChart
-            series={usageSeries}
-            valueKind="used_percent"
-            yAxisLabel="已使用比例"
-            emptyTitle="暂无额度使用历史"
-            emptyDescription="刷新并积累真实窗口快照后，此处展示当前账号各窗口的已使用比例变化。"
-          />
+          <ErrorBoundary variant="panel">
+            <TrendLineChart
+              series={usageSeries}
+              valueKind="used_percent"
+              yAxisLabel="已使用比例"
+              emptyTitle="暂无额度使用历史"
+              emptyDescription="刷新并积累真实窗口快照后，此处展示当前账号各窗口的已使用比例变化。"
+            />
+          </ErrorBoundary>
         </section>
 
         <section className="glass-panel flex flex-col gap-2.5 p-4">
@@ -306,67 +320,71 @@ export function OverviewPage({
               <Info size={14} aria-hidden className="cursor-help text-q-text-muted" />
             </span>
           </div>
-          <TrendLineChart
-            series={consumptionSeries}
-            valueKind="money"
-            emptyTitle="暂无消费趋势数据"
-            emptyDescription="平台产生真实的消费金额序列后，此处展示最近 7 天的消费走势。"
-          />
+          <ErrorBoundary variant="panel">
+            <TrendLineChart
+              series={consumptionSeries}
+              valueKind="money"
+              emptyTitle="暂无消费趋势数据"
+              emptyDescription="平台产生真实的消费金额序列后，此处展示最近 7 天的消费走势。"
+            />
+          </ErrorBoundary>
         </section>
       </div>
 
       {/* 最近刷新记录：时间 / 平台 / 类型 / 结果 / 详情 */}
-      <section className="glass-panel flex flex-col p-4">
-        <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">最近刷新记录</h2>
-        <div className="mt-2.5 grid grid-cols-[170px_minmax(0,1fr)_120px_100px_minmax(0,1.5fr)] items-center gap-x-3 border-b border-q-border px-2 pb-2 text-[11px] font-medium text-q-text-muted">
-          <span>时间</span>
-          <span>平台</span>
-          <span>类型</span>
-          <span>结果</span>
-          <span>详情</span>
-        </div>
-        <div className="flex flex-col">
-          {refreshRows.length === 0 && (
-            <EmptyState
-              variant="inline"
-              title="暂无刷新记录"
-              description="平台刷新后此处记录单次调用的状态与详情"
-            />
-          )}
-          {refreshRows.map((row) => (
-            <div
-              key={row.key}
-              className="grid grid-cols-[170px_minmax(0,1fr)_120px_100px_minmax(0,1.5fr)] items-center gap-x-3 border-b border-q-border/60 px-2 py-2 text-xs last:border-b-0"
-            >
-              <span className="truncate tabular-nums text-q-text-secondary">{row.time}</span>
-              <span className="flex min-w-0 items-center gap-2">
-                <PlatformMark providerId={row.providerId} size={20} />
-                <span className="truncate font-medium text-q-text-primary">{row.platform}</span>
-              </span>
-              <span className="truncate text-q-text-secondary">{row.type}</span>
-              <span className="flex items-center gap-1.5">
-                <span
-                  aria-hidden
-                  className={cn(
-                    "h-1.5 w-1.5 shrink-0 rounded-full",
-                    row.ok ? "bg-q-success" : "bg-q-danger",
-                  )}
-                />
-                <span className={row.ok ? "text-q-success-strong" : "text-q-danger"}>
-                  {row.ok ? "成功" : "失败"}
-                </span>
-              </span>
-              <span
-                className="truncate text-q-text-secondary"
-                title={row.detail}
-                data-selectable="true"
+      <ErrorBoundary variant="panel">
+        <section className="glass-panel flex flex-col p-4">
+          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">最近刷新记录</h2>
+          <div className="mt-2.5 grid grid-cols-[170px_minmax(0,1fr)_120px_100px_minmax(0,1.5fr)] items-center gap-x-3 border-b border-q-border px-2 pb-2 text-[11px] font-medium text-q-text-muted">
+            <span>时间</span>
+            <span>平台</span>
+            <span>类型</span>
+            <span>结果</span>
+            <span>详情</span>
+          </div>
+          <div className="flex flex-col">
+            {refreshRows.length === 0 && (
+              <EmptyState
+                variant="inline"
+                title="暂无刷新记录"
+                description="平台刷新后此处记录单次调用的状态与详情"
+              />
+            )}
+            {refreshRows.map((row) => (
+              <div
+                key={row.key}
+                className="grid grid-cols-[170px_minmax(0,1fr)_120px_100px_minmax(0,1.5fr)] items-center gap-x-3 border-b border-q-border/60 px-2 py-2 text-xs last:border-b-0"
               >
-                {row.detail}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
+                <span className="truncate tabular-nums text-q-text-secondary">{row.time}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <PlatformMark providerId={row.providerId} size={20} />
+                  <span className="truncate font-medium text-q-text-primary">{row.platform}</span>
+                </span>
+                <span className="truncate text-q-text-secondary">{row.type}</span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "h-1.5 w-1.5 shrink-0 rounded-full",
+                      row.ok ? "bg-q-success" : "bg-q-danger",
+                    )}
+                  />
+                  <span className={row.ok ? "text-q-success-strong" : "text-q-danger"}>
+                    {row.ok ? "成功" : "失败"}
+                  </span>
+                </span>
+                <span
+                  className="truncate text-q-text-secondary"
+                  title={row.detail}
+                  data-selectable="true"
+                >
+                  {row.detail}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </ErrorBoundary>
     </div>
   );
 }
@@ -486,15 +504,15 @@ function AttentionCard({
   onOpenPlatform: (target: PlatformCenterTarget) => void;
 }) {
   const rows: AttentionRow[] = [];
-  for (const platform of platforms) {
+  for (const platform of platforms ?? []) {
     if (platform.aggregateStatus === "error" || platform.aggregateStatus === "partial") {
-      for (const source of platform.sources) {
+      for (const source of platform.sources ?? []) {
         if (source.state === "error" || source.state === "auth_required") {
           rows.push({
             key: `${platform.providerId}-${source.sourceId}`,
             providerId: platform.providerId,
             platform: platform.displayName,
-            title: source.accountName,
+            title: source.accountName || "默认账号",
             detail:
               source.errorMessage ??
               (source.state === "auth_required" ? "凭据待配置，刷新暂停" : "刷新失败"),
@@ -518,23 +536,26 @@ function AttentionCard({
     }
     // 低额度窗口只陈述中性事实（V7）：「平台 · 账号 · 7天剩余 0%」，不附加任何指令文案
     for (const capability of sortWindowCapabilities(
-      platform.capabilities.filter(
+      (platform.capabilities ?? []).filter(
         (item) =>
           item.capabilityId.startsWith("quota_window_")
-          && item.value.primary !== null
+          && item.value?.primary !== null
+          && item.value?.primary !== undefined
           && item.freshness !== "missing",
       ),
     )) {
-      const remaining = Number.parseFloat(capability.value.primary!.replace("%", ""));
+      if (!capability.value?.primary) continue;
+      const cleanVal = capability.value.primary.replace("%", "").trim();
+      const remaining = Number.parseFloat(cleanVal);
       if (!Number.isFinite(remaining) || remaining >= 20) continue;
       const accountName =
-        platform.accounts.find((account) => account.accountId === capability.accountId)?.displayName ?? "";
+        (platform.accounts ?? []).find((account) => account.accountId === capability.accountId)?.displayName ?? "";
       rows.push({
         key: `${platform.providerId}-${capability.accountId}-${capability.capabilityId}`,
         providerId: platform.providerId,
         platform: platform.displayName,
         title: accountName,
-        detail: `${windowShortLabel(capability)}剩余 ${compactPercentText(capability.value.primary!)}`,
+        detail: `${windowShortLabel(capability)}剩余 ${compactPercentText(capability.value.primary)}`,
         target: { providerId: platform.providerId, tab: "usage" },
       });
     }
@@ -596,9 +617,9 @@ type RefreshRow = {
 /** 从真实来源快照组装刷新表格行：类型由来源能力推导，详情取代表能力值。 */
 function buildRefreshRows(platforms: PlatformSummaryViewModel[]): RefreshRow[] {
   const rows: Array<RefreshRow & { at: number }> = [];
-  for (const platform of platforms) {
+  for (const platform of platforms ?? []) {
     if (platform.aggregateStatus === "setup_required") continue;
-    for (const source of platform.sources) {
+    for (const source of platform.sources ?? []) {
       const at = source.lastSuccessAt ?? source.lastValidatedAt;
       if (at === null) continue;
       rows.push({
@@ -620,7 +641,7 @@ function buildRefreshRows(platforms: PlatformSummaryViewModel[]): RefreshRow[] {
 }
 
 function refreshTypeLabel(source: SourceSummaryViewModel): string {
-  const caps = source.capabilityIds;
+  const caps = source.capabilityIds ?? [];
   if (caps.some((id) => id.startsWith("quota_window"))) return "窗口刷新";
   if (caps.includes("balance") || caps.includes("month_spend")) return "余额刷新";
   if (caps.includes("usage_trend")) return "用量同步";
@@ -628,13 +649,13 @@ function refreshTypeLabel(source: SourceSummaryViewModel): string {
 }
 
 function refreshDetail(platform: PlatformSummaryViewModel, source: SourceSummaryViewModel): string {
-  const caps = platform.capabilities.filter(
-    (capability) => capability.sourceId === source.sourceId && capability.value.primary !== null,
+  const caps = (platform.capabilities ?? []).filter(
+    (capability) => capability.sourceId === source.sourceId && capability.value?.primary !== null && capability.value?.primary !== undefined,
   );
   const windowCap = caps
-    .filter((item) => item.capabilityId.startsWith("quota_window_") && item.value.primary)
+    .filter((item) => item.capabilityId.startsWith("quota_window_") && item.value?.primary)
     .sort((left, right) => left.capabilityId.localeCompare(right.capabilityId))[0];
-  if (windowCap?.value.primary) {
+  if (windowCap?.value?.primary) {
     const label =
       windowCap.capabilityId === "quota_window_30d"
         ? "30天窗口"
@@ -648,7 +669,7 @@ function refreshDetail(platform: PlatformSummaryViewModel, source: SourceSummary
   const order = ["balance", "month_spend", "cache_hit_rate"];
   for (const id of order) {
     const capability = caps.find((item) => item.capabilityId === id);
-    if (capability?.value.primary) {
+    if (capability?.value?.primary) {
       const label =
         id === "balance" ? "余额" : id === "month_spend" ? "本月消费" : "缓存命中率";
       return `${label}：${compactPercentText(capability.value.primary)}`;

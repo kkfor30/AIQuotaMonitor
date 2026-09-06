@@ -60,15 +60,26 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
     );
   }
 
-  const cardCapabilities = platform.capabilities.filter(isVisibleWindow);
-  const multiAccount = platform.accounts.length > 1;
-  const accountSections = platform.accounts.map((account) => {
-    const capabilities = cardCapabilities.filter((capability) => capability.accountId === account.accountId);
+  const accounts = platform.accounts ?? [];
+  if (accounts.length === 0) {
+    return (
+      <EmptyState
+        title={`${platform.displayName} 暂无可用账户`}
+        description="该平台尚未初始化账户配置，请切换到「接入与来源」配置数据来源。"
+      />
+    );
+  }
+
+  const allCapabilities = platform.capabilities ?? [];
+  const cardCapabilities = allCapabilities.filter(isVisibleWindow);
+  const multiAccount = accounts.length > 1;
+  const accountSections = accounts.map((account) => {
+    const caps = cardCapabilities.filter((capability) => capability.accountId === account.accountId);
     return {
       account,
-      plan: planOf(capabilities),
+      plan: planOf(caps),
       // usage_trend 等趋势能力随账号能力一起进入组合渲染；plan_level 只作徽章
-      capabilities: capabilities.filter((capability) => capability.capabilityId !== "plan_level"),
+      capabilities: caps.filter((capability) => capability.capabilityId !== "plan_level"),
     };
   });
 
@@ -85,13 +96,13 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
             </section>
           ))}
         </div>
-      ) : (
+      ) : accountSections[0] ? (
         // 单账号平台同样展示账户头（套餐徽章挂在账户名旁，订阅计划不单独成卡）
         <div className="flex min-w-0 flex-col gap-3">
-          <AccountHeader account={platform.accounts[0]} plan={accountSections[0]?.plan} />
-          <CapabilityDashboard capabilities={accountSections[0]?.capabilities ?? []} wide={wide} />
+          <AccountHeader account={accountSections[0].account} plan={accountSections[0].plan} />
+          <CapabilityDashboard capabilities={accountSections[0].capabilities} wide={wide} />
         </div>
-      )}
+      ) : null}
     </div>
   );
 
@@ -113,16 +124,22 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
 
 /** 账号区块头：账号名 + 类型 + 套餐徽章（悬浮球同款配色）+ 账号聚合状态。顺序沿用后端 accounts 顺序。 */
 function AccountHeader({ account, plan }: { account: AccountSummaryViewModel; plan?: string | null }) {
-  const statusMeta = AGGREGATE_STATUS_META[account.status];
+  if (!account) return null;
+  const statusMeta = (account.status && AGGREGATE_STATUS_META[account.status]) ?? {
+    label: "未知",
+    icon: "settings" as const,
+    tone: "neutral" as const,
+  };
+  const kindLabel = (account.kind && ACCOUNT_KIND_LABEL[account.kind]) ?? "默认";
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-1">
-      <h3 className="text-[15px] font-semibold tracking-tight text-q-text-primary">{account.displayName}</h3>
+      <h3 className="text-[15px] font-semibold tracking-tight text-q-text-primary">{account.displayName || "默认账户"}</h3>
       <span
         className={`rounded-q-pill px-2 py-0.5 text-[11px] font-medium ${
           account.kind === "local" ? "bg-q-primary-softer text-q-primary" : "bg-q-neutral-soft text-q-neutral"
         }`}
       >
-        {ACCOUNT_KIND_LABEL[account.kind]}
+        {kindLabel}
       </span>
       {plan && (
         <span className="plan-chip" data-plan={planKey(plan)} title="订阅计划">

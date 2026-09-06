@@ -42,7 +42,7 @@ import { hoverbarProviderVisual } from "./provider-visuals";
 const DEEPSEEK_EXTRA_IDS = new Set<string>(["today_spend", "month_spend", "cache_hit_rate"]);
 const DEEPSEEK_MODEL_ORDER = ["model_usage_v4_flash", "model_usage_v4_flash_vision", "model_usage_v4_pro"] as const;
 const DEEPSEEK_MODEL_IDS = new Set<string>(DEEPSEEK_MODEL_ORDER);
-const ALLOWED_IDS = new Set<string>(["balance", "credits", "banked_reset_count", "plan_level", "account_name", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
+const ALLOWED_IDS = new Set<string>(["balance", "total_spend", "credits", "banked_reset_count", "plan_level", "account_name", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
 const WINDOW_ORDER = [
   "quota_window_5h",
   "quota_window_7d",
@@ -103,7 +103,7 @@ type HoverbarSection = {
   bankedReset: HoverbarFinance | null;
   credits: HoverbarFinance | null;
   balance: HoverbarFinance | null;
-  spend: { today: HoverbarFinance | null; month: HoverbarFinance | null };
+  spend: { today: HoverbarFinance | null; month: HoverbarFinance | null; total?: HoverbarFinance | null };
   models: HoverbarModel[];
   cacheHit: HoverbarCache | null;
   /** 分区内存在 stale 快照时的低饱和缓存提示（带最后一次成功时间）；null 表示无 stale。 */
@@ -212,7 +212,16 @@ export function HoverbarPlatformCard({
           <StatusChip
             status={platform.aggregateStatus}
             interactive={Boolean(onNavigateToPlatform)}
-            onClick={onNavigateToPlatform ? () => onNavigateToPlatform(platform.aggregateStatus === "error" ? "sources" : "usage") : undefined}
+            onClick={
+              onNavigateToPlatform
+                ? () =>
+                    onNavigateToPlatform(
+                      platform.aggregateStatus === "error" || platform.aggregateStatus === "setup_required"
+                        ? "sources"
+                        : "usage",
+                    )
+                : undefined
+            }
           />
         </div>
       </header>
@@ -323,7 +332,8 @@ function GroupHead({
 
 /** 一个账户分区的数据体：窗口额度行 → 可用重置卡 → 额外余额 → 资金组合 → 模型行 → 总缓存块 → 缓存提示。 */
 function SectionBody({ section }: { section: HoverbarSection }) {
-  const hasSpend = section.spend.today !== null || section.spend.month !== null;
+  const hasSpend =
+    section.spend.today !== null || section.spend.month !== null || Boolean(section.spend.total);
   if (
     section.windows.length === 0
     && !section.bankedReset
@@ -354,6 +364,7 @@ function SectionBody({ section }: { section: HoverbarSection }) {
             <div className="hb-spend-grid">
               {section.spend.today ? <SpendCell label="今日消费" item={section.spend.today} /> : null}
               {section.spend.month ? <SpendCell label="本月消费" item={section.spend.month} /> : null}
+              {section.spend.total ? <SpendCell label="累计消费" item={section.spend.total} /> : null}
             </div>
           ) : null}
         </div>
@@ -729,9 +740,11 @@ function sectionFromAccount(
     bankedReset: bankedResetOf(own),
     credits: financeOf(own, "credits"),
     balance: financeOf(own, "balance"),
-    spend: hasDeepseekExtras
-      ? { today: financeOf(own, "today_spend"), month: financeOf(own, "month_spend") }
-      : { today: null, month: null },
+    spend: {
+      today: hasDeepseekExtras ? financeOf(own, "today_spend") : null,
+      month: hasDeepseekExtras ? financeOf(own, "month_spend") : null,
+      total: financeOf(own, "total_spend"),
+    },
     models,
     cacheHit: hasDeepseekExtras ? cacheOf(own, "cache_hit_rate") : null,
     staleNote,

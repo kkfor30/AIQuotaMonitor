@@ -5,6 +5,7 @@ import { OverviewPage } from "@/features/overview/OverviewPage";
 import { PlatformCenterPage } from "@/features/platform-center/PlatformCenterPage";
 import { GptRadarPage } from "@/features/radar/GptRadarPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import type { NavId, PlatformCenterTarget } from "@/app/navigation";
 
 /**
@@ -44,13 +45,29 @@ export function AppRoot() {
   }, [openPlatform]);
 
   return (
-    <AppShell active={nav} onNavigate={setNav}>
-      {nav === "overview" && <OverviewPage onOpenPlatform={openPlatform} />}
-      {nav === "platform-center" && (
-        <PlatformCenterPage target={platformTarget} onTargetConsumed={consumeTarget} />
-      )}
-      {nav === "gpt-radar" && <GptRadarPage />}
-      {nav === "settings" && <SettingsPage />}
-    </AppShell>
+    <ErrorBoundary variant="page" title="应用主界面遇到问题">
+      <AppShell active={nav} onNavigate={setNav}>
+        {nav === "overview" && (
+          <ErrorBoundary variant="page" title="总览页面遇到问题">
+            <OverviewPage onOpenPlatform={openPlatform} />
+          </ErrorBoundary>
+        )}
+        {nav === "platform-center" && (
+          <ErrorBoundary variant="page" title="平台中心遇到问题">
+            <PlatformCenterPage target={platformTarget} onTargetConsumed={consumeTarget} />
+          </ErrorBoundary>
+        )}
+        {nav === "gpt-radar" && (
+          <ErrorBoundary variant="page" title="重置雷达遇到问题">
+            <GptRadarPage />
+          </ErrorBoundary>
+        )}
+        {nav === "settings" && (
+          <ErrorBoundary variant="page" title="设置页面遇到问题">
+            <SettingsPage />
+          </ErrorBoundary>
+        )}
+      </AppShell>
+    </ErrorBoundary>
   );
 }
