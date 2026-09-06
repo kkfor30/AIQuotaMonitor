@@ -65,6 +65,8 @@ export function HoverbarAnchorApp() {
     return null;
   })();
 
+  const isPointerOver = useRef(false);
+
   const clearEnterTimer = useCallback(() => {
     window.clearTimeout(enterTimer.current);
     enterTimer.current = undefined;
@@ -82,7 +84,7 @@ export function HoverbarAnchorApp() {
   }, []);
 
   const showDetail = useCallback(() => {
-    if (dragging.current || Date.now() - dragFinishedAt.current < HOVERBAR_DRAG_SUPPRESS_MS) return;
+    if (dragging.current) return;
     clearEnterTimer();
     clearCollapseTimer();
     void invoke<HoverbarAnchor>("show_hoverbar_detail")
@@ -92,6 +94,31 @@ export function HoverbarAnchorApp() {
       })
       .catch((error) => console.error("无法展开悬浮详情", error));
   }, [clearCollapseTimer, clearEnterTimer]);
+
+  const scheduleOpen = useCallback(
+    (delay: number = HOVERBAR_ENTER_DELAY_MS) => {
+      clearEnterTimer();
+      clearCollapseTimer();
+      enterTimer.current = window.setTimeout(() => {
+        enterTimer.current = undefined;
+        if (!isPointerOver.current || detailVisible || dragging.current) return;
+        const elapsedSinceDrag = Date.now() - dragFinishedAt.current;
+        if (elapsedSinceDrag < HOVERBAR_DRAG_SUPPRESS_MS) {
+          const remaining = HOVERBAR_DRAG_SUPPRESS_MS - elapsedSinceDrag;
+          // 拖拽抑制期未完全过去，不直接放弃，而是安排补跑剩余毫秒
+          enterTimer.current = window.setTimeout(() => {
+            enterTimer.current = undefined;
+            if (isPointerOver.current && !detailVisible && !dragging.current) {
+              showDetail();
+            }
+          }, remaining + 16);
+          return;
+        }
+        showDetail();
+      }, delay);
+    },
+    [clearCollapseTimer, clearEnterTimer, detailVisible, showDetail],
+  );
 
   const requestHide = useCallback(() => {
     clearEnterTimer();
@@ -112,6 +139,20 @@ export function HoverbarAnchorApp() {
     void fetchHoverbarPreferences()
       .then((prefs) => setAnchor(normalizeHoverbarAnchor(prefs.anchor)))
       .catch((error) => console.error("无法加载悬浮球锚点", error));
+  }, []);
+
+  // 监听吸附事件广播（全窗口实时同步锚点）
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    void listen<HoverbarAnchor>("hoverbar-anchor-changed", (event) => {
+      if (disposed) return;
+      setAnchor(normalizeHoverbarAnchor(event.payload));
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
   }, []);
 
   // 详情可见性与指针进出事件（与详情窗口联动）
@@ -191,15 +232,20 @@ export function HoverbarAnchorApp() {
             .finally(() => {
               const moved = dragMoved.current;
               dragging.current = false;
+              dragMoved.current = false;
               if (moved) {
                 dragFinishedAt.current = Date.now();
+                // 拖拽完成时，若用户光标仍停留在小球上，直接唤醒悬停展开倒计时
+                if (isPointerOver.current) {
+                  scheduleOpen(HOVERBAR_ENTER_DELAY_MS);
+                }
               } else if (!detailWasVisible) {
                 showDetail();
               }
             });
         });
     },
-    [clearCollapseTimer, clearEnterTimer, detailVisible, requestHide, showDetail, snapToEdge],
+    [clearCollapseTimer, clearEnterTimer, detailVisible, requestHide, scheduleOpen, showDetail, snapToEdge],
   );
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
@@ -220,13 +266,25 @@ export function HoverbarAnchorApp() {
       className="hoverbar-anchor-root relative h-[40px] w-[40px] select-none"
       data-edge={anchor.edge}
       data-state={detailVisible ? "expanded" : "anchor"}
-      onMouseEnter={() => {
-        clearCollapseTimer();
-        if (detailVisible || dragging.current) return;
-        clearEnterTimer();
-        enterTimer.current = window.setTimeout(showDetail, HOVERBAR_ENTER_DELAY_MS);
+      onPointerEnter={(e) => {
+        if (e.pointerType === "mouse" || e.isPrimary) {
+          isPointerOver.current = true;
+          clearCollapseTimer();
+          if (!detailVisible && !dragging.current) {
+            scheduleOpen(HOVERBAR_ENTER_DELAY_MS);
+          }
+        }
       }}
-      onMouseLeave={() => {
+      onPointerMove={(e) => {
+        if (e.pointerType === "mouse" || e.isPrimary) {
+          isPointerOver.current = true;
+          if (!detailVisible && !dragging.current && !enterTimer.current) {
+            scheduleOpen(HOVERBAR_ENTER_DELAY_MS);
+          }
+        }
+      }}
+      onPointerLeave={() => {
+        isPointerOver.current = false;
         if (detailVisible) scheduleHide();
         else clearEnterTimer();
       }}

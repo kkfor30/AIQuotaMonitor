@@ -35,8 +35,14 @@ pub fn show_hoverbar_detail(
     let detail = hoverbar::ensure_hoverbar_detail_window(&app)?;
     let (width, height) = app
         .try_state::<HoverbarRuntime>()
-        .map(|runtime| runtime.current_detail_size())
-        .unwrap_or((420.0, 360.0));
+        .map(|runtime| runtime.current_detail_size_for_edge(&anchor.edge))
+        .unwrap_or_else(|| {
+            if matches!(anchor.edge.as_str(), "left" | "right") {
+                (300.0, 420.0)
+            } else {
+                (420.0, 360.0)
+            }
+        });
     hoverbar::apply_detail_layout(&detail, &window, &anchor, width, height)?;
     let _ = detail.show();
     // 两个独立窗口发生视觉重叠时，小球必须始终位于详情面板上方。
@@ -78,18 +84,16 @@ pub fn set_hoverbar_detail_size(
     height: f64,
 ) -> Result<HoverbarAnchor, String> {
     require_label(&window, &["hoverbar-detail"])?;
+    let mut prefs = storage::load_preferences(&app);
+    let anchor = prefs.anchor.clone();
     if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
-        if let Ok(mut size) = runtime.detail_size.lock() {
-            *size = (width, height);
-        }
+        runtime.update_detail_size_for_edge(&anchor.edge, height);
     }
     // 尺寸偏好随使用更新（下次展开沿用）
-    let mut prefs = storage::load_preferences(&app);
     prefs.detail_size.width = width;
     prefs.detail_size.height = height;
     storage::save_preferences(&app, &prefs);
 
-    let anchor = prefs.anchor;
     let Some(anchor_window) = app.get_webview_window("hoverbar") else {
         return Ok(anchor);
     };
@@ -134,6 +138,19 @@ fn snap_and_persist(window: &WebviewWindow) -> Result<HoverbarAnchor, String> {
     prefs.anchor = anchor.clone();
     storage::save_preferences(&app, &prefs);
     hoverbar::apply_anchor_layout(window, &anchor)?;
+
+    // 广播给前端各窗口，通知小球吸附到了新锚点边缘
+    let _ = app.emit("hoverbar-anchor-changed", &anchor);
+
+    // 若详情面板窗口存在且当前处于隐藏状态，在后台静默预先更新其尺寸与停靠位置
+    if let Some(detail) = app.get_webview_window("hoverbar-detail") {
+        if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
+            if !runtime.detail_visible.load(Ordering::SeqCst) {
+                let (width, height) = runtime.current_detail_size_for_edge(&anchor.edge);
+                let _ = hoverbar::apply_detail_layout(&detail, window, &anchor, width, height);
+            }
+        }
+    }
     Ok(anchor)
 }
 

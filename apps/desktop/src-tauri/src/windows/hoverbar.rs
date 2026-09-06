@@ -23,23 +23,58 @@ use tauri::{
 pub struct HoverbarRuntime {
     /// 详情面板当前是否可见（全屏隐藏、收起动画均会置回 false）
     pub detail_visible: AtomicBool,
-    /// 详情面板逻辑尺寸（前端按内容高度上报）
-    pub detail_size: Mutex<(f64, f64)>,
+    /// 顶底停靠详情面板逻辑高度（宽度固定为 420.0）
+    pub top_detail_height: Mutex<f64>,
+    /// 侧边停靠详情面板逻辑高度（宽度固定为 300.0）
+    pub side_detail_height: Mutex<f64>,
 }
 
 impl HoverbarRuntime {
     pub fn new(detail_size: (f64, f64)) -> Self {
+        let (initial_width, initial_height) = detail_size;
+        let (top_h, side_h) = if initial_width <= 320.0 {
+            (360.0, initial_height.clamp(160.0, 480.0))
+        } else {
+            (initial_height.clamp(160.0, 420.0), 420.0)
+        };
         Self {
             detail_visible: AtomicBool::new(false),
-            detail_size: Mutex::new(detail_size),
+            top_detail_height: Mutex::new(top_h),
+            side_detail_height: Mutex::new(side_h),
         }
     }
 
+    pub fn current_detail_size_for_edge(&self, edge: &str) -> (f64, f64) {
+        if matches!(edge, "left" | "right") {
+            let h = self
+                .side_detail_height
+                .lock()
+                .map(|s| *s)
+                .unwrap_or(420.0);
+            (300.0, h)
+        } else {
+            let h = self
+                .top_detail_height
+                .lock()
+                .map(|s| *s)
+                .unwrap_or(360.0);
+            (420.0, h)
+        }
+    }
+
+    pub fn update_detail_size_for_edge(&self, edge: &str, height: f64) {
+        if matches!(edge, "left" | "right") {
+            if let Ok(mut lock) = self.side_detail_height.lock() {
+                *lock = height.clamp(160.0, 480.0);
+            }
+        } else if let Ok(mut lock) = self.top_detail_height.lock() {
+            *lock = height.clamp(160.0, 420.0);
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn current_detail_size(&self) -> (f64, f64) {
-        self.detail_size
-            .lock()
-            .map(|s| *s)
-            .unwrap_or((420.0, 360.0))
+        self.current_detail_size_for_edge("top")
     }
 }
 
@@ -50,24 +85,25 @@ pub enum HoverbarWindowState {
     Detail,
 }
 
-/// 悬浮窗口逻辑尺寸规则（与前端 measureHoverbar 镜像）：
+/// 悬浮窗口逻辑尺寸规则（与前端 measureHoverbar 严格镜像）：
 /// - 锚点小球恒为 40x40
-/// - 详情面板：left/right 停靠宽 300，top/bottom 停靠宽 420，高度按内容 clamp
+/// - 侧边停靠（left/right）：宽严格固定为 300，高度按内容在 160..480 clamp
+/// - 顶底停靠（top/bottom）：宽严格固定为 420，高度按内容在 160..420 clamp
 pub fn logical_size(
     position: &str,
     state: HoverbarWindowState,
-    requested_width: Option<f64>,
+    _requested_width: Option<f64>,
     requested_height: Option<f64>,
 ) -> (f64, f64) {
     match (position, state) {
         (_, HoverbarWindowState::Anchor) => (40.0, 40.0),
         ("left" | "right", HoverbarWindowState::Detail) => (
-            requested_width.unwrap_or(300.0).clamp(200.0, 300.0),
-            requested_height.unwrap_or(180.0).clamp(160.0, 480.0),
+            300.0,
+            requested_height.unwrap_or(420.0).clamp(160.0, 480.0),
         ),
         (_, HoverbarWindowState::Detail) => (
-            requested_width.unwrap_or(420.0).clamp(200.0, 420.0),
-            requested_height.unwrap_or(180.0).clamp(160.0, 420.0),
+            420.0,
+            requested_height.unwrap_or(360.0).clamp(160.0, 420.0),
         ),
     }
 }

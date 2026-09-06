@@ -58,7 +58,7 @@ export const HOVERBAR_ENTER_DELAY_MS = 350;
 export const HOVERBAR_LEAVE_DELAY_MS = 450;
 export const HOVERBAR_EXIT_ANIMATION_MS = 160;
 /** 拖动结束后抑制悬停展开的时间窗口。 */
-export const HOVERBAR_DRAG_SUPPRESS_MS = 350;
+export const HOVERBAR_DRAG_SUPPRESS_MS = 200;
 
 /** 详情面板开合动画相位状态机。 */
 export function nextHoverbarMotionPhase(

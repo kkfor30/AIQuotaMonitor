@@ -252,6 +252,10 @@ export function HoverbarDetailApp() {
         // 仍等待后续 hoverbar-detail-open。
       }
     });
+    void listen<HoverbarAnchor>("hoverbar-anchor-changed", (event) => {
+      if (disposed) return;
+      setAnchor(normalizeHoverbarAnchor(event.payload));
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen("hoverbar-detail-close", () => {
       if (!disposed) finishClose();
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
