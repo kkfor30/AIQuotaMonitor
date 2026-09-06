@@ -106,3 +106,26 @@
   );
   animation: q-shimmer 1.8s infinite ease-in-out;
 }
+
+/* 悬浮小球被动异常呼吸光晕 */
+@keyframes orb-alert-pulse-rose {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes orb-alert-pulse-amber {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.03);
+  }
+}

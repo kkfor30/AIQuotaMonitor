@@ -14,6 +14,7 @@ use crate::windows::hoverbar::{self, HoverbarRuntime};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
+use tauri::menu::{ContextMenu, Menu, MenuItem};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 pub fn show_main_window(app: &AppHandle) {
@@ -135,6 +136,31 @@ fn snap_and_persist(window: &WebviewWindow) -> Result<HoverbarAnchor, String> {
     storage::save_preferences(&app, &prefs);
     hoverbar::apply_anchor_layout(window, &anchor)?;
     Ok(anchor)
+}
+
+/// 悬浮球原生右键微菜单（操作系统托管弹出，全边缘自适应避让）。仅悬浮球窗口可调用。
+#[tauri::command]
+pub fn show_hoverbar_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    require_label(&window, &["hoverbar"])?;
+    let refresh = MenuItem::with_id(&app, "hb_refresh_all", "立即刷新所有平台额度", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let open_main = MenuItem::with_id(&app, "hb_open_main", "打开主窗口", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let toggle_detail = MenuItem::with_id(&app, "hb_toggle_detail", "展开/收起详情面板", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let hide_orb = MenuItem::with_id(&app, "hb_hide_orb", "暂时收起悬浮球 (可在设置重新开启)", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+
+    let menu = Menu::with_items(&app, &[
+        &refresh,
+        &open_main,
+        &toggle_detail,
+        &hide_orb,
+    ]).map_err(|e| e.to_string())?;
+
+    let win = window.as_ref().window().clone();
+    menu.popup(win).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// 打开（显示并聚焦）主窗口。

@@ -6,13 +6,17 @@
  * 迁移内容：悬停延迟展开、离开延迟收起、startDragging 原生拖动、
  * onMoved 区分点击与拖动、拖动后抑制窗口、detail-visibility/pointer 事件同步。
  * 变更：保留旧版动画 WebP 与 reduced-motion 静态海报；invoke 调用改为
- * 当前项目 IPC 契约，锚点与详情仍使用独立窗口。
+ * 当前项目 IPC 契约，锚点与详情仍使用独立窗口；增加被动异常/低额度呼吸微光晕
+ * 与 Windows 原生右键自适应微菜单。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchHoverbarPreferences } from "@/lib/ipc";
+import { useQuery } from "@tanstack/react-query";
+import { fetchHoverbarPreferences, fetchPlatformSummaries } from "@/lib/ipc";
+import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
+import { capabilityRemainingPercent } from "@/components/ui/QuotaProgress";
 import {
   HOVERBAR_DRAG_SUPPRESS_MS,
   HOVERBAR_ENTER_DELAY_MS,
@@ -30,6 +34,36 @@ export function HoverbarAnchorApp() {
   const dragging = useRef(false);
   const dragMoved = useRef(false);
   const dragFinishedAt = useRef(0);
+
+  // 监听平台聚合状态，驱动小球被动呼吸微光晕
+  const { data: platforms = [] } = useQuery({
+    queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
+    queryFn: fetchPlatformSummaries,
+    staleTime: 10000,
+  });
+
+  const alertTone: "error" | "warning" | null = (() => {
+    let hasError = false;
+    let hasLowQuota = false;
+    for (const p of platforms) {
+      if (p.aggregateStatus === "error") {
+        hasError = true;
+        break;
+      }
+      if (p.aggregateStatus === "partial") {
+        hasLowQuota = true;
+      }
+      for (const c of p.capabilities) {
+        const rem = capabilityRemainingPercent(c);
+        if (rem !== null && rem <= 15) {
+          hasLowQuota = true;
+        }
+      }
+    }
+    if (hasError) return "error";
+    if (hasLowQuota) return "warning";
+    return null;
+  })();
 
   const clearEnterTimer = useCallback(() => {
     window.clearTimeout(enterTimer.current);
@@ -120,6 +154,26 @@ export function HoverbarAnchorApp() {
     };
   }, []);
 
+  const activateOrb = useCallback(() => {
+    if (dragMoved.current || dragging.current) return;
+    if (detailVisible) requestHide();
+    else showDetail();
+  }, [detailVisible, requestHide, showDetail]);
+
+  // 响应来自托盘或原生右键菜单的「展开/收起详情」指令
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    void listen("hoverbar-action-toggle-detail", () => {
+      if (disposed) return;
+      activateOrb();
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
+  }, [activateOrb]);
+
   const startDragging = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       if (event.button !== 0 || dragging.current) return;
@@ -149,11 +203,18 @@ export function HoverbarAnchorApp() {
     [clearCollapseTimer, clearEnterTimer, detailVisible, requestHide, showDetail, snapToEdge],
   );
 
-  const activateOrb = useCallback(() => {
-    if (dragMoved.current || dragging.current) return;
-    if (detailVisible) requestHide();
-    else showDetail();
-  }, [detailVisible, requestHide, showDetail]);
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearEnterTimer();
+      clearCollapseTimer();
+      void invoke("show_hoverbar_context_menu").catch((error) =>
+        console.error("无法打开悬浮球右键菜单", error),
+      );
+    },
+    [clearCollapseTimer, clearEnterTimer],
+  );
 
   useEffect(
     () => () => {
@@ -178,13 +239,16 @@ export function HoverbarAnchorApp() {
         if (detailVisible) scheduleHide();
         else clearEnterTimer();
       }}
+      onContextMenu={handleContextMenu}
     >
       <HoverbarOrb
         edge={anchor.edge}
         active={detailVisible}
+        alertTone={alertTone}
         ariaLabel={detailVisible ? "收起额度详情并拖动" : "打开额度详情"}
         onActivate={activateOrb}
         onPointerDown={startDragging}
+        onContextMenu={handleContextMenu}
       />
     </div>
   );
@@ -194,17 +258,21 @@ export function HoverbarAnchorApp() {
 export function HoverbarOrb({
   edge,
   active,
+  alertTone,
   ariaLabel,
   onActivate,
   onPointerDown,
+  onContextMenu,
   disabled = false,
   forceState,
 }: {
   edge: string;
   active: boolean;
+  alertTone?: "error" | "warning" | null;
   ariaLabel: string;
   onActivate: () => void;
   onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
   disabled?: boolean;
   forceState?: "hover" | "focus" | "active";
 }) {
@@ -216,8 +284,12 @@ export function HoverbarOrb({
       onDragStart={preventNativeAssetDrag}
       onClick={onActivate}
       onPointerDown={onPointerDown}
-      className={`hb-orb${active ? " is-detail-open" : ""}${forceState ? ` is-${forceState}` : ""}`}
+      onContextMenu={onContextMenu}
+      className={`hb-orb${active ? " is-detail-open" : ""}${
+        alertTone && !active ? ` is-alert-${alertTone}` : ""
+      }${forceState ? ` is-${forceState}` : ""}`}
       data-edge={edge}
+      data-alert={alertTone && !active ? alertTone : undefined}
     >
       <picture>
         <source media="(prefers-reduced-motion: reduce)" srcSet="/assets/hover-orb-poster.png" />

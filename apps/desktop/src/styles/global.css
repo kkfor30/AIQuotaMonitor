@@ -241,6 +241,55 @@ html.hoverbar-window #root {
   box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
 }
 
+/* 被动告警脉冲光晕与全边缘定向适配 */
+.hb-orb.is-alert-error {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 0 0 6px rgba(244, 63, 94, 0.55);
+  animation: orb-alert-pulse-rose 2.4s ease-in-out infinite;
+}
+
+.hb-orb.is-alert-warning {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 0 0 6px rgba(245, 158, 11, 0.45);
+  animation: orb-alert-pulse-amber 3s ease-in-out infinite;
+}
+
+.hb-orb.is-alert-error[data-edge="top"] {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 0 3px 8px rgba(244, 63, 94, 0.55);
+}
+
+.hb-orb.is-alert-error[data-edge="bottom"] {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 0 -3px 8px rgba(244, 63, 94, 0.55);
+}
+
+.hb-orb.is-alert-error[data-edge="left"] {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 3px 0 8px rgba(244, 63, 94, 0.55);
+}
+
+.hb-orb.is-alert-error[data-edge="right"] {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), -3px 0 8px rgba(244, 63, 94, 0.55);
+}
+
+.hb-orb.is-alert-warning[data-edge="top"] {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 0 3px 7px rgba(245, 158, 11, 0.45);
+}
+
+.hb-orb.is-alert-warning[data-edge="bottom"] {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 0 -3px 7px rgba(245, 158, 11, 0.45);
+}
+
+.hb-orb.is-alert-warning[data-edge="left"] {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 3px 0 7px rgba(245, 158, 11, 0.45);
+}
+
+.hb-orb.is-alert-warning[data-edge="right"] {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), -3px 0 7px rgba(245, 158, 11, 0.45);
+}
+
+.hb-orb.is-detail-open.is-alert-error,
+.hb-orb.is-detail-open.is-alert-warning {
+  animation: none;
+  box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
+}
+
 .hb-orb:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -598,6 +647,85 @@ html.hoverbar-window #root {
 .hb-status-chip[data-status="error"] {
   color: var(--q-hoverbar-danger);
   background: var(--q-danger-soft);
+}
+
+/* 单卡即时刷新按钮与可交互状态 Chip */
+.hb-card-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--q-hoverbar-muted);
+  cursor: pointer;
+  flex: none;
+  opacity: 0.35;
+  transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.hb-service-card:hover .hb-card-refresh-btn,
+.hb-card-refresh-btn[data-refreshing="true"] {
+  opacity: 0.85;
+}
+
+.hb-card-refresh-btn:hover {
+  opacity: 1 !important;
+  color: var(--q-hoverbar-ink);
+  background: var(--q-hoverbar-item-hover);
+}
+
+.hb-card-refresh-btn:disabled {
+  cursor: default;
+}
+
+button.hb-status-chip,
+.hb-status-chip[data-interactive="true"] {
+  cursor: pointer;
+  border: 0;
+  transition: transform 120ms ease, opacity 120ms ease, filter 120ms ease;
+}
+
+button.hb-status-chip:hover,
+.hb-status-chip[data-interactive="true"]:hover {
+  opacity: 0.9;
+  filter: brightness(1.08);
+  transform: translateY(-0.5px);
+}
+
+/* 点击复制与悬浮微交互 */
+[data-copyable="true"] {
+  cursor: copy;
+  border-radius: 4px;
+  padding: 0 3px;
+  margin: 0 -3px;
+  transition: background-color 120ms ease, color 120ms ease, transform 100ms ease;
+  position: relative;
+}
+
+[data-copyable="true"]:hover {
+  background-color: var(--q-hoverbar-item-hover);
+}
+
+[data-copyable="true"]:active {
+  transform: scale(0.96);
+}
+
+.hb-copied-tag {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: var(--q-hoverbar-success);
+  color: #fff;
+  font-weight: 600;
+  margin-left: 4px;
+  animation: q-scale-in 140ms ease-out both;
 }
 
 /* 套餐徽章：按账户类型配色（Pro 紫 / Plus 蓝 / Lite 青 / Free 灰）；未知套餐中性底。 */
@@ -2615,6 +2743,25 @@ html.hoverbar-window #root {
 .hb-detail-root[data-edge="left"] .hb-actions,
 .hb-detail-root[data-edge="right"] .hb-actions {
   align-self: flex-end;
+}
+
+/* 左右侧 300px：卡头元素防折行保护，名称弹性截断，刷新按钮与状态徽章防挤压 */
+.hb-detail-root[data-edge="left"] .hb-card-head,
+.hb-detail-root[data-edge="right"] .hb-card-head {
+  gap: 6px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-card-name,
+.hb-detail-root[data-edge="right"] .hb-card-name {
+  font-size: 14px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hb-detail-root[data-edge="left"] .hb-card-refresh-btn,
+.hb-detail-root[data-edge="right"] .hb-card-refresh-btn {
+  width: 20px;
+  height: 20px;
 }
 
 /* 左右侧 300px：三行摘要，徽章保留、标题收起，不缩小核心字号。 */

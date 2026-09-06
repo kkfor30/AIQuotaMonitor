@@ -13,6 +13,7 @@
  * stale 保留真实值与进度色，仅以低饱和蓝灰缓存提示；
  * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
+import { useState, useCallback } from "react";
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, CircleX, Radar, RefreshCw, TimerReset, Wallet } from "lucide-react";
 import {
   FlashCrystalIcon,
@@ -128,6 +129,9 @@ function compareWindowIds(left: string, right: string): number {
 
 export function HoverbarPlatformCard({
   platform,
+  onRefreshSinglePlatform,
+  singleRefreshing = false,
+  onNavigateToPlatform,
   radar,
   onOpenRadar,
   onRefreshRadar,
@@ -136,6 +140,9 @@ export function HoverbarPlatformCard({
   radarRefreshError = null,
 }: {
   platform: PlatformSummaryViewModel;
+  onRefreshSinglePlatform?: () => void;
+  singleRefreshing?: boolean;
+  onNavigateToPlatform?: (tab?: "usage" | "sources") => void;
   radar?: RadarSnapshot;
   onOpenRadar?: () => void;
   onRefreshRadar?: () => void;
@@ -169,8 +176,28 @@ export function HoverbarPlatformCard({
             <span>{platform.displayName.slice(0, 1).toUpperCase()}</span>
           )}
         </span>
-        <b className="hb-card-name">{platform.displayName}</b>
-        <StatusChip status={platform.aggregateStatus} />
+        <b className="hb-card-name" title={platform.displayName}>{platform.displayName}</b>
+        {onRefreshSinglePlatform && (
+          <button
+            type="button"
+            className="hb-card-refresh-btn"
+            aria-label={`刷新 ${platform.displayName} 额度`}
+            title={singleRefreshing ? "正在刷新…" : `重新拉取 ${platform.displayName} 额度`}
+            disabled={singleRefreshing}
+            data-refreshing={singleRefreshing || undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRefreshSinglePlatform();
+            }}
+          >
+            <RefreshCw size={12} className={singleRefreshing ? "animate-spin text-q-primary" : ""} aria-hidden />
+          </button>
+        )}
+        <StatusChip
+          status={platform.aggregateStatus}
+          interactive={Boolean(onNavigateToPlatform)}
+          onClick={onNavigateToPlatform ? () => onNavigateToPlatform(platform.aggregateStatus === "error" ? "sources" : "usage") : undefined}
+        />
       </header>
 
       {sections.length === 0 || !first ? (
@@ -203,12 +230,80 @@ export function HoverbarPlatformCard({
   );
 }
 
-function StatusChip({ status }: { status: PlatformAggregateStatus }) {
+function StatusChip({
+  status,
+  interactive = false,
+  onClick,
+}: {
+  status: PlatformAggregateStatus;
+  interactive?: boolean;
+  onClick?: () => void;
+}) {
   const Icon = status === "healthy" ? CheckCircle2 : status === "error" ? CircleX : AlertTriangle;
-  return (
-    <span className="hb-status-chip" data-status={status}>
+  const content = (
+    <>
       <Icon size={11} aria-hidden />
       {STATUS_LABEL[status]}
+    </>
+  );
+
+  if (interactive && onClick) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        className="hb-status-chip cursor-pointer hover:brightness-110 active:scale-95 transition-all"
+        data-status={status}
+        data-interactive="true"
+        title="点击在主窗口平台中心管理"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <span className="hb-status-chip" data-status={status}>
+      {content}
+    </span>
+  );
+}
+
+function CopyableValue({
+  value,
+  children,
+}: {
+  value: string | null;
+  children: React.ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!value) return;
+      void navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    },
+    [value],
+  );
+
+  if (!value || value === "暂不可用") {
+    return <>{children}</>;
+  }
+
+  return (
+    <span
+      data-copyable="true"
+      title={`点击复制: ${value}`}
+      onClick={handleCopy}
+    >
+      {children}
+      {copied && <span className="hb-copied-tag">已复制</span>}
     </span>
   );
 }
@@ -318,10 +413,14 @@ function QuotaLine({ item }: { item: HoverbarWindow }) {
         style={missing ? undefined : { color }}
         data-selectable="true"
       >
-        {missing ? "暂不可用" : item.percentText}
+        <CopyableValue value={missing ? null : item.percentText}>
+          {missing ? "暂不可用" : item.percentText}
+        </CopyableValue>
       </span>
       <span className="hb-quota-time" data-selectable="true">
-        {!missing && item.time ? item.time : null}
+        {!missing && item.time ? (
+          <CopyableValue value={item.time}>{item.time}</CopyableValue>
+        ) : null}
       </span>
     </div>
   );
@@ -340,7 +439,9 @@ function BalanceBar({ balance }: { balance: HoverbarFinance }) {
         data-freshness={balance.freshness}
         data-selectable="true"
       >
-        {missing ? "暂不可用" : balance.value}
+        <CopyableValue value={missing ? null : balance.value}>
+          {missing ? "暂不可用" : balance.value}
+        </CopyableValue>
       </span>
     </div>
   );
@@ -359,7 +460,9 @@ function BankedResetBar({ item }: { item: HoverbarFinance }) {
         data-freshness={item.freshness}
         data-selectable="true"
       >
-        {missing ? "暂不可用" : `${item.value} 张`}
+        <CopyableValue value={missing ? null : `${item.value} 张`}>
+          {missing ? "暂不可用" : `${item.value} 张`}
+        </CopyableValue>
       </span>
     </div>
   );
@@ -378,7 +481,9 @@ function CreditsBar({ credits }: { credits: HoverbarFinance }) {
         data-freshness={credits.freshness}
         data-selectable="true"
       >
-        {missing ? "暂不可用" : credits.value}
+        <CopyableValue value={missing ? null : credits.value}>
+          {missing ? "暂不可用" : credits.value}
+        </CopyableValue>
       </span>
     </div>
   );
@@ -395,7 +500,9 @@ function SpendCell({ label, item }: { label: string; item: HoverbarFinance }) {
         data-freshness={item.freshness}
         data-selectable="true"
       >
-        {missing ? "暂不可用" : item.value}
+        <CopyableValue value={missing ? null : item.value}>
+          {missing ? "暂不可用" : item.value}
+        </CopyableValue>
       </span>
     </div>
   );
@@ -416,7 +523,9 @@ function CacheLine({ cache }: { cache: HoverbarCache }) {
           总缓存命中率<span className="hb-cache-scope">（全部模型）</span>
         </span>
         <span className="hb-cache-value" data-missing={missing || undefined} data-selectable="true">
-          {missing ? "暂不可用" : cache.percentText}
+          <CopyableValue value={missing ? null : cache.percentText}>
+            {missing ? "暂不可用" : cache.percentText}
+          </CopyableValue>
         </span>
       </div>
       <span
@@ -468,7 +577,9 @@ function ModelLine({ model }: { model: HoverbarModel }) {
         data-freshness={model.freshness}
         data-selectable="true"
       >
-        {missing ? "暂不可用" : model.value}
+        <CopyableValue value={missing ? null : model.value}>
+          {missing ? "暂不可用" : model.value}
+        </CopyableValue>
       </span>
     </div>
   );

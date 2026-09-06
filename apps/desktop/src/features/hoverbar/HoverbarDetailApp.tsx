@@ -10,12 +10,13 @@
  * 增加 GPT 重置信号摘要条与同窗口内的雷达二级页切换。
  */
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Moon, RefreshCw, SunMedium, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { PlatformCenterTarget } from "@/app/navigation";
 import {
   fetchAppSettings,
   fetchHoverbarPreferences,
@@ -59,6 +60,7 @@ export function HoverbarDetailApp() {
   const [view, setView] = useState<HoverbarView>("quota");
   const [contentHeight, setContentHeight] = useState(0);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
   const motionPhaseRef = useRef<HoverbarMotionPhase>("anchor");
   const exitTimer = useRef<number | undefined>(undefined);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -83,6 +85,26 @@ export function HoverbarDetailApp() {
       void queryClient.invalidateQueries({ queryKey: PLATFORM_SUMMARIES_QUERY_KEY });
     },
   });
+
+  const refreshSinglePlatform = useMutation({
+    mutationFn: async (providerId: string) => {
+      setRefreshingProviderId(providerId);
+      return refreshPlatform(providerId);
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(PLATFORM_SUMMARIES_QUERY_KEY, data);
+    },
+    onSettled: () => {
+      setRefreshingProviderId(null);
+    },
+  });
+
+  const handleNavigateToPlatform = useCallback((providerId: string, tab: "usage" | "sources" = "usage") => {
+    void openMainWindow().then(() => {
+      void emit("navigate-platform-target", { providerId, tab } satisfies PlatformCenterTarget);
+    });
+  }, []);
+
   const platformsRefreshing = refreshPlatforms.isPending || isFetching;
   const { data: settings } = useQuery({
     queryKey: APP_SETTINGS_QUERY_KEY,
@@ -360,6 +382,9 @@ export function HoverbarDetailApp() {
                 <HoverbarPlatformCard
                   key={platform.providerId}
                   platform={platform}
+                  onRefreshSinglePlatform={() => refreshSinglePlatform.mutate(platform.providerId)}
+                  singleRefreshing={refreshingProviderId === platform.providerId}
+                  onNavigateToPlatform={(tab) => handleNavigateToPlatform(platform.providerId, tab)}
                   radar={platform.providerId === "openai" ? radar : undefined}
                   onOpenRadar={platform.providerId === "openai" ? () => setView("radar") : undefined}
                   onRefreshRadar={platform.providerId === "openai" ? refreshRadar : undefined}
