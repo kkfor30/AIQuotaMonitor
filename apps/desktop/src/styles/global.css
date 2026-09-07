@@ -1536,6 +1536,88 @@ button.hb-status-chip:hover,
   overflow-wrap: anywhere;
 }
 
+.hb-radar-strip-ref-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--q-hoverbar-empty-bg) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 60%, transparent);
+}
+
+.hb-radar-strip-ref-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--q-hoverbar-ink);
+}
+
+.hb-radar-strip-ref-icon {
+  flex: none;
+  color: var(--q-hoverbar-primary);
+  opacity: 0.85;
+}
+
+.hb-radar-strip-ref-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-radar-strip-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.hb-radar-strip-foot .hb-radar-strip-note {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--q-hoverbar-muted);
+}
+
+.hb-radar-ai-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  color: var(--q-hoverbar-muted);
+  background: color-mix(in srgb, var(--q-hoverbar-muted) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 60%, transparent);
+}
+
+.hb-radar-ai-pill[data-state="covered"] {
+  color: var(--q-hoverbar-success);
+  background: color-mix(in srgb, var(--q-hoverbar-success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--q-hoverbar-success) 24%, transparent);
+}
+
+.hb-radar-ai-pill[data-state="historical"] {
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 20%, transparent);
+}
+
+.hb-radar-ai-pill[data-state="failed"] {
+  color: var(--q-hoverbar-danger, #e5484d);
+  background: color-mix(in srgb, var(--q-hoverbar-danger, #e5484d) 12%, transparent);
+  border-color: color-mix(in srgb, var(--q-hoverbar-danger, #e5484d) 24%, transparent);
+}
+
 /* 雷达二级页（设计稿 13）：同一悬浮窗口内切换，复用窄版宽度。 */
 .hb-radar-page {
   position: relative;
@@ -2473,42 +2555,63 @@ button.hb-status-chip:hover,
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px 8px 14px;
-  border-radius: 10px;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
   background: var(--q-hoverbar-empty-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+  border-left: 2.5px solid var(--q-hoverbar-muted);
 }
 
-/* 账号详情行：收紧 meta 段落间距，避免行距松散。 */
-.hb-quota-row .hb-radar-meta {
-  margin-top: 2px;
+.hb-quota-row[data-status="unscheduled_reset"],
+.hb-quota-row[data-status="possible_reset"] {
+  border-left-color: var(--q-hoverbar-warning);
 }
 
-/* 状态色侧条：一眼区分观察结果的性质 */
-.hb-quota-row::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 9px;
-  bottom: 9px;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--q-hoverbar-muted);
+.hb-quota-row[data-status="scheduled"],
+.hb-quota-row[data-status="no_change"] {
+  border-left-color: var(--q-hoverbar-success);
 }
 
-.hb-quota-row[data-status="unscheduled_reset"]::before,
-.hb-quota-row[data-status="possible_reset"]::before {
-  background: var(--q-hoverbar-warning);
+.hb-quota-row[data-status="pending"] {
+  border-left-color: var(--q-hoverbar-primary);
 }
 
-.hb-quota-row[data-status="scheduled"]::before,
-.hb-quota-row[data-status="no_change"]::before {
-  background: var(--q-hoverbar-success);
+.hb-quota-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 4px;
 }
 
-.hb-quota-row[data-status="pending"]::before {
-  background: var(--q-hoverbar-primary);
+.hb-quota-metric-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--q-hoverbar-ink) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 50%, transparent);
+  min-width: 0;
+}
+
+.hb-quota-metric-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--q-hoverbar-muted);
+  letter-spacing: 0.02em;
+}
+
+.hb-quota-metric-val {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--q-hoverbar-ink);
+}
+
+.hb-quota-metric-sub {
+  font-size: 9.5px;
+  line-height: 13px;
+  color: var(--q-hoverbar-muted);
 }
 
 .hb-quota-row-head {

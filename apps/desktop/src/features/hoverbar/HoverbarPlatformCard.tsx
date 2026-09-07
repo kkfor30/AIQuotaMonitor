@@ -13,7 +13,7 @@
  * stale 保留真实值与进度色，仅以低饱和蓝灰缓存提示；
  * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
-import { AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, CircleX, Radar, RefreshCw, TimerReset, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, CircleX, CreditCard, Radar, RefreshCw, RotateCcw, TimerReset, Wallet } from "lucide-react";
 import {
   FlashCrystalIcon,
   ProCoreIcon,
@@ -31,7 +31,7 @@ import { compactPercentText } from "@/lib/format";
 import { capabilityRemainingPercent, quotaTone, quotaToneColor } from "@/components/ui/QuotaProgress";
 import {
   formatHoverbarClock,
-  radarAiStripLine,
+  radarAiStatusLabel,
   radarBankedChangeLine,
   radarLatestBankedChange,
   radarDecisionBadge,
@@ -643,22 +643,37 @@ function RadarStrip({
         <p className="hb-radar-strip-error">{radarRefreshError}</p>
       ) : (
         <>
-          {recentResetLine ? (
-            <p className="hb-radar-strip-row-text" data-selectable="true">
-              {recentResetLine}
-            </p>
+          {recentResetLine || recentGrantLine ? (
+            <div className="hb-radar-strip-ref-box">
+              {recentResetLine ? (
+                <div className="hb-radar-strip-ref-row">
+                  <RotateCcw size={10} className="hb-radar-strip-ref-icon" aria-hidden />
+                  <span className="hb-radar-strip-ref-text">{recentResetLine}</span>
+                </div>
+              ) : null}
+              {recentGrantLine ? (
+                <div className="hb-radar-strip-ref-row">
+                  <CreditCard size={10} className="hb-radar-strip-ref-icon" aria-hidden />
+                  <span className="hb-radar-strip-ref-text">{recentGrantLine}</span>
+                </div>
+              ) : null}
+            </div>
           ) : null}
-          {recentGrantLine ? (
-            <p className="hb-radar-strip-row-text" data-selectable="true">
-              {recentGrantLine}
-            </p>
-          ) : null}
-          <p className="hb-radar-strip-row-text" data-selectable="true">
-            {radarAiStripLine(radar.aiAssessment)}
-          </p>
+          <div className="hb-radar-strip-foot">
+            <span className="hb-radar-strip-note">
+              {staleLine ?? `更新 ${formatHoverbarClock(radar.lastSyncedAt ?? Date.now())}`}
+            </span>
+            {radar.aiAssessment.enabled ? (
+              <span
+                className="hb-radar-ai-pill"
+                data-state={radar.aiAssessment.state}
+              >
+                {radarAiStatusLabel(radar.aiAssessment)}
+              </span>
+            ) : null}
+          </div>
         </>
       )}
-      {staleLine ? <p className="hb-radar-strip-note">{staleLine}</p> : null}
     </footer>
   );
 }

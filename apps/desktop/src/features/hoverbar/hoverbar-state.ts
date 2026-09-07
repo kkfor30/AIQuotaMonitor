@@ -552,6 +552,20 @@ export function quotaBadgeLabel(status: string, attribution: string, lastResetOb
   return quotaStatusLabel(status, attribution);
 }
 
+/** 紧凑版徽章文案：用于悬浮详情卡头，避免长字符串撑破布局。 */
+export function quotaBadgeLabelCompact(status: string, _attribution: string, lastResetObservedAt: number | null): string {
+  if (status === "possible_reset") {
+    return lastResetObservedAt != null
+      ? `疑似刷新 · ${formatHoverbarClock(lastResetObservedAt)}`
+      : "疑似刷新";
+  }
+  if (lastResetObservedAt != null && (status === "unscheduled_reset" || status === "no_change")) {
+    return `已重置 · ${formatHoverbarClock(lastResetObservedAt)}`;
+  }
+  if (status === "unscheduled_reset") return "已观察到重置";
+  return quotaStatusText(status);
+}
+
 /** 本机额度状态 + 归因的最终文案：时间与事件吻合或用户确认时，明确说「已重置」。 */
 export function quotaStatusLabel(status: string, attribution: string): string {
   if (status === "unscheduled_reset") {

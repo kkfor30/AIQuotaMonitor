@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
+  CreditCard,
   ExternalLink,
   Languages,
   RefreshCw,
@@ -31,7 +32,7 @@ import {
   formatRadarRangeLabel,
   humanizeRadarPostRefs,
   postsInRadarRange,
-  quotaBadgeLabel,
+  quotaBadgeLabelCompact,
   quotaCorrelationLabel,
   radarAccountBankedChangeNotes,
   radarAiStatusLabel,
@@ -112,8 +113,13 @@ export function HoverbarRadarDetail({
   const aiAssessment = radar?.aiAssessment ?? null;
   const aiAnalysis = aiAssessment?.eventAnalysis ?? aiAssessment?.latestDeltaAnalysis ?? null;
   const aiStatusLabel = radarAiStatusLabel(aiAssessment);
-  // AI 关闭/历史态：旧结果只能作为历史结果折叠查看，不冒充当前结论。
-  const showCurrentAi = Boolean(aiAssessment?.enabled && aiAssessment.state !== "historical" && aiAnalysis);
+  // AI 关闭/历史态/失败态：旧结果只能作为历史结果折叠查看，不冒充当前结论。
+  const showCurrentAi = Boolean(
+    aiAssessment?.enabled &&
+      aiAssessment.state !== "historical" &&
+      aiAssessment.state !== "failed" &&
+      aiAnalysis,
+  );
   const historicalAnalysis = aiAssessment?.history ?? aiAnalysis;
   const rangeTitle =
     radar?.analysisPrefs.analyze
@@ -122,7 +128,7 @@ export function HoverbarRadarDetail({
   const waitingVerify = decision
     ? ["expected_time_passed", "landed_claimed", "user_confirmed"].includes(decision.status)
     : false;
-  const quotaUnavailable = verifications.some((item) => item.status === "unavailable");
+  const quotaUnavailable = verifications.length > 0 && verifications.every((item) => item.status === "unavailable");
 
   const confirmDialog = confirmOpen ? (
     <ConfirmResetDialog
@@ -192,10 +198,11 @@ export function HoverbarRadarDetail({
             {radarBankedChangeRows(decision).map((change) => (
               <p
                 key={`${change.kind}-${change.observedAt}-${change.sourceId}`}
-                className="hb-radar-copy"
+                className="hb-radar-copy flex items-center gap-1.5"
                 data-selectable="true"
               >
-                {radarBankedChangeLine(change, formatHoverbarClock)}
+                <CreditCard size={12} className="shrink-0 text-q-primary/80" aria-hidden />
+                <span>{radarBankedChangeLine(change, formatHoverbarClock)}</span>
               </p>
             ))}
             {!recentCard && decision.status === "no_signal" && decision.recentSummaryText ? (
@@ -312,7 +319,9 @@ export function HoverbarRadarDetail({
             <p className="hb-radar-meta">
               {!aiAssessment || !aiAssessment.enabled || aiAssessment.state === "disabled"
                 ? "AI 未启用：来源公告与本机验证不受影响。"
-                : "没有针对当前范围的新分析；以下为最近一次历史结果。有新增动态时，下次检查会重新分析。"}
+                : aiAssessment.state === "failed"
+                  ? (radar?.aiAssessment.latestError ? `AI 分析失败：${radar.aiAssessment.latestError}` : "AI 分析失败。")
+                  : "当前时间窗内没有 Tibo 新动态；以下为最近一次历史分析。有新增动态时，下次检查会重新分析。"}
             </p>
             {historicalAnalysis?.conclusion ? (
               <>
@@ -649,38 +658,52 @@ function irrelevantTagClass(tag: string): string {
 }
 
 function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
+  const hasRemaining = item.previous?.remaining != null && item.current?.remaining != null;
+  const bankedNotes = radarAccountBankedChangeNotes(item, formatHoverbarClock);
+
   return (
     <div className="hb-quota-row" data-status={item.status}>
       <div className="hb-quota-row-head">
         <b>{item.accountName}</b>
         <span className="hb-quota-window">{item.windowLabel ?? "套餐窗口"}</span>
-        <span className="hb-quota-status">{quotaBadgeLabel(item.status, item.attribution, item.lastResetObservedAt)}</span>
+        <span className="hb-quota-status">
+          {quotaBadgeLabelCompact(item.status, item.attribution, item.lastResetObservedAt)}
+        </span>
       </div>
       {item.status === "unavailable" ? (
         <p className="hb-radar-meta">网络无法获取额度，不影响来源与 AI 判断。</p>
       ) : null}
       {item.note ? <p className="hb-radar-meta hb-radar-meta-strong">{item.note}</p> : null}
-      <p className="hb-radar-meta">
-        {item.bankedResetLabel}
-        {radarAccountBankedChangeNotes(item, formatHoverbarClock)
-          ? ` · ${radarAccountBankedChangeNotes(item, formatHoverbarClock)}`
-          : ""}
-      </p>
-      <p className="hb-radar-meta">
-        {item.lastSuccessAt ? `上次成功 ${formatHoverbarClock(item.lastSuccessAt)}` : "尚无成功快照"}
-      </p>
-      <p className="hb-radar-meta hb-quota-detail">
-        {item.previous?.remaining != null && item.current?.remaining != null
-          ? `剩余 ${Math.round(item.previous.remaining * 100)}% → ${Math.round(item.current.remaining * 100)}%`
-          : null}
-        {item.current?.resetAt
-          ? `${item.previous?.remaining != null ? " · " : ""}重置 ${formatHoverbarClock(item.current.resetAt)}`
-          : null}
-        {quotaCorrelationLabel(item.temporalCorrelation)
-          ? ` · ${quotaCorrelationLabel(item.temporalCorrelation)}`
-          : null}
-        {item.attribution === "user_confirmed" ? " · 用户已确认重置卡" : null}
-      </p>
+      <div className="hb-quota-metrics-grid">
+        <div className="hb-quota-metric-col">
+          <span className="hb-quota-metric-label">额度变化</span>
+          <span className="hb-quota-metric-val">
+            {hasRemaining ? (
+              <span className="tabular-nums font-semibold">
+                {Math.round(item.previous!.remaining! * 100)}% → {Math.round(item.current!.remaining! * 100)}%
+              </span>
+            ) : (
+              <span className="text-q-text-muted">未见变化</span>
+            )}
+          </span>
+          <span className="hb-quota-metric-sub">
+            {item.current?.resetAt ? `重置 ${formatHoverbarClock(item.current.resetAt)}` : ""}
+            {item.lastSuccessAt ? ` · 快照 ${formatHoverbarClock(item.lastSuccessAt)}` : ""}
+            {quotaCorrelationLabel(item.temporalCorrelation) ? ` · ${quotaCorrelationLabel(item.temporalCorrelation)}` : ""}
+          </span>
+        </div>
+        <div className="hb-quota-metric-col">
+          <span className="hb-quota-metric-label">重置卡与权益</span>
+          <span className="hb-quota-metric-val">
+            <span className="tabular-nums font-semibold">
+              {item.bankedResetLabel}
+            </span>
+          </span>
+          <span className="hb-quota-metric-sub truncate" title={bankedNotes || undefined}>
+            {bankedNotes || (item.attribution === "user_confirmed" ? "用户已确认重置卡" : "未见变动")}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

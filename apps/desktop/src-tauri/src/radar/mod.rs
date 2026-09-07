@@ -813,17 +813,24 @@ fn build_ai_assessment(
     let latest_failed = checks
         .first()
         .is_some_and(|check| check.analyze_status.as_deref() == Some("failed"));
+    let empty_window = groups.range_posts.is_empty()
+        && groups.event_context.is_empty()
+        && groups.new_posts.is_empty();
     let state = if !enabled {
         "disabled"
     } else if latest_failed {
         "failed"
     } else if !groups.new_posts.is_empty() {
         "pending"
-    } else if latest_delta.as_ref().is_some_and(|analysis| {
+    } else if empty_window || latest_delta.as_ref().is_some_and(|analysis| {
         analysis.analysis_mode.as_deref() == Some("historical_replay")
             || analysis.range_key != range_key
     }) {
-        "historical"
+        if latest_delta.is_some() {
+            "historical"
+        } else {
+            "pending"
+        }
     } else if latest_delta.is_some() {
         "covered"
     } else {
@@ -2373,12 +2380,6 @@ fn collect_delta_inputs(database: &Database, range_key: &str) -> Result<DeltaInp
         .cloned()
         .collect();
     let classified = classify_analysis_posts(database, &views, range_key, &active)?;
-    if classified.range_posts.is_empty()
-        && classified.event_context.is_empty()
-        && classified.new_posts.is_empty()
-    {
-        return Err("当前时间窗内没有 Tibo 动态可分析".into());
-    }
     let delta = classified.new_posts.clone();
     let context = classified.event_context.clone();
     let historical = classified.historical.clone();
@@ -4442,5 +4443,28 @@ mod tests {
     fn parse_endpoint_source_id() {
         assert_eq!(parse_endpoint_id("radar-endpoint:ep_1"), Some("ep_1"));
         assert_eq!(parse_endpoint_id("deepseek-balance-api"), None);
+    }
+
+    #[test]
+    fn empty_window_inputs_return_ok_without_failing() {
+        let (database, path) = temp_db();
+        let inputs = collect_delta_inputs(&database, "today").unwrap();
+        assert!(inputs.delta.is_empty());
+        assert!(inputs.context.is_empty());
+        assert!(inputs.historical.is_empty());
+
+        let groups = ClassifiedPosts {
+            mode: "live_delta",
+            range_posts: Vec::new(),
+            new_posts: Vec::new(),
+            event_context: Vec::new(),
+            historical: Vec::new(),
+        };
+        let checks = Vec::new();
+        let ai = build_ai_assessment(&database, None, None, &groups, &checks, true, "today").unwrap();
+        assert_ne!(ai.state, "failed");
+        assert_eq!(ai.state, "pending");
+
+        let _ = std::fs::remove_file(path);
     }
 }

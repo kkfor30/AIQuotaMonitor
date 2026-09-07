@@ -6,6 +6,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
+  CreditCard,
   ExternalLink,
   Heart,
   HelpCircle,
@@ -14,6 +15,7 @@ import {
   Radar,
   RefreshCw,
   Repeat2,
+  RotateCcw,
   ShieldCheck,
   ThumbsDown,
   ThumbsUp,
@@ -108,7 +110,7 @@ export function GptRadarPage() {
     prefsReady.current = true;
     setAnalyze(data.analysisPrefs.analyze);
     setRangeKey(data.analysisPrefs.rangeKey || "3d");
-    const readyModels = data.models.filter((item) => item.ready);
+    const readyModels = (data.models ?? []).filter((item) => item.ready);
     const saved = readyModels.find(
       (item) =>
         item.sourceId === data.analysisPrefs.sourceId && item.model === (data.analysisPrefs.model ?? ""),
@@ -514,8 +516,13 @@ function SignalSummaryView({
   const citedPosts = knownPosts.filter((post) => citedIds.includes(post.id));
   const notice = data?.notice ?? null;
   const aiStatusLabel = radarAiStatusLabel(ai);
-  // AI 关闭/历史态：确定性判断与 Tibo 数据继续展示，旧结果只能作为历史结果折叠查看。
-  const showCurrentAnalysis = Boolean(ai?.enabled && ai.state !== "historical" && aiReasoning?.conclusion);
+  // AI 关闭/历史态/失败态：确定性判断与 Tibo 数据继续展示，旧结果只能作为历史结果折叠查看。
+  const showCurrentAnalysis = Boolean(
+    ai?.enabled &&
+      ai.state !== "historical" &&
+      ai.state !== "failed" &&
+      aiReasoning?.conclusion,
+  );
   const historicalAnalysis = ai?.history ?? aiReasoning;
   const [recentOpen, setRecentOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -622,42 +629,39 @@ function SignalSummaryView({
             <p className="text-xs text-q-text-muted">正在加载重置判断…</p>
           )}
 
-          {/* 重置卡数量变化与额度重置并列；减少不得写成已使用，也不得写入额度摘要。 */}
+          {/* 历史参考记录：重置卡变动与历史重置并列 */}
           {decision && (radarBankedChangeRows(decision).length > 0 || recentCard) ? (
-            <div className="mt-auto flex flex-col border-t border-q-border/70 pt-2">
-              {radarBankedChangeRows(decision).map((change, index) => (
+            <div className="mt-auto flex flex-col gap-1.5 rounded-q-control border border-q-border/60 bg-q-surface-strong/40 p-2.5">
+              {radarBankedChangeRows(decision).map((change) => (
                 <div
                   key={`${change.kind}-${change.observedAt}-${change.sourceId}`}
-                  className={cn("flex items-center gap-2", index > 0 && "mt-1.5")}
+                  className="flex items-center gap-2 text-[12.5px]"
                 >
-                  <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">
+                  <CreditCard size={14} className="shrink-0 text-q-primary/80" aria-hidden />
+                  <span className="font-medium text-q-text-secondary">
                     {radarBankedChangeTitle(change)}
-                  </h2>
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-q-text-muted">
+                  </span>
+                  <span className="ml-auto min-w-0 shrink-0 truncate tabular-nums text-q-text-muted">
                     {radarBankedChangeMeta(change, formatCompactTime)}
                   </span>
                 </div>
               ))}
               {recentCard ? (
-                <div className={cn(radarBankedChangeRows(decision).length > 0 && "mt-2 border-t border-q-border/60 pt-2")}>
+                <div className={cn(radarBankedChangeRows(decision).length > 0 && "border-t border-q-border/40 pt-1.5")}>
                   <button
                     type="button"
-                    className="radar-collapse-trigger"
+                    className="flex w-full cursor-pointer items-center gap-2 text-left text-[12.5px] group"
                     onClick={() => setRecentOpen((value) => !value)}
                     aria-expanded={recentOpen}
                   >
-                    <ChevronRight
-                      size={17}
-                      aria-hidden
-                      className={cn("radar-collapse-chevron", recentOpen && "is-open")}
-                    />
-                    <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">
+                    <RotateCcw size={14} className="shrink-0 text-q-primary/80" aria-hidden />
+                    <span className="font-medium text-q-text-secondary">
                       {recentReset ? "最近一次重置" : "最近一次事件"}
-                    </h2>
-                    <span className="min-w-0 flex-1 truncate text-[13px]">
+                    </span>
+                    <span className="ml-auto flex items-center gap-1.5 truncate tabular-nums text-[12px]">
                       {recentResetAt ? (
                         <>
-                          <span className="font-semibold tabular-nums text-q-text-primary">
+                          <span className="font-semibold text-q-text-primary">
                             {formatCompactTime(recentResetAt)}
                           </span>
                           <span className="text-q-text-muted">
@@ -668,33 +672,41 @@ function SignalSummaryView({
                       ) : (
                         <span className="text-q-text-muted">{recentMeta}</span>
                       )}
+                      <ChevronRight
+                        size={13}
+                        aria-hidden
+                        className={cn(
+                          "shrink-0 text-q-text-muted transition-transform duration-200 group-hover:text-q-text-primary",
+                          recentOpen && "rotate-90",
+                        )}
+                      />
                     </span>
                   </button>
                   <AnimatedCollapse open={recentOpen}>
-                    <div className="flex flex-col gap-1.5 pt-2">
+                    <div className="flex flex-col gap-1.5 pt-2 pl-5.5 text-[12px]">
                       {recentResetAt ? (
-                        <p className="text-[13px] leading-relaxed text-q-text-secondary">
-                          <span className="font-semibold text-q-text-primary">真实时间：</span>
+                        <p className="leading-relaxed text-q-text-secondary">
+                          <span className="font-medium text-q-text-primary">真实时间：</span>
                           <span className="tabular-nums">{formatCompactTime(recentResetAt)}</span>
                         </p>
                       ) : null}
-                      <p className="text-[13px] leading-relaxed text-q-text-secondary">
-                        <span className="font-semibold text-q-text-primary">确认方式：</span>
+                      <p className="leading-relaxed text-q-text-secondary">
+                        <span className="font-medium text-q-text-primary">确认方式：</span>
                         {radarConfirmationSourceLabel(recentCard.confirmationSource)}
                       </p>
-                      <p className="text-[13px] leading-relaxed text-q-text-secondary">
-                        <span className="font-semibold text-q-text-primary">最终状态：</span>
+                      <p className="leading-relaxed text-q-text-secondary">
+                        <span className="font-medium text-q-text-primary">最终状态：</span>
                         {radarCloseReasonLabel(recentCard.closeReason)}
                       </p>
                       {recentCard.analysis?.conclusion ? (
-                        <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
-                          <span className="font-semibold text-q-text-primary">当时结论：</span>
+                        <p className="leading-relaxed text-q-text-secondary" data-selectable="true">
+                          <span className="font-medium text-q-text-primary">当时结论：</span>
                           {humanizeRadarPostRefs(recentCard.analysis.conclusion, knownPosts)}
                         </p>
                       ) : null}
                       {recentCard.analysis?.analysisBasis ? (
-                        <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
-                          <span className="font-semibold text-q-text-primary">当时分析：</span>
+                        <p className="leading-relaxed text-q-text-secondary" data-selectable="true">
+                          <span className="font-medium text-q-text-primary">当时分析：</span>
                           {humanizeRadarPostRefs(recentCard.analysis.analysisBasis, knownPosts)}
                         </p>
                       ) : null}
@@ -977,12 +989,19 @@ function SignalSummaryView({
           </>
         ) : (
           <>
-            <p className="text-[14px] leading-relaxed text-q-text-secondary">
+            <p
+              className={cn(
+                "text-[14px] leading-relaxed",
+                ai?.state === "failed" ? "text-q-danger" : "text-q-text-secondary",
+              )}
+            >
               {!ai || ai.state === "disabled"
                 ? "AI 未启用：来源公告与本机验证不受影响。"
-                : ai.state === "historical"
-                  ? "没有针对当前范围的新分析；以下为最近一次历史结果。有新增动态时，下次检查会重新分析。"
-                  : "尚未生成分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。"}
+                : ai.state === "failed"
+                  ? (ai.latestError ? `AI 分析失败：${ai.latestError}` : "AI 分析失败。可在 AI 辅助分析 Tab 查看并重试。")
+                  : ai.state === "historical"
+                    ? "当前时间窗内没有 Tibo 新动态；以下为最近一次历史分析。有新增动态时，下次检查会重新分析。"
+                    : "尚未生成分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。"}
             </p>
             {historicalAnalysis?.conclusion ? (
               <>
