@@ -21,7 +21,7 @@ import type {
   RadarSnapshot,
 } from "@/lib/ipc";
 import "@/styles/global.css";
-import { HoverbarOrb, type OrbGlowType } from "./HoverbarAnchorApp";
+import { HoverbarOrb } from "./HoverbarAnchorApp";
 import { HoverbarPlatformCard } from "./HoverbarPlatformCard";
 import { HoverbarRadarDetail } from "./HoverbarRadarDetail";
 import { useHoverbarTheme } from "./hoverbar-theme";
@@ -851,23 +851,18 @@ function OrbState({
   label,
   forceState,
   disabled,
-  glow = "normal",
-  edge = "right",
 }: {
   label: string;
   forceState?: "hover" | "focus" | "active";
   disabled?: boolean;
-  glow?: OrbGlowType;
-  edge?: HoverbarEdge;
 }) {
   return (
     <section className="hb-preview-tile">
       <span>{label}</span>
       <div className="hb-preview-orb-frame">
         <HoverbarOrb
-          edge={edge}
+          edge="right"
           active={false}
-          orbGlow={glow}
           ariaLabel={label}
           onActivate={noop}
           onPointerDown={noop}
@@ -985,16 +980,11 @@ function HoverbarPreview() {
       </header>
 
       <div className="hb-preview-orb-grid">
-        <OrbState label="幽蓝生息 (Normal)" glow="normal" />
-        <OrbState label="琥珀金芒 (Warning)" glow="warning" />
-        <OrbState label="心跳绯红 (Danger)" glow="danger" />
-        <OrbState label="翡翠高能 (Active)" glow="active" />
-        <OrbState label="全域公转 (Verifying)" glow="verifying" />
-        <OrbState label="冷灰沉睡 (Stale)" glow="stale" />
-        <OrbState label="左停靠内向 (Left)" glow="normal" edge="left" />
-        <OrbState label="交互 · 悬停" forceState="hover" />
-        <OrbState label="交互 · 按下" forceState="active" />
-        <OrbState label="状态 · 禁用" disabled />
+        <OrbState label="默认" />
+        <OrbState label="悬停" forceState="hover" />
+        <OrbState label="键盘焦点" forceState="focus" />
+        <OrbState label="按下" forceState="active" />
+        <OrbState label="禁用" disabled />
       </div>
 
       <section className="hb-preview-detail-section">

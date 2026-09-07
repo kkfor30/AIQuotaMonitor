@@ -26,8 +26,6 @@ import {
 } from "./hoverbar-state";
 import { preventNativeAssetDrag } from "./hoverbar-interaction";
 
-export type OrbGlowType = "normal" | "warning" | "danger" | "active" | "verifying" | "stale";
-
 export function HoverbarAnchorApp() {
   const [anchor, setAnchor] = useState<HoverbarAnchor>({ edge: "right", ratio: 0.4 });
   const [detailVisible, setDetailVisible] = useState(false);
@@ -44,42 +42,21 @@ export function HoverbarAnchorApp() {
     staleTime: 10000,
   });
 
-  // 计算小球 6 大动态语义状态（方案 A 全息微星标驱动源）
-  const orbGlow: OrbGlowType = (() => {
-    // 1. 优先检测是否存在后台异步核验中的源
-    const isRefreshing = platforms.some((p) =>
-      p.sources?.some((s) => s.state === "refreshing"),
-    );
-    if (isRefreshing) return "verifying";
-
+  const alertTone: "error" | "warning" | null = (() => {
     let hasDanger = false;
     let hasWarning = false;
-    let allHealthyAndHigh = platforms.length > 0;
-    let hasAnyQuota = false;
-    let totalCaps = 0;
-    let staleCaps = 0;
-
     for (const p of platforms) {
       if (p.aggregateStatus === "error") hasDanger = true;
       if (p.aggregateStatus === "partial") hasWarning = true;
       for (const c of p.capabilities) {
-        totalCaps++;
-        if (c.freshness === "stale") staleCaps++;
         const rem = capabilityRemainingPercent(c);
-        if (rem !== null) {
-          hasAnyQuota = true;
-          if (rem <= 5) hasDanger = true;
-          else if (rem <= 15) hasWarning = true;
-          if (rem < 90) allHealthyAndHigh = false;
-        }
+        if (rem !== null && rem <= 5) hasDanger = true;
+        else if (rem !== null && rem <= 15) hasWarning = true;
       }
     }
-
-    if (hasDanger) return "danger";
+    if (hasDanger) return "error";
     if (hasWarning) return "warning";
-    if (totalCaps > 0 && staleCaps === totalCaps) return "stale";
-    if (hasAnyQuota && allHealthyAndHigh) return "active";
-    return "normal";
+    return null;
   })();
 
   const isPointerOver = useRef(false);
@@ -310,7 +287,7 @@ export function HoverbarAnchorApp() {
       <HoverbarOrb
         edge={anchor.edge}
         active={detailVisible}
-        orbGlow={orbGlow}
+        alertTone={alertTone}
         ariaLabel={detailVisible ? "收起额度详情并拖动" : "打开额度详情"}
         onActivate={activateOrb}
         onPointerDown={startDragging}
@@ -320,11 +297,10 @@ export function HoverbarAnchorApp() {
   );
 }
 
-/** 40x40 透明窗口内的 32px 动态玻璃小球（方案 A：全息微星标轨道态）。 */
+/** 40x40 透明窗口内的 32px 动态玻璃小球。 */
 export function HoverbarOrb({
   edge,
   active,
-  orbGlow = "normal",
   alertTone,
   ariaLabel,
   onActivate,
@@ -335,7 +311,6 @@ export function HoverbarOrb({
 }: {
   edge: string;
   active: boolean;
-  orbGlow?: OrbGlowType;
   alertTone?: "error" | "warning" | null;
   ariaLabel: string;
   onActivate: () => void;
@@ -344,10 +319,6 @@ export function HoverbarOrb({
   disabled?: boolean;
   forceState?: "hover" | "focus" | "active";
 }) {
-  const effectiveGlow: OrbGlowType =
-    orbGlow ??
-    (alertTone === "error" ? "danger" : alertTone === "warning" ? "warning" : "normal");
-
   return (
     <button
       type="button"
@@ -357,19 +328,16 @@ export function HoverbarOrb({
       onClick={onActivate}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
-      className={`hb-orb is-glow-${effectiveGlow}${active ? " is-detail-open" : ""}${
-        forceState ? ` is-${forceState}` : ""
-      }`}
+      className={`hb-orb${active ? " is-detail-open" : ""}${
+        alertTone && !active ? ` is-alert-${alertTone}` : ""
+      }${forceState ? ` is-${forceState}` : ""}`}
       data-edge={edge}
-      data-glow={effectiveGlow}
+      data-alert={alertTone && !active ? alertTone : undefined}
     >
       <picture>
         <source media="(prefers-reduced-motion: reduce)" srcSet="/assets/hover-orb-poster.png" />
         <img src="/assets/hover-orb.webp" alt="" draggable={false} />
       </picture>
-      <div className="hb-satellite-orbit" aria-hidden="true">
-        <div className="hb-satellite-dot" />
-      </div>
     </button>
   );
 }

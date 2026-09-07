@@ -107,82 +107,96 @@
   animation: q-shimmer 1.8s infinite ease-in-out;
 }
 
+/* 悬浮小球被动异常呼吸光晕：纯圆内发光结合 bounded ≤4px 微扩散，绝无超出 40x40 物理边界的方形裁切 */
+@keyframes orb-alert-pulse-rose {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.3), inset 0 0 3px rgba(244, 63, 94, 0.15);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1.3px rgba(244, 63, 94, 0.7), inset 0 0 5px rgba(244, 63, 94, 0.35);
+  }
+}
+
+@keyframes orb-alert-pulse-amber {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.3), inset 0 0 3px rgba(245, 158, 11, 0.15);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1.3px rgba(251, 191, 36, 0.65), inset 0 0 5px rgba(245, 158, 11, 0.3);
+  }
+}
+
 /* ==========================================================================
-   方案 A：全息微星标 · 轨道态 (Orbital Micro-Beacon) 专属微动效规范
-   微星标 (3.5px~4px) 沿 32px 正圆肩部轨道悬浮，100% 避免 40x40 物理窗口边缘裁切。
+   悬浮小球 6 大动态语义光效系统 (Semantic Orb Glow) - 克制微光与柔和全息环
+   注意：悬浮小球物理窗口为 40x40，按钮为 32x32。
+   发光主力采用 ::after 全息层极细 1px~1.3px 内嵌环 + 3px~5px 柔和微扩散，
+   绝不遮挡 WebP 球体本身的玻璃质感，100% 保持球体完美正圆与实体通透质感。
    ========================================================================== */
 
 /* 1. 幽蓝生息 (normal): 青蓝慢速呼吸 (3.6s 周期) */
-@keyframes dot-breathe-normal {
+@keyframes orb-glow-breathe-cyan {
   0%, 100% {
-    opacity: 0.35;
-    transform: scale(0.9);
+    box-shadow: inset 0 0 0 1px rgba(6, 182, 212, 0.35), inset 0 0 3px rgba(6, 182, 212, 0.15);
   }
   50% {
-    opacity: 0.85;
-    transform: scale(1.15);
-    box-shadow: 0 0 6px #06b6d4, 0 0 2px #fff;
+    box-shadow: inset 0 0 0 1.2px rgba(6, 182, 212, 0.65), inset 0 0 5px rgba(14, 165, 233, 0.3);
   }
 }
 
 /* 2. 琥珀金芒 (warning): 琥珀金脉冲微晕 (2.2s 周期) */
-@keyframes dot-pulse-warning {
+@keyframes orb-glow-pulse-amber {
   0%, 100% {
-    opacity: 0.45;
-    transform: scale(0.95);
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35), inset 0 0 3px rgba(245, 158, 11, 0.15);
   }
   50% {
-    opacity: 1;
-    transform: scale(1.25);
-    box-shadow: 0 0 7px #fbbf24, 0 0 2px #fff;
+    box-shadow: inset 0 0 0 1.2px rgba(251, 191, 36, 0.7), inset 0 0 5px rgba(245, 158, 11, 0.35);
   }
 }
 
-/* 3. 心跳绯红 (danger): 双跳心律警示脉冲 (1.3s 周期) */
-@keyframes dot-heartbeat-danger {
+/* 3. 翡翠高能 (active): 极光高能充沛流光 (1.6s 周期) */
+@keyframes orb-glow-aurora-emerald {
   0%, 100% {
-    opacity: 0.3;
-    transform: scale(0.9);
-  }
-  15% {
-    opacity: 1;
-    transform: scale(1.4);
-    box-shadow: 0 0 8px #f43f5e, 0 0 3px #fff;
-  }
-  30% {
-    opacity: 0.5;
-    transform: scale(1.05);
-  }
-  45% {
-    opacity: 1;
-    transform: scale(1.5);
-    box-shadow: 0 0 9px #ff4b69, 0 0 4px #fff;
-  }
-  70% {
-    opacity: 0.3;
-    transform: scale(0.9);
-  }
-}
-
-/* 4. 翡翠高能 (active): 极光高能充沛流光 (1.6s 周期) */
-@keyframes dot-bloom-active {
-  0%, 100% {
-    opacity: 0.4;
-    transform: scale(0.95);
+    box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.35), inset 0 0 3px rgba(16, 185, 129, 0.18);
   }
   50% {
-    opacity: 1;
-    transform: scale(1.3);
-    box-shadow: 0 0 8px #34d399, 0 0 3px #fff;
+    box-shadow: inset 0 0 0 1.3px rgba(52, 211, 153, 0.75), inset 0 0 6px rgba(16, 185, 129, 0.38);
   }
 }
 
-/* 5. 异步核验公转 (verifying): 微星标在 360° 轨道上平滑公转飞旋 (1.4s 周期) */
-@keyframes satellite-spin-orbit {
+/* 4. 心跳绯红 (danger): 双跳心律警示脉冲 (1.3s 周期) */
+@keyframes orb-glow-heartbeat-rose {
+  0% {
+    box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.3), inset 0 0 3px rgba(244, 63, 94, 0.15);
+  }
+  14% {
+    box-shadow: inset 0 0 0 1.3px rgba(244, 63, 94, 0.7), inset 0 0 5px rgba(244, 63, 94, 0.35);
+  }
+  28% {
+    box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.35), inset 0 0 3px rgba(244, 63, 94, 0.18);
+  }
+  42% {
+    box-shadow: inset 0 0 0 1.5px rgba(255, 75, 105, 0.85), inset 0 0 6px rgba(225, 29, 72, 0.45);
+  }
+  70%, 100% {
+    box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.3), inset 0 0 3px rgba(244, 63, 94, 0.15);
+  }
+}
+
+/* 5. 蓝绿涡流 (verifying): 蓝绿双色旋转光 (1.2s 周期) */
+@keyframes orb-vortex-spin {
   0% {
     transform: rotate(0deg);
   }
   100% {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes orb-vortex-glow {
+  0%, 100% {
+    box-shadow: 0 0 2px rgba(6, 182, 212, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 3px rgba(16, 185, 129, 0.28);
   }
 }
