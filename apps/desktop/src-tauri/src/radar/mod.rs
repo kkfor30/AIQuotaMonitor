@@ -14,7 +14,7 @@ use crate::storage::repository::{
 };
 use crate::storage::vault;
 use chrono::{Duration as ChronoDuration, Local, NaiveDate, TimeZone};
-use quota_watch::QuotaVerificationView;
+use quota_watch::{BankedGrantView, QuotaVerificationView};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -335,6 +335,8 @@ pub struct RadarDecisionView {
     pub signal_level: Option<String>,
     /// 最近一次本机观察或用户确认的重置事件；“最近一次重置”唯一来源。
     pub recent_reset: Option<RadarRecentEventView>,
+    /// 最近一次本机观察到的重置卡发放（数量增加）；不得写入 recent_reset。
+    pub recent_banked_grant: Option<BankedGrantView>,
     /// 最近关闭的普通雷达事件（invalid_historical_replay/timeout 等只进历史，不参与“最近一次重置”）。
     pub recent_closed_event: Option<RadarRecentEventView>,
     pub relevant_post_ids: Vec<String>,
@@ -546,7 +548,12 @@ pub fn reconcile_event_state(database: &Database, now: i64) -> Result<(), String
         .iter()
         .find(|event| event.event_type != "banked_reset")
         .cloned();
+    let banked_event = events
+        .iter()
+        .find(|event| event.event_type == "banked_reset")
+        .cloned();
     quota_watch::materialize_observations(database, quota_event.as_ref())?;
+    quota_watch::materialize_banked_grants(database, banked_event.as_ref())?;
     for mut event in events {
         reconcile_one_event(database, &mut event, now)?;
     }
@@ -1042,6 +1049,7 @@ fn build_decision(
         signal_level: event_analysis.and_then(|analysis| analysis.signal_level.clone()),
         // 最近一次本机观察/用户确认的重置；“最近一次重置”唯一来源。
         recent_reset,
+        recent_banked_grant: quota_watch::latest_banked_grant(database)?,
         // 最近关闭的普通雷达事件（含 invalid_historical_replay 等），只用于历史与来源声称提示。
         recent_closed_event,
         relevant_post_ids,
@@ -4236,6 +4244,48 @@ mod tests {
             database.latest_closed_radar_event().unwrap().expect("closed").id,
             "event-replay"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn latest_confirmed_reset_event_ignores_banked_grant() {
+        let (database, path) = temp_db();
+        let now = epoch_ms();
+        database
+            .insert_radar_event(&closed_event(
+                "event-observed",
+                Some(now - 26 * 3_600_000),
+                None,
+                None,
+                "completed",
+                now - 24 * 3_600_000,
+            ))
+            .unwrap();
+        database
+            .insert_radar_event(&RadarEventRecord {
+                id: "event-banked".into(),
+                phase: "closed".into(),
+                title: "本机已观察到重置卡到账".into(),
+                summary: None,
+                first_signal_at: now - 8 * 3_600_000,
+                latest_evidence_at: now - 2 * 3_600_000,
+                claimed_landed_at: None,
+                observed_reset_at: Some(now - 2 * 3_600_000),
+                closed_at: Some(now - 60_000),
+                close_reason: Some("completed".into()),
+                expected_at: None,
+                expires_at: None,
+                state_revision: 1,
+                user_confirmed_reset_at: None,
+                event_type: "banked_reset".into(),
+            })
+            .unwrap();
+        let confirmed = database
+            .latest_confirmed_reset_event()
+            .unwrap()
+            .expect("confirmed");
+        assert_eq!(confirmed.id, "event-observed");
+        assert_eq!(confirmed.event_type, "quota_reset");
         let _ = std::fs::remove_file(path);
     }
 

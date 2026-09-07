@@ -25,7 +25,7 @@ export type HoverbarEdge = "top" | "right" | "bottom" | "left";
 export type HoverbarSortMode = "manual" | "smart";
 
 import type { PlatformSummaryViewModel } from "@/lib/types";
-import type { RadarDecision, RadarSnapshot } from "@/lib/ipc";
+import type { RadarBankedGrant, RadarDecision, RadarSnapshot } from "@/lib/ipc";
 
 /** 默认平台顺序（后续由设置页排序编辑持久化）。 */
 export const DEFAULT_HOVERBAR_PROVIDER_ORDER = [
@@ -294,6 +294,40 @@ export function radarSignalTypeLabel(value: string | null | undefined): string {
     default:
       return "未标注";
   }
+}
+
+export function radarBankedGrantMeta(
+  grant: Pick<RadarBankedGrant, "previousCount" | "currentCount" | "observedAt" | "liveCount">,
+  clock: (ms: number) => string,
+): string {
+  const delta = `${grant.previousCount}→${grant.currentCount}`;
+  const live = grant.liveCount != null ? `（现有 ${grant.liveCount} 张）` : "";
+  return `${clock(grant.observedAt)} · ${delta}${live}`;
+}
+
+export function radarBankedGrantLine(
+  grant: Pick<RadarBankedGrant, "previousCount" | "currentCount" | "observedAt" | "liveCount">,
+  clock: (ms: number) => string,
+): string {
+  return `最近一次重置卡到账 ${radarBankedGrantMeta(grant, clock)}`;
+}
+
+export function radarAccountBankedGrantNote(
+  item: {
+    lastBankedGrantAt: number | null;
+    lastBankedGrantFrom: number | null;
+    lastBankedGrantTo: number | null;
+  },
+  clock: (ms: number) => string,
+): string | null {
+  if (
+    item.lastBankedGrantAt == null ||
+    item.lastBankedGrantFrom == null ||
+    item.lastBankedGrantTo == null
+  ) {
+    return null;
+  }
+  return `最近到账 ${clock(item.lastBankedGrantAt)}（${item.lastBankedGrantFrom}→${item.lastBankedGrantTo}）`;
 }
 
 export function radarConfirmationSourceLabel(source: string | null | undefined): string {

@@ -233,6 +233,27 @@ pub struct QuotaResetObservationRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct CapabilityValueSample {
+    pub id: i64,
+    pub captured_at: i64,
+    pub primary_value: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BankedResetObservationRecord {
+    #[allow(dead_code)]
+    pub id: i64,
+    pub account_id: String,
+    pub source_id: String,
+    pub previous_snapshot_id: i64,
+    pub current_snapshot_id: i64,
+    pub previous_count: i64,
+    pub current_count: i64,
+    pub observed_at: i64,
+    pub event_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct RefreshHistoryRecord {
     pub id: String,
     pub source_id: String,
@@ -1804,6 +1825,99 @@ impl Database {
             Ok(())
         }
     }
+
+    /// 指定能力的历史快照（含 id），按捕获时间升序；观察器在代码里取相邻可解析对。
+    pub fn capability_value_samples(
+        &self,
+        source_id: &str,
+        capability_id: &str,
+        since: i64,
+    ) -> Result<Vec<CapabilityValueSample>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, captured_at, primary_value FROM capability_snapshots
+                 WHERE source_id = ?1 AND capability_id = ?2 AND captured_at >= ?3
+                 ORDER BY captured_at ASC, id ASC",
+            )
+            .map_err(|err| format!("准备能力快照样本查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![source_id, capability_id, since], |row| {
+                Ok(CapabilityValueSample {
+                    id: row.get(0)?,
+                    captured_at: row.get(1)?,
+                    primary_value: row.get(2)?,
+                })
+            })
+            .map_err(|err| format!("读取能力快照样本失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取能力快照样本失败: {err}"))
+    }
+
+    pub fn insert_banked_reset_observation(
+        &self,
+        observation: &BankedResetObservationRecord,
+    ) -> Result<i64, String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO banked_reset_observations(
+                    account_id, source_id, previous_snapshot_id, current_snapshot_id,
+                    previous_count, current_count, observed_at, event_id, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    observation.account_id,
+                    observation.source_id,
+                    observation.previous_snapshot_id,
+                    observation.current_snapshot_id,
+                    observation.previous_count,
+                    observation.current_count,
+                    observation.observed_at,
+                    observation.event_id,
+                    epoch_ms(),
+                ],
+            )
+            .map_err(|err| format!("保存重置卡发放观察失败: {err}"))?;
+        connection
+            .query_row(
+                "SELECT id FROM banked_reset_observations
+                 WHERE source_id = ?1 AND previous_snapshot_id = ?2 AND current_snapshot_id = ?3",
+                params![
+                    observation.source_id,
+                    observation.previous_snapshot_id,
+                    observation.current_snapshot_id,
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|err| format!("读取重置卡发放观察失败: {err}"))
+    }
+
+    pub fn banked_reset_observations(
+        &self,
+        source_id: Option<&str>,
+    ) -> Result<Vec<BankedResetObservationRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, account_id, source_id, previous_snapshot_id, current_snapshot_id,
+                        previous_count, current_count, observed_at, event_id
+                 FROM banked_reset_observations
+                 WHERE (?1 IS NULL OR source_id = ?1)
+                 ORDER BY observed_at DESC, id DESC",
+            )
+            .map_err(|err| format!("准备重置卡发放观察查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![source_id], map_banked_reset_observation)
+            .map_err(|err| format!("读取重置卡发放观察失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取重置卡发放观察失败: {err}"))
+    }
+
+    pub fn latest_banked_reset_observation(
+        &self,
+    ) -> Result<Option<BankedResetObservationRecord>, String> {
+        Ok(self.banked_reset_observations(None)?.into_iter().next())
+    }
 }
 
 /// radar_analyses 全列 SELECT；各查询只差异 WHERE/ORDER 子句。
@@ -1943,6 +2057,22 @@ fn map_quota_reset_observation(
         event_id: row.get(8)?,
         temporal_correlation: row.get(9)?,
         user_confirmed_at: row.get(10)?,
+    })
+}
+
+fn map_banked_reset_observation(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<BankedResetObservationRecord> {
+    Ok(BankedResetObservationRecord {
+        id: row.get(0)?,
+        account_id: row.get(1)?,
+        source_id: row.get(2)?,
+        previous_snapshot_id: row.get(3)?,
+        current_snapshot_id: row.get(4)?,
+        previous_count: row.get(5)?,
+        current_count: row.get(6)?,
+        observed_at: row.get(7)?,
+        event_id: row.get(8)?,
     })
 }
 

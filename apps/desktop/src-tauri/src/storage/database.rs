@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 13;
+const CURRENT_SCHEMA_VERSION: i64 = 14;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -140,6 +140,9 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 13 {
         migrate_v13(&transaction)?;
+    }
+    if previous_version < 14 {
+        migrate_v14(&transaction)?;
     }
     transaction
         .commit()
@@ -659,6 +662,37 @@ fn migrate_v13(transaction: &Transaction<'_>) -> Result<(), String> {
             "#,
         )
         .map_err(|err| format!("执行 SQLite v13 迁移失败: {err}"))
+}
+
+/// v14：本机重置卡发放观察。只固化 banked_reset_count 的整数增加，
+/// 与额度重置观察对称；数量减少不得记为已使用。
+fn migrate_v14(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            CREATE TABLE banked_reset_observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                previous_snapshot_id INTEGER NOT NULL REFERENCES capability_snapshots(id) ON DELETE CASCADE,
+                current_snapshot_id INTEGER NOT NULL REFERENCES capability_snapshots(id) ON DELETE CASCADE,
+                previous_count INTEGER NOT NULL,
+                current_count INTEGER NOT NULL,
+                observed_at INTEGER NOT NULL,
+                event_id TEXT REFERENCES radar_events(id) ON DELETE SET NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(source_id, previous_snapshot_id, current_snapshot_id)
+            );
+            CREATE INDEX idx_banked_reset_observations_source
+                ON banked_reset_observations(source_id, observed_at DESC);
+            CREATE INDEX idx_banked_reset_observations_event
+                ON banked_reset_observations(event_id, observed_at DESC);
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (14, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v14 迁移失败: {err}"))
 }
 
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {

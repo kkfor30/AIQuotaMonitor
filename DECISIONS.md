@@ -54,7 +54,7 @@ V1 不直接访问 X，使用独立的 `CodexRadarSource` 从 `https://codexrada
 
 ## D014：重置卡与额度重置双轨
 
-AI 输出 `signal_type`：`banked_reset`（可保存重置卡发放/到账）、`quota_reset`（额度窗口实际刷新）、`none`（无信号）。事件表 `event_type` 同步为 banked_reset / quota_reset；旧事件迁移为 quota_reset，旧分析标 unknown，不得伪造成新分析。两类活动事件不得互相关闭。额度窗口观察只推进 quota_reset；banked_reset_count 增加才确认“本机观察到重置卡到账”，数量减少不能单独断言已使用。Codex app-server / WHAM 的 `rateLimitResetCredits.availableCount`（兼容 snake_case）解析为 capability `banked_reset_count`：真实 0 必须保存，字段缺失保持 missing，禁止补零，且不得与 credits.balance 换算。本机默认账号与额外 GPT 账号走同一解析器，按各自 Source 独立保存。关键词只出现在 AI 语义提示，不引入规则引擎。
+AI 输出 `signal_type`：`banked_reset`（可保存重置卡发放/到账）、`quota_reset`（额度窗口实际刷新）、`none`（无信号）。事件表 `event_type` 同步为 banked_reset / quota_reset；旧事件迁移为 quota_reset，旧分析标 unknown，不得伪造成新分析。两类活动事件不得互相关闭。额度窗口观察只推进 quota_reset；banked_reset_count 的整数增加固化为 `banked_reset_observations`（SQLite v14），才确认“本机观察到重置卡到账”。数量减少不能单独断言已使用。发放观察与「最近一次重置」并列展示，不得写入 `latest_confirmed_reset_event`。Codex app-server / WHAM 的 `rateLimitResetCredits.availableCount`（兼容 snake_case）解析为 capability `banked_reset_count`：真实 0 必须保存，字段缺失保持 missing，禁止补零，且不得与 credits.balance 换算。本机默认账号与额外 GPT 账号走同一解析器，按各自 Source 独立保存。关键词只出现在 AI 语义提示，不引入规则引擎。
 
 ## D015：雷达对话凭据可独立于额度 Source
 

@@ -32,6 +32,7 @@ import { capabilityRemainingPercent, quotaTone, quotaToneColor } from "@/compone
 import {
   formatHoverbarClock,
   radarAiStripLine,
+  radarBankedGrantLine,
   radarDecisionBadge,
   radarDecisionStripLine,
   radarDecisionStripLineCompact,
@@ -593,6 +594,13 @@ function RadarStrip({
     decision.status === "landed_observed" || decision.status === "user_confirmed"
       ? null
       : decision.recentSummaryText;
+  const recentGrantLine =
+    decision.eventType === "banked_reset" &&
+    (decision.status === "landed_observed" || decision.status === "user_confirmed")
+      ? null
+      : decision.recentBankedGrant
+        ? radarBankedGrantLine(decision.recentBankedGrant, formatHoverbarClock)
+        : null;
   const staleLine = radar.sourceStatus === "stale" ? radarSourceLine(radar) : null;
   return (
     <footer className="hb-radar-strip">
@@ -635,6 +643,11 @@ function RadarStrip({
           {recentResetLine ? (
             <p className="hb-radar-strip-row-text" data-selectable="true">
               {recentResetLine}
+            </p>
+          ) : null}
+          {recentGrantLine ? (
+            <p className="hb-radar-strip-row-text" data-selectable="true">
+              {recentGrantLine}
             </p>
           ) : null}
           <p className="hb-radar-strip-row-text" data-selectable="true">

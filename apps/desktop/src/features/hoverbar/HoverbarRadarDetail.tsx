@@ -33,7 +33,9 @@ import {
   postsInRadarRange,
   quotaBadgeLabel,
   quotaCorrelationLabel,
+  radarAccountBankedGrantNote,
   radarAiStatusLabel,
+  radarBankedGrantLine,
   radarCloseReasonLabel,
   radarConfirmationSourceLabel,
   radarConfirmResetDialogBody,
@@ -186,6 +188,11 @@ export function HoverbarRadarDetail({
               </p>
             ) : null}
             {radar ? <p className="hb-radar-copy">{radarDeltaImpactLine(radar)}</p> : null}
+            {decision.recentBankedGrant ? (
+              <p className="hb-radar-copy" data-selectable="true">
+                {radarBankedGrantLine(decision.recentBankedGrant, formatHoverbarClock)}
+              </p>
+            ) : null}
             {!recentCard && decision.status === "no_signal" && decision.recentSummaryText ? (
               <p className="hb-radar-meta">{decision.recentSummaryText}</p>
             ) : null}
@@ -648,7 +655,12 @@ function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
         <p className="hb-radar-meta">网络无法获取额度，不影响来源与 AI 判断。</p>
       ) : null}
       {item.note ? <p className="hb-radar-meta hb-radar-meta-strong">{item.note}</p> : null}
-      <p className="hb-radar-meta">{item.bankedResetLabel}</p>
+      <p className="hb-radar-meta">
+        {item.bankedResetLabel}
+        {radarAccountBankedGrantNote(item, formatHoverbarClock)
+          ? ` · ${radarAccountBankedGrantNote(item, formatHoverbarClock)}`
+          : ""}
+      </p>
       <p className="hb-radar-meta">
         {item.lastSuccessAt ? `上次成功 ${formatHoverbarClock(item.lastSuccessAt)}` : "尚无成功快照"}
       </p>
