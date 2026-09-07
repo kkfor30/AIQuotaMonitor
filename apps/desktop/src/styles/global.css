@@ -182,12 +182,24 @@ html.hoverbar-window #root {
   border-radius: 50%;
   outline: 2px solid transparent;
   outline-offset: 1px;
-  overflow: hidden;
+  overflow: visible;
   background: transparent;
   box-shadow: none;
   cursor: grab;
   touch-action: none;
   transition: transform 150ms ease-out;
+}
+
+/* 小球发光与动效专属全息光环层（置于 picture 之上，确保正圆无缝贴合且绝对不发生窗口方形裁切） */
+.hb-orb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 5;
+  box-shadow: none;
+  transition: box-shadow 250ms ease-out, opacity 250ms ease-out;
 }
 
 .hb-orb picture,
@@ -241,54 +253,129 @@ html.hoverbar-window #root {
   box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
 }
 
+.hb-orb.is-detail-open::after {
+  animation: none !important;
+  box-shadow: none !important;
+  background: none !important;
+  opacity: 0 !important;
+}
+
 /* 被动告警脉冲光晕与全边缘定向适配 */
 .hb-orb.is-alert-error {
-  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 0 0 6px rgba(244, 63, 94, 0.55);
+  box-shadow: 0 0 2px rgba(244, 63, 94, 0.25);
+}
+
+.hb-orb.is-alert-error::after {
   animation: orb-alert-pulse-rose 2.4s ease-in-out infinite;
 }
 
 .hb-orb.is-alert-warning {
-  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 0 0 6px rgba(245, 158, 11, 0.45);
+  box-shadow: 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.hb-orb.is-alert-warning::after {
   animation: orb-alert-pulse-amber 3s ease-in-out infinite;
 }
 
 .hb-orb.is-alert-error[data-edge="top"] {
-  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 0 3px 8px rgba(244, 63, 94, 0.55);
+  box-shadow: 0 1px 3px rgba(244, 63, 94, 0.3);
 }
 
 .hb-orb.is-alert-error[data-edge="bottom"] {
-  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 0 -3px 8px rgba(244, 63, 94, 0.55);
+  box-shadow: 0 -1px 3px rgba(244, 63, 94, 0.3);
 }
 
 .hb-orb.is-alert-error[data-edge="left"] {
-  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 3px 0 8px rgba(244, 63, 94, 0.55);
+  box-shadow: 1px 0 3px rgba(244, 63, 94, 0.3);
 }
 
 .hb-orb.is-alert-error[data-edge="right"] {
-  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), -3px 0 8px rgba(244, 63, 94, 0.55);
+  box-shadow: -1px 0 3px rgba(244, 63, 94, 0.3);
 }
 
 .hb-orb.is-alert-warning[data-edge="top"] {
-  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 0 3px 7px rgba(245, 158, 11, 0.45);
+  box-shadow: 0 1px 3px rgba(245, 158, 11, 0.25);
 }
 
 .hb-orb.is-alert-warning[data-edge="bottom"] {
-  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 0 -3px 7px rgba(245, 158, 11, 0.45);
+  box-shadow: 0 -1px 3px rgba(245, 158, 11, 0.25);
 }
 
 .hb-orb.is-alert-warning[data-edge="left"] {
-  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 3px 0 7px rgba(245, 158, 11, 0.45);
+  box-shadow: 1px 0 3px rgba(245, 158, 11, 0.25);
 }
 
 .hb-orb.is-alert-warning[data-edge="right"] {
-  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), -3px 0 7px rgba(245, 158, 11, 0.45);
+  box-shadow: -1px 0 3px rgba(245, 158, 11, 0.25);
 }
 
 .hb-orb.is-detail-open.is-alert-error,
-.hb-orb.is-detail-open.is-alert-warning {
+.hb-orb.is-detail-open.is-alert-warning,
+.hb-orb.is-detail-open[class*="is-glow-"] {
   animation: none;
   box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
 }
+
+/* ==========================================================================
+   6 大动态语义光效系统规则 (Semantic Orb Glow Classes) - 克制柔和高质感
+   ========================================================================== */
+
+.hb-orb.is-glow-normal {
+  box-shadow: 0 0 2px rgba(6, 182, 212, 0.2);
+}
+.hb-orb.is-glow-normal::after {
+  animation: orb-glow-breathe-cyan 3.6s ease-in-out infinite;
+}
+
+.hb-orb.is-glow-warning {
+  box-shadow: 0 0 2px rgba(245, 158, 11, 0.2);
+}
+.hb-orb.is-glow-warning::after {
+  animation: orb-glow-pulse-amber 2.2s ease-in-out infinite;
+}
+
+.hb-orb.is-glow-active {
+  box-shadow: 0 0 2px rgba(16, 185, 129, 0.22);
+}
+.hb-orb.is-glow-active::after {
+  animation: orb-glow-aurora-emerald 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.hb-orb.is-glow-danger {
+  box-shadow: 0 0 2px rgba(244, 63, 94, 0.25);
+}
+.hb-orb.is-glow-danger::after {
+  animation: orb-glow-heartbeat-rose 1.3s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.hb-orb.is-glow-verifying {
+  box-shadow: 0 0 2px rgba(6, 182, 212, 0.2);
+  animation: orb-vortex-glow 1.2s ease-in-out infinite;
+}
+
+.hb-orb.is-glow-verifying::after {
+  background: conic-gradient(
+    from 0deg,
+    rgba(6, 182, 212, 0) 0%,
+    rgba(6, 182, 212, 0.45) 30%,
+    rgba(16, 185, 129, 0.6) 60%,
+    rgba(6, 182, 212, 0.45) 85%,
+    rgba(6, 182, 212, 0) 100%
+  );
+  -webkit-mask: radial-gradient(circle, transparent 66%, black 78%);
+  mask: radial-gradient(circle, transparent 66%, black 78%);
+  animation: orb-vortex-spin 1.2s linear infinite;
+}
+
+.hb-orb.is-glow-stale {
+  filter: grayscale(0.4) opacity(0.9);
+  box-shadow: none;
+}
+
+.hb-orb.is-glow-stale::after {
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.45), inset 0 0 3px rgba(100, 116, 139, 0.2);
+}
+
 
 .hb-orb:disabled {
   opacity: 0.5;

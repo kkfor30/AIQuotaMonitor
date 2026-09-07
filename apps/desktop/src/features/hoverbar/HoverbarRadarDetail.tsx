@@ -657,6 +657,12 @@ function irrelevantTagClass(tag: string): string {
   return "hb-signal-tag hb-signal-tag-related";
 }
 
+function formatRemainingPercent(val: number | null | undefined): string {
+  if (val == null) return "0%";
+  const normalized = val <= 1.0 ? val * 100 : val;
+  return `${Math.round(normalized)}%`;
+}
+
 function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
   const hasRemaining = item.previous?.remaining != null && item.current?.remaining != null;
   const bankedNotes = radarAccountBankedChangeNotes(item, formatHoverbarClock);
@@ -680,7 +686,7 @@ function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
           <span className="hb-quota-metric-val">
             {hasRemaining ? (
               <span className="tabular-nums font-semibold">
-                {Math.round(item.previous!.remaining! * 100)}% → {Math.round(item.current!.remaining! * 100)}%
+                {formatRemainingPercent(item.previous?.remaining)} → {formatRemainingPercent(item.current?.remaining)}
               </span>
             ) : (
               <span className="text-q-text-muted">未见变化</span>

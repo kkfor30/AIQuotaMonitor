@@ -220,6 +220,8 @@ export type RadarPost = {
   summary: string | null;
   analysis: string | null;
   lifecycleConsumedAt: number | null;
+  context?: string | null;
+  source?: string | null;
 };
 
 export type RadarCheck = {
@@ -511,8 +513,8 @@ export async function runRadarCheck(input: {
   return invoke<RadarSnapshot>("run_radar_check", input);
 }
 
-export async function translateRadarPost(postId: string): Promise<RadarSnapshot> {
-  return invoke<RadarSnapshot>("translate_radar_post", { postId });
+export async function translateRadarPost(postId: string, sourceId?: string | null): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("translate_radar_post", { postId, sourceId: sourceId ?? null });
 }
 
 export async function saveRadarAnalysisPrefs(input: {

@@ -17,6 +17,7 @@ import {
   Repeat2,
   RotateCcw,
   ShieldCheck,
+  Sparkles,
   ThumbsDown,
   ThumbsUp,
   X,
@@ -42,6 +43,7 @@ import {
   setRadarNoticeHidden,
   testRadarChatEndpoint,
   testRadarModel,
+  translateRadarPost,
   undoRadarUserReset,
 } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
@@ -164,12 +166,28 @@ export function GptRadarPage() {
     },
   });
 
+  const translateMutation = useMutation({
+    mutationFn: (postId: string) => translateRadarPost(postId, chosenModel?.sourceId ?? null),
+    onSuccess: (snapshot) => {
+      queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot);
+    },
+  });
+
   const radarChecking = checkMutation.isPending || externalChecking;
   const checkCancelled = checkMutation.error
     ? ipcErrorMessage(checkMutation.error, "检查失败").includes("已终止")
     : false;
-  // Tibo 动态是浏览视图：展示同步到的全部帖子，不受动态范围过滤（范围只控制 AI 分析与判断）。
-  const posts = (data?.posts ?? []).slice().sort((a, b) => b.postedAt - a.postedAt);
+  // Tibo 动态是浏览视图：展示同步到的全部帖子，基于全局唯一 ID 严格去重，不受动态范围过滤。
+  const rawPosts = data?.posts ?? [];
+  const seenIds = new Set<string>();
+  const posts: RadarPost[] = [];
+  for (const post of rawPosts) {
+    if (!seenIds.has(post.id)) {
+      seenIds.add(post.id);
+      posts.push(post);
+    }
+  }
+  posts.sort((a, b) => b.postedAt - a.postedAt);
   const visible = posts.filter((post) => {
     if (filter === "all") return true;
     if (filter === "signal") return post.explicitReset || post.filter === "signal";
@@ -356,6 +374,8 @@ export function GptRadarPage() {
               filter={filter}
               onFilter={setFilter}
               onSelect={setSelectedId}
+              onTranslate={(postId) => translateMutation.mutate(postId)}
+              translatingPostId={translateMutation.isPending ? translateMutation.variables : null}
             />
           )}
           {tab === "ai" && (
@@ -440,7 +460,7 @@ function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "pri
  * 半环形雷达置信/状态刻度仪表盘（SVG Arc Gauge）：
  * 配合 Aurora Acrylic 午夜石墨蓝基底，直观呈现当前重置事件的确定性与信号强度。
  */
-function RadarStatusGauge({
+export function RadarStatusGauge({
   status,
 }: {
   status: string;
@@ -448,12 +468,20 @@ function RadarStatusGauge({
   const { percent, color, label } = (() => {
     switch (status) {
       case "landed_observed":
+      case "user_confirmed":
         return { percent: 100, color: "var(--q-success)", label: "已落地" };
-      case "claimed_unverified":
-        return { percent: 70, color: "var(--q-primary)", label: "预告中" };
+      case "landed_claimed":
+        return { percent: 85, color: "var(--q-warning)", label: "待验证" };
+      case "watching":
+      case "upcoming":
+        return { percent: 75, color: "var(--q-primary)", label: "观察中" };
+      case "expected_time_passed":
+        return { percent: 60, color: "var(--q-warning)", label: "已过预期" };
       case "unscheduled_reset":
       case "possible_reset":
         return { percent: 85, color: "var(--q-warning)", label: "疑似刷新" };
+      case "claimed_unverified":
+        return { percent: 70, color: "var(--q-primary)", label: "预告中" };
       case "expired":
         return { percent: 35, color: "var(--q-neutral)", label: "已截止" };
       case "no_signal":
@@ -496,7 +524,29 @@ function RadarStatusGauge({
   );
 }
 
-function SignalSummaryView({
+/** 决策状态徽章色系映射：与状态/置信度保持一致的语义色调。 */
+function radarDecisionToneClass(status: string): string {
+  switch (status) {
+    case "landed_observed":
+    case "user_confirmed":
+      return "bg-q-success-soft text-q-success";
+    case "landed_claimed":
+    case "expected_time_passed":
+    case "unscheduled_reset":
+    case "possible_reset":
+      return "bg-q-warning-soft text-q-warning";
+    case "watching":
+    case "upcoming":
+    case "claimed_unverified":
+      return "bg-q-primary-soft text-q-primary";
+    case "no_signal":
+    case "expired":
+    default:
+      return "bg-q-neutral-soft text-q-text-secondary";
+  }
+}
+
+export function SignalSummaryView({
   data,
 }: {
   data: RadarSnapshot | undefined;
@@ -576,7 +626,12 @@ function SignalSummaryView({
           <div className="flex items-center gap-2">
             <h2 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">当前判断</h2>
             {decision ? (
-              <span className="rounded-q-pill bg-q-primary-soft px-2 py-0.5 text-[11px] font-medium text-q-primary">
+              <span
+                className={cn(
+                  "rounded-q-pill px-2 py-0.5 text-[11px] font-medium",
+                  radarDecisionToneClass(decision.status),
+                )}
+              >
                 {radarDecisionBadge(decision)}
               </span>
             ) : null}
@@ -1150,6 +1205,8 @@ function TiboFeedView({
   filter,
   onFilter,
   onSelect,
+  onTranslate,
+  translatingPostId,
 }: {
   posts: RadarPost[];
   rangeLabel: string;
@@ -1161,6 +1218,8 @@ function TiboFeedView({
   filter: "all" | "signal" | "related" | "none";
   onFilter: (value: "all" | "signal" | "related" | "none") => void;
   onSelect: (id: string) => void;
+  onTranslate?: (id: string) => void;
+  translatingPostId?: string | null;
 }) {
   const chips: Array<{ id: "all" | "signal" | "related" | "none"; label: string; count: number }> = [
     { id: "all", label: "全部", count: totalCount },
@@ -1319,14 +1378,39 @@ function TiboFeedView({
               </div>
 
               <div className="flex flex-col gap-2">
-                <p className="text-xs font-medium text-q-text-secondary">中文翻译</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-q-text-secondary">中文翻译</p>
+                  {!selected.translatedText && onTranslate && (
+                    <button
+                      type="button"
+                      disabled={translatingPostId === selected.id}
+                      onClick={() => onTranslate(selected.id)}
+                      className="inline-flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-xs text-q-primary transition-colors hover:bg-q-primary-softer disabled:opacity-50"
+                    >
+                      <Sparkles size={12} aria-hidden />
+                      {translatingPostId === selected.id ? "翻译中..." : "AI 翻译"}
+                    </button>
+                  )}
+                </div>
                 <div
                   className="rounded-q-control border border-q-border bg-q-surface-strong px-3.5 py-3 text-[13px] leading-relaxed text-q-text-primary"
                   data-selectable="true"
                 >
-                  {selected.translatedText ?? selected.summary ?? "尚无中文翻译"}
+                  {selected.translatedText ?? selected.summary ?? "尚无中文翻译（可点击上方「AI 翻译」生成）"}
                 </div>
               </div>
+
+              {selected.context ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-medium text-q-text-secondary">回复 / 引用上下文</p>
+                  <div
+                    className="whitespace-pre-wrap rounded-q-control border border-q-border bg-q-surface-muted px-3.5 py-2.5 text-[12.5px] leading-relaxed text-q-text-secondary"
+                    data-selectable="true"
+                  >
+                    {selected.context}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-q-text-secondary">英文原文</p>
@@ -1357,6 +1441,10 @@ function TiboFeedView({
                 <Button variant="secondary" size="sm" onClick={() => void openExternalUrl("https://codexradar.com/")}>
                   <Radar size={14} aria-hidden />
                   CodexRadar 来源
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => void openExternalUrl("https://www.willcodexquotareset.com/")}>
+                  <ExternalLink size={14} aria-hidden />
+                  WillCodex 来源
                 </Button>
               </div>
             </>

@@ -5,6 +5,7 @@
 mod codexradar;
 mod quota_watch;
 mod time_claims;
+mod willcodex;
 
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
@@ -24,6 +25,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Notify;
 
 pub const FEED_URL: &str = "https://codexradar.com/";
+pub const WILLCODEX_FEED_URL: &str = "https://www.willcodexquotareset.com/api/forecast";
 
 /// 检查取消控制：cancel() 使代号 +1 并唤醒等待者；
 /// 运行中的检查在 await 点（抓取/模型请求）被丢弃，不写入检查与分析记录。
@@ -160,6 +162,8 @@ pub struct TiboPostView {
     pub summary: Option<String>,
     pub analysis: Option<String>,
     pub lifecycle_consumed_at: Option<i64>,
+    pub context: Option<String>,
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1631,7 +1635,9 @@ fn extract_chat_text(body: &str) -> Result<String, String> {
         .to_string())
 }
 
-async fn fetch_feed(client: &Client) -> Result<(Vec<TiboPostRecord>, Option<RadarNotice>), String> {
+async fn fetch_codexradar_feed(
+    client: &Client,
+) -> Result<(Vec<TiboPostRecord>, Option<RadarNotice>), String> {
     let response = client
         .get(FEED_URL)
         .header("Accept", "text/html")
@@ -1654,6 +1660,113 @@ async fn fetch_feed(client: &Client) -> Result<(Vec<TiboPostRecord>, Option<Rada
         .map_err(|error| format!("读取 CodexRadar 失败：{error}"))?;
     let synced_at = epoch_ms();
     codexradar::parse_page(&body, synced_at)
+}
+
+async fn fetch_willcodex_feed(client: &Client) -> Result<Vec<TiboPostRecord>, String> {
+    let response = client
+        .get(WILLCODEX_FEED_URL)
+        .header("Accept", "application/json")
+        .header(
+            "User-Agent",
+            "AIQuotaMonitor/0.1 (desktop; Tibo radar sync; +https://www.willcodexquotareset.com/)",
+        )
+        .send()
+        .await
+        .map_err(|error| format!("无法连接 WillCodex：{error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "WillCodex 返回 HTTP {}",
+            response.status().as_u16()
+        ));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("读取 WillCodex 失败：{error}"))?;
+    let synced_at = epoch_ms();
+    willcodex::parse_posts(&body, synced_at)
+}
+
+/// 融合来自 CodexRadar 与 WillCodex 的推文，按推文全局唯一 ID 严格去重并合并属性。
+/// CodexRadar 的精校翻译、语境解读与摘要优先保留；WillCodex 的实时新帖与上下文自然并入。
+fn merge_tibo_posts(
+    codex_posts: Vec<TiboPostRecord>,
+    will_posts: Vec<TiboPostRecord>,
+) -> Vec<TiboPostRecord> {
+    use std::collections::HashMap;
+
+    let mut map: HashMap<String, TiboPostRecord> =
+        HashMap::with_capacity(codex_posts.len() + will_posts.len());
+
+    // 1. 先存入 WillCodex 抓取到的推文（时效性高，覆盖最新的推文流与回复上下文）
+    for post in will_posts {
+        map.insert(post.id.clone(), post);
+    }
+
+    // 2. 用 CodexRadar 的推文进行合并融合（保留中文精校翻译、摘要与语境解读）
+    for codex_post in codex_posts {
+        if let Some(existing) = map.get_mut(&codex_post.id) {
+            if codex_post.translated_text.is_some() {
+                existing.translated_text = codex_post.translated_text;
+                existing.translated_at = codex_post.translated_at;
+                existing.translation_source = codex_post.translation_source;
+            }
+            if codex_post.kind != "none" {
+                existing.kind = codex_post.kind;
+            }
+            if codex_post.tibo_lane.is_some() {
+                existing.tibo_lane = codex_post.tibo_lane;
+            }
+            if codex_post.explicit_reset {
+                existing.explicit_reset = true;
+            }
+            // 融合 extra_json 属性
+            let mut base_extra = serde_json::from_str::<Value>(&existing.extra_json)
+                .ok()
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+            let codex_extra = serde_json::from_str::<Value>(&codex_post.extra_json)
+                .ok()
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+            for (k, v) in codex_extra {
+                base_extra.insert(k, v);
+            }
+            existing.extra_json = serde_json::Value::Object(base_extra).to_string();
+        } else {
+            map.insert(codex_post.id.clone(), codex_post);
+        }
+    }
+
+    let mut result: Vec<TiboPostRecord> = map.into_values().collect();
+    // 统一按发布时间倒序排列
+    result.sort_by(|a, b| b.posted_at.cmp(&a.posted_at));
+    result
+}
+
+async fn fetch_feed(client: &Client) -> Result<(Vec<TiboPostRecord>, Option<RadarNotice>), String> {
+    let (codex_res, will_res) = tokio::join!(
+        fetch_codexradar_feed(client),
+        fetch_willcodex_feed(client)
+    );
+
+    match (codex_res, will_res) {
+        (Ok((codex_posts, notice)), Ok(will_posts)) => {
+            let merged = merge_tibo_posts(codex_posts, will_posts);
+            Ok((merged, notice))
+        }
+        (Ok((codex_posts, notice)), Err(err)) => {
+            log::warn!("WillCodex 同步失败，降级仅使用 CodexRadar: {err}");
+            Ok((codex_posts, notice))
+        }
+        (Err(err), Ok(will_posts)) => {
+            log::warn!("CodexRadar 同步失败，降级仅使用 WillCodex: {err}");
+            Ok((will_posts, None))
+        }
+        (Err(err1), Err(err2)) => {
+            Err(format!("CodexRadar ({err1}) 与 WillCodex ({err2}) 均同步失败"))
+        }
+    }
 }
 
 fn save_notice(database: &Database, notice: Option<&RadarNotice>) -> Result<(), String> {
@@ -1738,6 +1851,8 @@ fn to_view(post: TiboPostRecord) -> TiboPostView {
         summary: extra_string(&extra, "summary").map(|text| rewrite_banked_reset_zh(&text)),
         analysis: extra_string(&extra, "analysis").map(|text| rewrite_banked_reset_zh(&text)),
         lifecycle_consumed_at: post.lifecycle_consumed_at,
+        context: extra_string(&extra, "context"),
+        source: extra_string(&extra, "source"),
     }
 }
 
@@ -4466,5 +4581,86 @@ mod tests {
         assert_eq!(ai.state, "pending");
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn merge_tibo_posts_deduplicates_by_id_and_preserves_translation() {
+        let codex_post = TiboPostRecord {
+            id: "2096494725318762951".into(),
+            url: "https://x.com/thsottiaux/status/2096494725318762951".into(),
+            text: "Looking at the dashboard".into(),
+            posted_at: 100,
+            kind: "indirect".into(),
+            tibo_lane: Some("间接相关".into()),
+            explicit_reset: false,
+            verification_status: None,
+            is_reply: false,
+            replies: 0,
+            reposts: 0,
+            likes: 0,
+            extra_json: json!({"summary": "摘要", "analysis": "解读"}).to_string(),
+            synced_at: 100,
+            translated_text: Some("查看仪表盘".into()),
+            translated_at: Some(100),
+            translation_source: Some("codexradar".into()),
+            lifecycle_consumed_at: None,
+        };
+
+        let will_post_same = TiboPostRecord {
+            id: "2096494725318762951".into(),
+            url: "https://x.com/thsottiaux/status/2096494725318762951".into(),
+            text: "Looking at the dashboard".into(),
+            posted_at: 100,
+            kind: "none".into(),
+            tibo_lane: None,
+            explicit_reset: false,
+            verification_status: None,
+            is_reply: false,
+            replies: 0,
+            reposts: 0,
+            likes: 0,
+            extra_json: json!({"source": "willcodex", "context": "引用的上下文"}).to_string(),
+            synced_at: 110,
+            translated_text: None,
+            translated_at: None,
+            translation_source: None,
+            lifecycle_consumed_at: None,
+        };
+
+        let will_post_new = TiboPostRecord {
+            id: "2096717905614524491".into(),
+            url: "https://x.com/thsottiaux/status/2096717905614524491".into(),
+            text: "We've made some improvements...".into(),
+            posted_at: 200,
+            kind: "reset".into(),
+            tibo_lane: Some("可能重置".into()),
+            explicit_reset: true,
+            verification_status: None,
+            is_reply: false,
+            replies: 0,
+            reposts: 0,
+            likes: 0,
+            extra_json: json!({"source": "willcodex"}).to_string(),
+            synced_at: 110,
+            translated_text: None,
+            translated_at: None,
+            translation_source: None,
+            lifecycle_consumed_at: None,
+        };
+
+        let merged = merge_tibo_posts(vec![codex_post], vec![will_post_same, will_post_new]);
+
+        // 验证去重：总数必须为 2（而不是 3）
+        assert_eq!(merged.len(), 2);
+        // 按时间倒序：最新的在最前面
+        assert_eq!(merged[0].id, "2096717905614524491");
+        assert_eq!(merged[1].id, "2096494725318762951");
+
+        // 验证属性融合：重复的 ID 保留了 CodexRadar 的中文翻译与语境解读，同时融合了上下文
+        let same = &merged[1];
+        assert_eq!(same.translated_text.as_deref(), Some("查看仪表盘"));
+        assert_eq!(same.kind, "indirect");
+        assert!(same.extra_json.contains("摘要"));
+        assert!(same.extra_json.contains("引用的上下文"));
     }
 }
