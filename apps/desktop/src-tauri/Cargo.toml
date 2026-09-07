@@ -1,6 +1,6 @@
 [package]
 name = "ai-quota-monitor"
-version = "0.1.0"
+version = "0.1.1"
 description = "多模型平台统一额度监控中心"
 authors = ["AIQuotaMonitor contributors"]
 license = "MIT"
