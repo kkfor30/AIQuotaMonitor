@@ -190,7 +190,7 @@ html.hoverbar-window #root {
   transition: transform 150ms ease-out;
 }
 
-/* 小球发光与动效专属全息光环层（置于 picture 之上，确保正圆无缝贴合且绝对不发生窗口方形裁切） */
+/* 小球极细全息层（微晶质感，绝不产生外溢方形裁切） */
 .hb-orb::after {
   content: "";
   position: absolute;
@@ -198,8 +198,7 @@ html.hoverbar-window #root {
   border-radius: 50%;
   pointer-events: none;
   z-index: 5;
-  box-shadow: none;
-  transition: box-shadow 250ms ease-out, opacity 250ms ease-out;
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
 }
 
 .hb-orb picture,
@@ -213,6 +212,7 @@ html.hoverbar-window #root {
   user-select: none;
   -webkit-user-drag: none;
   -webkit-user-select: none;
+  transition: filter 300ms ease, opacity 300ms ease;
 }
 
 .hb-orb[data-edge="top"] {
@@ -253,127 +253,111 @@ html.hoverbar-window #root {
   box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
 }
 
-.hb-orb.is-detail-open::after {
-  animation: none !important;
-  box-shadow: none !important;
-  background: none !important;
-  opacity: 0 !important;
-}
-
-/* 被动告警脉冲光晕与全边缘定向适配 */
-.hb-orb.is-alert-error {
-  box-shadow: 0 0 2px rgba(244, 63, 94, 0.25);
-}
-
-.hb-orb.is-alert-error::after {
-  animation: orb-alert-pulse-rose 2.4s ease-in-out infinite;
-}
-
-.hb-orb.is-alert-warning {
-  box-shadow: 0 0 2px rgba(245, 158, 11, 0.2);
-}
-
-.hb-orb.is-alert-warning::after {
-  animation: orb-alert-pulse-amber 3s ease-in-out infinite;
-}
-
-.hb-orb.is-alert-error[data-edge="top"] {
-  box-shadow: 0 1px 3px rgba(244, 63, 94, 0.3);
-}
-
-.hb-orb.is-alert-error[data-edge="bottom"] {
-  box-shadow: 0 -1px 3px rgba(244, 63, 94, 0.3);
-}
-
-.hb-orb.is-alert-error[data-edge="left"] {
-  box-shadow: 1px 0 3px rgba(244, 63, 94, 0.3);
-}
-
-.hb-orb.is-alert-error[data-edge="right"] {
-  box-shadow: -1px 0 3px rgba(244, 63, 94, 0.3);
-}
-
-.hb-orb.is-alert-warning[data-edge="top"] {
-  box-shadow: 0 1px 3px rgba(245, 158, 11, 0.25);
-}
-
-.hb-orb.is-alert-warning[data-edge="bottom"] {
-  box-shadow: 0 -1px 3px rgba(245, 158, 11, 0.25);
-}
-
-.hb-orb.is-alert-warning[data-edge="left"] {
-  box-shadow: 1px 0 3px rgba(245, 158, 11, 0.25);
-}
-
-.hb-orb.is-alert-warning[data-edge="right"] {
-  box-shadow: -1px 0 3px rgba(245, 158, 11, 0.25);
-}
-
-.hb-orb.is-detail-open.is-alert-error,
-.hb-orb.is-detail-open.is-alert-warning,
-.hb-orb.is-detail-open[class*="is-glow-"] {
-  animation: none;
-  box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
-}
-
 /* ==========================================================================
-   6 大动态语义光效系统规则 (Semantic Orb Glow Classes) - 克制柔和高质感
+   方案 A：全息微星标 · 轨道态 (Orbital Micro-Beacon) 视觉体系
+   微星标置于 32px 正圆肩部，完全收敛于 40x40 物理透明窗口内，绝对无边缘裁切。
    ========================================================================== */
-
-.hb-orb.is-glow-normal {
-  box-shadow: 0 0 2px rgba(6, 182, 212, 0.2);
-}
-.hb-orb.is-glow-normal::after {
-  animation: orb-glow-breathe-cyan 3.6s ease-in-out infinite;
-}
-
-.hb-orb.is-glow-warning {
-  box-shadow: 0 0 2px rgba(245, 158, 11, 0.2);
-}
-.hb-orb.is-glow-warning::after {
-  animation: orb-glow-pulse-amber 2.2s ease-in-out infinite;
+.hb-satellite-orbit {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 10;
+  transition: transform 0.4s ease, opacity 200ms ease;
 }
 
-.hb-orb.is-glow-active {
-  box-shadow: 0 0 2px rgba(16, 185, 129, 0.22);
-}
-.hb-orb.is-glow-active::after {
-  animation: orb-glow-aurora-emerald 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-}
-
-.hb-orb.is-glow-danger {
-  box-shadow: 0 0 2px rgba(244, 63, 94, 0.25);
-}
-.hb-orb.is-glow-danger::after {
-  animation: orb-glow-heartbeat-rose 1.3s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+.hb-satellite-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  pointer-events: none;
+  transition: background 300ms ease, box-shadow 300ms ease, opacity 300ms ease;
 }
 
-.hb-orb.is-glow-verifying {
-  box-shadow: 0 0 2px rgba(6, 182, 212, 0.2);
-  animation: orb-vortex-glow 1.2s ease-in-out infinite;
+/* 停靠边缘方位自适应：微星标恒朝向屏幕内侧工作区，绝不贴墙消失 */
+.hb-orb[data-edge="right"] .hb-satellite-dot {
+  top: 2px;
+  left: 2px;
+  right: auto;
 }
 
-.hb-orb.is-glow-verifying::after {
-  background: conic-gradient(
-    from 0deg,
-    rgba(6, 182, 212, 0) 0%,
-    rgba(6, 182, 212, 0.45) 30%,
-    rgba(16, 185, 129, 0.6) 60%,
-    rgba(6, 182, 212, 0.45) 85%,
-    rgba(6, 182, 212, 0) 100%
-  );
-  -webkit-mask: radial-gradient(circle, transparent 66%, black 78%);
-  mask: radial-gradient(circle, transparent 66%, black 78%);
-  animation: orb-vortex-spin 1.2s linear infinite;
+.hb-orb[data-edge="left"] .hb-satellite-dot {
+  top: 2px;
+  right: 2px;
+  left: auto;
 }
 
-.hb-orb.is-glow-stale {
-  filter: grayscale(0.4) opacity(0.9);
-  box-shadow: none;
+.hb-orb[data-edge="top"] .hb-satellite-dot {
+  bottom: 2px;
+  right: 2px;
+  top: auto;
+  left: auto;
 }
 
-.hb-orb.is-glow-stale::after {
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.45), inset 0 0 3px rgba(100, 116, 139, 0.2);
+.hb-orb[data-edge="bottom"] .hb-satellite-dot {
+  top: 2px;
+  right: 2px;
+  bottom: auto;
+  left: auto;
+}
+
+/* 详情展开时微星标静默隐藏，避免与展开光圈干扰 */
+.hb-orb.is-detail-open .hb-satellite-orbit {
+  opacity: 0;
+}
+
+/* 6 大动态语义状态类绑定 */
+
+/* 1. 幽蓝生息 (normal): 青蓝慢速呼吸 */
+.hb-orb.is-glow-normal .hb-satellite-dot {
+  background: #06b6d4;
+  box-shadow: 0 0 5px #06b6d4, 0 0 1px #fff;
+  animation: dot-breathe-normal 3.6s ease-in-out infinite;
+}
+
+/* 2. 琥珀金芒 (warning): 琥珀金脉冲微晕 */
+.hb-orb.is-glow-warning .hb-satellite-dot,
+.hb-orb.is-alert-warning .hb-satellite-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b, 0 0 2px #fef3c7;
+  animation: dot-pulse-warning 2.2s ease-in-out infinite;
+}
+
+/* 3. 心跳绯红 (danger): 双跳心律警示脉冲 */
+.hb-orb.is-glow-danger .hb-satellite-dot,
+.hb-orb.is-alert-error .hb-satellite-dot {
+  background: #f43f5e;
+  box-shadow: 0 0 7px #f43f5e, 0 0 2px #fff;
+  animation: dot-heartbeat-danger 1.3s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+/* 4. 翡翠高能 (active): 极光高能充沛流光 */
+.hb-orb.is-glow-active .hb-satellite-dot {
+  background: #10b981;
+  box-shadow: 0 0 7px #10b981, 0 0 3px #a7f3d0;
+  animation: dot-bloom-active 1.6s ease-in-out infinite;
+}
+
+/* 5. 异步核验 (verifying): 360° 轨道平滑公转飞旋 */
+.hb-orb.is-glow-verifying .hb-satellite-orbit {
+  animation: satellite-spin-orbit 1.4s linear infinite;
+}
+.hb-orb.is-glow-verifying .hb-satellite-dot {
+  background: #06b6d4;
+  box-shadow: 0 0 7px #06b6d4, 0 0 2px #10b981;
+}
+
+/* 6. 陈旧冷灰 (stale): 沉睡微灰 */
+.hb-orb.is-glow-stale img {
+  filter: grayscale(0.4) opacity(0.88);
+}
+.hb-orb.is-glow-stale .hb-satellite-dot {
+  background: #94a3b8;
+  box-shadow: 0 0 2px #64748b;
+  opacity: 0.55;
 }
 
 
