@@ -27,12 +27,26 @@ export function quotaTone(remainingPercent: number | null | undefined): QuotaTon
   return "low";
 }
 
-/** 从能力快照推导剩余百分比：优先后端 progress（0-1 换算为 0-100），若已是百分比数值直接使用，否则解析 "62.5%" 形态主值。 */
+/** 从能力快照推导剩余百分比：仅对额度窗口或百分比类型有效，优先后端 progress（0-1 换算为 0-100），若已是百分比数值直接使用，否则解析 "62.5%" 形态主值。 */
 export function capabilityRemainingPercent(capability: CapabilitySnapshotViewModel): number | null {
+  // 1. 仅针对额度窗口或明确百分比类型推导剩余量，严格排除非百分比类型（如金额 money、Token数 tokens、张数 count 等）
+  const isQuotaOrPercent =
+    capability.capabilityId.startsWith("quota_window_") || capability.value.kind === "percent";
+  if (!isQuotaOrPercent) {
+    return null;
+  }
+  // 2. 排除缓存命中率等非额度余量统计指标
+  if (capability.capabilityId.includes("hit_rate")) {
+    return null;
+  }
+  // 3. 优先使用后端的结构化 progress 比例（0~1 换算为 0~100）
   if (capability.value.progress !== null) {
     return capability.value.progress <= 1.0 ? capability.value.progress * 100 : capability.value.progress;
   }
-  if (capability.value.primary === null) return null;
+  // 4. 若无 progress，文本主值必须包含 "%" 符号才允许解析，杜绝将 "2"（张）或 "3.46M"（Token）等当成百分比
+  if (capability.value.primary === null || !capability.value.primary.includes("%")) {
+    return null;
+  }
   const parsed = Number.parseFloat(capability.value.primary.replace("%", "").trim());
   return Number.isFinite(parsed) ? parsed : null;
 }
