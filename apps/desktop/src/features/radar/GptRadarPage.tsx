@@ -49,8 +49,11 @@ import {
   humanizeRadarPostRefs,
   quotaBadgeLabel,
   quotaCorrelationLabel,
-  radarAccountBankedGrantNote,
+  radarAccountBankedChangeNotes,
   radarAiStatusLabel,
+  radarBankedChangeMeta,
+  radarBankedChangeRows,
+  radarBankedChangeTitle,
   radarBeijingTimeLabel,
   radarCloseReasonLabel,
   radarConfirmationSourceLabel,
@@ -619,30 +622,24 @@ function SignalSummaryView({
             <p className="text-xs text-q-text-muted">正在加载重置判断…</p>
           )}
 
-          {/* 最近一次重置卡到账与额度重置并列；发放不得写入额度摘要。 */}
-          {decision?.recentBankedGrant || recentCard ? (
+          {/* 重置卡数量变化与额度重置并列；减少不得写成已使用，也不得写入额度摘要。 */}
+          {decision && (radarBankedChangeRows(decision).length > 0 || recentCard) ? (
             <div className="mt-auto flex flex-col border-t border-q-border/70 pt-2">
-              {decision?.recentBankedGrant ? (
-                <div className="flex items-center gap-2">
+              {radarBankedChangeRows(decision).map((change, index) => (
+                <div
+                  key={`${change.kind}-${change.observedAt}-${change.sourceId}`}
+                  className={cn("flex items-center gap-2", index > 0 && "mt-1.5")}
+                >
                   <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">
-                    最近一次重置卡到账
+                    {radarBankedChangeTitle(change)}
                   </h2>
-                  <span className="min-w-0 flex-1 truncate text-[13px]">
-                    <span className="font-semibold tabular-nums text-q-text-primary">
-                      {formatCompactTime(decision.recentBankedGrant.observedAt)}
-                    </span>
-                    <span className="text-q-text-muted">
-                      {" "}
-                      · {decision.recentBankedGrant.previousCount}→{decision.recentBankedGrant.currentCount}
-                      {decision.recentBankedGrant.liveCount != null
-                        ? `（现有 ${decision.recentBankedGrant.liveCount} 张）`
-                        : ""}
-                    </span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-q-text-muted">
+                    {radarBankedChangeMeta(change, formatCompactTime)}
                   </span>
                 </div>
-              ) : null}
+              ))}
               {recentCard ? (
-                <div className={cn(decision?.recentBankedGrant && "mt-2 border-t border-q-border/60 pt-2")}>
+                <div className={cn(radarBankedChangeRows(decision).length > 0 && "mt-2 border-t border-q-border/60 pt-2")}>
                   <button
                     type="button"
                     className="radar-collapse-trigger"
@@ -748,8 +745,8 @@ function SignalSummaryView({
                     {item.note && <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{item.note}</p>}
                     <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
                       {item.bankedResetLabel}
-                      {radarAccountBankedGrantNote(item, formatCompactTime)
-                        ? ` · ${radarAccountBankedGrantNote(item, formatCompactTime)}`
+                      {radarAccountBankedChangeNotes(item, formatCompactTime)
+                        ? ` · ${radarAccountBankedChangeNotes(item, formatCompactTime)}`
                         : ""}
                     </p>
                     <p className="text-[11.5px] tabular-nums text-q-text-muted">

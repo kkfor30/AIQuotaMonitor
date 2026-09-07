@@ -33,9 +33,10 @@ import {
   postsInRadarRange,
   quotaBadgeLabel,
   quotaCorrelationLabel,
-  radarAccountBankedGrantNote,
+  radarAccountBankedChangeNotes,
   radarAiStatusLabel,
-  radarBankedGrantLine,
+  radarBankedChangeLine,
+  radarBankedChangeRows,
   radarCloseReasonLabel,
   radarConfirmationSourceLabel,
   radarConfirmResetDialogBody,
@@ -188,11 +189,15 @@ export function HoverbarRadarDetail({
               </p>
             ) : null}
             {radar ? <p className="hb-radar-copy">{radarDeltaImpactLine(radar)}</p> : null}
-            {decision.recentBankedGrant ? (
-              <p className="hb-radar-copy" data-selectable="true">
-                {radarBankedGrantLine(decision.recentBankedGrant, formatHoverbarClock)}
+            {radarBankedChangeRows(decision).map((change) => (
+              <p
+                key={`${change.kind}-${change.observedAt}-${change.sourceId}`}
+                className="hb-radar-copy"
+                data-selectable="true"
+              >
+                {radarBankedChangeLine(change, formatHoverbarClock)}
               </p>
-            ) : null}
+            ))}
             {!recentCard && decision.status === "no_signal" && decision.recentSummaryText ? (
               <p className="hb-radar-meta">{decision.recentSummaryText}</p>
             ) : null}
@@ -657,8 +662,8 @@ function QuotaVerificationRow({ item }: { item: QuotaVerification }) {
       {item.note ? <p className="hb-radar-meta hb-radar-meta-strong">{item.note}</p> : null}
       <p className="hb-radar-meta">
         {item.bankedResetLabel}
-        {radarAccountBankedGrantNote(item, formatHoverbarClock)
-          ? ` · ${radarAccountBankedGrantNote(item, formatHoverbarClock)}`
+        {radarAccountBankedChangeNotes(item, formatHoverbarClock)
+          ? ` · ${radarAccountBankedChangeNotes(item, formatHoverbarClock)}`
           : ""}
       </p>
       <p className="hb-radar-meta">

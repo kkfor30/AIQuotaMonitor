@@ -664,8 +664,8 @@ fn migrate_v13(transaction: &Transaction<'_>) -> Result<(), String> {
         .map_err(|err| format!("执行 SQLite v13 迁移失败: {err}"))
 }
 
-/// v14：本机重置卡发放观察。只固化 banked_reset_count 的整数增加，
-/// 与额度重置观察对称；数量减少不得记为已使用。
+/// v14：本机重置卡数量观察。固化 banked_reset_count 的整数增加（到账）
+/// 与减少；数量减少不得记为已使用。
 fn migrate_v14(transaction: &Transaction<'_>) -> Result<(), String> {
     transaction
         .execute_batch(

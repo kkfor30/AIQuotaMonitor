@@ -296,38 +296,79 @@ export function radarSignalTypeLabel(value: string | null | undefined): string {
   }
 }
 
-export function radarBankedGrantMeta(
-  grant: Pick<RadarBankedGrant, "previousCount" | "currentCount" | "observedAt" | "liveCount">,
-  clock: (ms: number) => string,
-): string {
-  const delta = `${grant.previousCount}→${grant.currentCount}`;
-  const live = grant.liveCount != null ? `（现有 ${grant.liveCount} 张）` : "";
-  return `${clock(grant.observedAt)} · ${delta}${live}`;
+export function radarBankedChangeRows(decision: {
+  recentBankedGrant: RadarBankedGrant | null;
+  recentBankedDecrease: RadarBankedGrant | null;
+}): RadarBankedGrant[] {
+  return [decision.recentBankedDecrease, decision.recentBankedGrant]
+    .filter((item): item is RadarBankedGrant => Boolean(item))
+    .sort((a, b) => b.observedAt - a.observedAt);
 }
 
-export function radarBankedGrantLine(
-  grant: Pick<RadarBankedGrant, "previousCount" | "currentCount" | "observedAt" | "liveCount">,
-  clock: (ms: number) => string,
-): string {
-  return `最近一次重置卡到账 ${radarBankedGrantMeta(grant, clock)}`;
+export function radarLatestBankedChange(decision: {
+  recentBankedGrant: RadarBankedGrant | null;
+  recentBankedDecrease: RadarBankedGrant | null;
+}): RadarBankedGrant | null {
+  return radarBankedChangeRows(decision)[0] ?? null;
 }
 
-export function radarAccountBankedGrantNote(
+export function radarBankedChangeTitle(
+  change: Pick<RadarBankedGrant, "kind" | "previousCount" | "currentCount">,
+): string {
+  return change.kind === "drop" || change.currentCount < change.previousCount
+    ? "本机观察到重置卡减少"
+    : "上次重置卡到账";
+}
+
+export function radarBankedChangeMeta(
+  change: Pick<RadarBankedGrant, "previousCount" | "currentCount" | "observedAt" | "kind">,
+  clock: (ms: number) => string,
+): string {
+  const delta = `${change.previousCount}→${change.currentCount}`;
+  if (change.kind === "drop" || change.currentCount < change.previousCount) {
+    return `${clock(change.observedAt)} · ${delta} · 不能单独判定为已使用`;
+  }
+  return `${clock(change.observedAt)} · ${delta}`;
+}
+
+export function radarBankedChangeLine(
+  change: Pick<RadarBankedGrant, "previousCount" | "currentCount" | "observedAt" | "kind">,
+  clock: (ms: number) => string,
+): string {
+  return `${radarBankedChangeTitle(change)} ${radarBankedChangeMeta(change, clock)}`;
+}
+
+export function radarAccountBankedChangeNotes(
   item: {
     lastBankedGrantAt: number | null;
     lastBankedGrantFrom: number | null;
     lastBankedGrantTo: number | null;
+    lastBankedDecreaseAt: number | null;
+    lastBankedDecreaseFrom: number | null;
+    lastBankedDecreaseTo: number | null;
   },
   clock: (ms: number) => string,
 ): string | null {
+  const parts: string[] = [];
   if (
-    item.lastBankedGrantAt == null ||
-    item.lastBankedGrantFrom == null ||
-    item.lastBankedGrantTo == null
+    item.lastBankedDecreaseAt != null &&
+    item.lastBankedDecreaseFrom != null &&
+    item.lastBankedDecreaseTo != null
   ) {
-    return null;
+    parts.push(
+      `本机观察到减少 ${clock(item.lastBankedDecreaseAt)}（${item.lastBankedDecreaseFrom}→${item.lastBankedDecreaseTo}），不能单独判定为已使用`,
+    );
   }
-  return `最近到账 ${clock(item.lastBankedGrantAt)}（${item.lastBankedGrantFrom}→${item.lastBankedGrantTo}）`;
+  if (
+    item.lastBankedGrantAt != null &&
+    item.lastBankedGrantFrom != null &&
+    item.lastBankedGrantTo != null
+  ) {
+    parts.push(
+      `上次到账 ${clock(item.lastBankedGrantAt)}（${item.lastBankedGrantFrom}→${item.lastBankedGrantTo}）`,
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 export function radarConfirmationSourceLabel(source: string | null | undefined): string {

@@ -1912,12 +1912,6 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|err| format!("读取重置卡发放观察失败: {err}"))
     }
-
-    pub fn latest_banked_reset_observation(
-        &self,
-    ) -> Result<Option<BankedResetObservationRecord>, String> {
-        Ok(self.banked_reset_observations(None)?.into_iter().next())
-    }
 }
 
 /// radar_analyses 全列 SELECT；各查询只差异 WHERE/ORDER 子句。

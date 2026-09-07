@@ -77,7 +77,7 @@ Codex Radar 来源失败时保留最后成功的 Tibo 快照并标记 stale；�
 事实归属与展示约束：
 
 - “最近一次重置”只认本机观察（observed_reset_at）或用户确认（user_confirmed_reset_at）的额度重置事件，禁止回退来源声称时间或关闭时间；invalid_historical_replay、timeout、claimed_unverified 等普通关闭事件只能进入历史记录。仅有来源声称时展示“最近一次来源声称于 …·尚未验证”，不得称“最近一次重置”。
-- “最近一次重置卡到账”来自本机 `banked_reset_count` 整数增加观察（`banked_reset_observations`），按账号独立记录，与“最近一次重置”并列；不得把发放时间写入额度重置摘要。没有真实前值不得补 0→1。数量减少不得显示为已使用。
+- 本机重置卡数量变化来自 `banked_reset_count` 相邻快照（`banked_reset_observations`），按账号独立记录，与“最近一次重置”并列：整数增加记为“上次重置卡到账”，整数减少记为“本机观察到重置卡减少”，不得把数量减少写成“已使用”，也不得把发放或减少时间写入额度重置摘要。没有真实前值不得补 0→1。用户确认“这是我手动使用的重置卡”仍只作为额度刷新归因，不由数量减少自动得出。
 - 额度状态统一文案：unscheduled_reset=观察到额度重置、possible_reset=疑似额度刷新、scheduled=计划内窗口刷新、no_change=未见变化、unavailable=暂无法验证；possible_reset 不得显示为“已重置”，也不得更新“最近一次重置”。
 - 当前判断依据引用只能是当前分析 citations ∩ newPostIds（radar_analyses 持久化 new/event_context/historical 三组 post id，SQLite v11）；历史上下文引用只允许出现在“最近一次重置”历史区。
 - CodexRadar 公告持久化：本次未解析到公告时不清空最后一次公告，仅标记非当前；isCurrent=true 显示“CodexRadar 公告/更新 …”，否则“CodexRadar 最近公告/上次出现于 …”，从未有过显示“当前无公告”。帖子同步正常时禁止显示“暂未同步来源内容”。用户可在主窗口信号摘要与悬浮雷达详情隐藏该细条；偏好写入 `radar_notice_hidden`，两端同步；隐藏后保留「显示」入口，不停同步、不清空公告缓存。

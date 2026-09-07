@@ -1,5 +1,5 @@
 //! 本机 Codex 额度观察：相邻快照先固化为 observation，后续 no_change 不覆盖历史重置事实。
-//! 重置卡发放观察只固化 banked_reset_count 的整数增加，与额度重置观察对称。
+//! 重置卡数量观察固化 banked_reset_count 的整数增加（到账）与减少（未判定为已使用）。
 
 use crate::storage::database::Database;
 use crate::storage::repository::{
@@ -36,6 +36,10 @@ pub struct QuotaVerificationView {
     pub last_banked_grant_at: Option<i64>,
     pub last_banked_grant_from: Option<i64>,
     pub last_banked_grant_to: Option<i64>,
+    /// 该账号最近一次本机观察到的重置卡数量减少；不得单独断言已使用。
+    pub last_banked_decrease_at: Option<i64>,
+    pub last_banked_decrease_from: Option<i64>,
+    pub last_banked_decrease_to: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,6 +53,8 @@ pub struct BankedGrantView {
     pub observed_at: i64,
     /// 该来源当前可用张数；字段缺失为 None，禁止补零。
     pub live_count: Option<i64>,
+    /// grant = 数量增加（到账）；drop = 数量减少（不能单独判定为已使用）。
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,10 +110,12 @@ pub fn materialize_banked_grants(
         let samples =
             database.capability_value_samples(&source.id, "banked_reset_count", since)?;
         for (previous, current) in parseable_count_pairs(&samples) {
-            if current.1 <= previous.1 {
+            if current.1 == previous.1 {
                 continue;
             }
-            let linked = event.filter(|value| value.first_signal_at <= current.0.captured_at);
+            let linked = event.filter(|value| {
+                current.1 > previous.1 && value.first_signal_at <= current.0.captured_at
+            });
             database.insert_banked_reset_observation(&BankedResetObservationRecord {
                 id: 0,
                 account_id: source.account_id.clone(),
@@ -250,6 +258,9 @@ fn empty_view(source: &crate::storage::repository::SourceRecord) -> QuotaVerific
         last_banked_grant_at: None,
         last_banked_grant_from: None,
         last_banked_grant_to: None,
+        last_banked_decrease_at: None,
+        last_banked_decrease_from: None,
+        last_banked_decrease_to: None,
     }
 }
 
@@ -266,7 +277,28 @@ pub fn banked_reset_observed_at(
 }
 
 pub fn latest_banked_grant(database: &Database) -> Result<Option<BankedGrantView>, String> {
-    let Some(observation) = database.latest_banked_reset_observation()? else {
+    latest_banked_change(database, true)
+}
+
+pub fn latest_banked_decrease(database: &Database) -> Result<Option<BankedGrantView>, String> {
+    latest_banked_change(database, false)
+}
+
+fn latest_banked_change(
+    database: &Database,
+    increase: bool,
+) -> Result<Option<BankedGrantView>, String> {
+    let Some(observation) = database
+        .banked_reset_observations(None)?
+        .into_iter()
+        .find(|item| {
+            if increase {
+                item.current_count > item.previous_count
+            } else {
+                item.current_count < item.previous_count
+            }
+        })
+    else {
         return Ok(None);
     };
     let sources = database.openai_quota_sources()?;
@@ -291,6 +323,7 @@ pub fn latest_banked_grant(database: &Database) -> Result<Option<BankedGrantView
         current_count: observation.current_count,
         observed_at: observation.observed_at,
         live_count,
+        kind: if increase { "grant" } else { "drop" }.into(),
     }))
 }
 
@@ -329,10 +362,19 @@ fn parseable_count_pairs(
 }
 
 fn apply_grant(view: &mut QuotaVerificationView, grants: &[BankedResetObservationRecord]) {
-    if let Some(grant) = grants.iter().find(|item| item.source_id == view.source_id) {
+    if let Some(grant) = grants.iter().find(|item| {
+        item.source_id == view.source_id && item.current_count > item.previous_count
+    }) {
         view.last_banked_grant_at = Some(grant.observed_at);
         view.last_banked_grant_from = Some(grant.previous_count);
         view.last_banked_grant_to = Some(grant.current_count);
+    }
+    if let Some(drop) = grants.iter().find(|item| {
+        item.source_id == view.source_id && item.current_count < item.previous_count
+    }) {
+        view.last_banked_decrease_at = Some(drop.observed_at);
+        view.last_banked_decrease_from = Some(drop.previous_count);
+        view.last_banked_decrease_to = Some(drop.current_count);
     }
 }
 
@@ -510,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn materializes_count_increases_and_skips_decrease_missing_and_baseline() {
+    fn materializes_count_increases_and_decreases_skips_missing_and_unchanged() {
         let (database, path) = temp_db();
         let t0 = epoch_ms() - 4 * 3_600_000;
         insert_count(&database, t0, Some("1"));
@@ -520,11 +562,25 @@ mod tests {
         insert_count(&database, t0 + 4_000, Some("2"));
         insert_count(&database, t0 + 5_000, Some("1"));
         materialize_banked_grants(&database, None).unwrap();
-        let grants = database.banked_reset_observations(None).unwrap();
-        assert_eq!(grants.len(), 1);
-        assert_eq!(grants[0].previous_count, 1);
-        assert_eq!(grants[0].current_count, 2);
-        assert_eq!(grants[0].observed_at, t0 + 3_000);
+        let changes = database.banked_reset_observations(None).unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].previous_count, 2);
+        assert_eq!(changes[0].current_count, 1);
+        assert_eq!(changes[0].observed_at, t0 + 5_000);
+        assert_eq!(changes[1].previous_count, 1);
+        assert_eq!(changes[1].current_count, 2);
+        assert_eq!(changes[1].observed_at, t0 + 3_000);
+        let grant = latest_banked_grant(&database).unwrap().expect("grant");
+        assert_eq!(grant.kind, "grant");
+        assert_eq!((grant.previous_count, grant.current_count), (1, 2));
+        let drop = latest_banked_decrease(&database).unwrap().expect("drop");
+        assert_eq!(drop.kind, "drop");
+        assert_eq!((drop.previous_count, drop.current_count), (2, 1));
+        let event = watching_banked_event(t0 - 60_000);
+        assert_eq!(
+            banked_reset_observed_at(&database, &event).unwrap(),
+            Some(t0 + 3_000)
+        );
         let _ = std::fs::remove_file(path);
     }
 

@@ -337,6 +337,8 @@ pub struct RadarDecisionView {
     pub recent_reset: Option<RadarRecentEventView>,
     /// 最近一次本机观察到的重置卡发放（数量增加）；不得写入 recent_reset。
     pub recent_banked_grant: Option<BankedGrantView>,
+    /// 最近一次本机观察到的重置卡数量减少；不得单独断言已使用，也不得写入 recent_reset。
+    pub recent_banked_decrease: Option<BankedGrantView>,
     /// 最近关闭的普通雷达事件（invalid_historical_replay/timeout 等只进历史，不参与“最近一次重置”）。
     pub recent_closed_event: Option<RadarRecentEventView>,
     pub relevant_post_ids: Vec<String>,
@@ -1050,6 +1052,7 @@ fn build_decision(
         // 最近一次本机观察/用户确认的重置；“最近一次重置”唯一来源。
         recent_reset,
         recent_banked_grant: quota_watch::latest_banked_grant(database)?,
+        recent_banked_decrease: quota_watch::latest_banked_decrease(database)?,
         // 最近关闭的普通雷达事件（含 invalid_historical_replay 等），只用于历史与来源声称提示。
         recent_closed_event,
         relevant_post_ids,
