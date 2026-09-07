@@ -100,14 +100,14 @@
 
   /* 悬浮球：独立透明窗口内的冰晶亚克力表面与状态色 */
   --q-hoverbar-panel-bg:
-    radial-gradient(110% 74% at 50% -22%, rgba(190, 228, 246, 0.85), transparent 58%),
-    linear-gradient(142deg, rgba(248, 252, 255, 0.98), rgba(223, 240, 248, 0.98));
-  --q-hoverbar-panel-border: rgba(150, 195, 215, 0.7);
-  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.75);
-  --q-hoverbar-panel-shadow: rgba(72, 118, 143, 0.16);
+    radial-gradient(120% 80% at 50% -20%, rgba(186, 230, 253, 0.75), transparent 65%),
+    linear-gradient(155deg, rgba(255, 255, 255, 0.92), rgba(240, 248, 255, 0.88));
+  --q-hoverbar-panel-border: rgba(160, 205, 225, 0.65);
+  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.90);
+  --q-hoverbar-panel-shadow: rgba(72, 118, 143, 0.15);
   --q-hoverbar-card-bg:
-    linear-gradient(112deg, rgba(255, 255, 255, 0.93), rgba(241, 249, 253, 0.84));
-  --q-hoverbar-card-border: rgba(110, 160, 188, 0.28);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(246, 251, 255, 0.82));
+  --q-hoverbar-card-border: rgba(125, 175, 205, 0.28);
   --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.9);
   --q-hoverbar-ink: #122a3d;
   --q-hoverbar-muted: #2f4b64;
@@ -201,14 +201,14 @@
     --q-status-bar-a: #356e97;
     --q-status-bar-b: #75adff;
     --q-hoverbar-panel-bg:
-      radial-gradient(120% 74% at 50% -24%, rgba(70, 125, 170, 0.3), transparent 58%),
-      linear-gradient(142deg, rgba(15, 36, 50, 0.985), rgba(9, 21, 32, 0.995));
-    --q-hoverbar-panel-border: rgba(160, 191, 211, 0.4);
-    --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.08);
-    --q-hoverbar-panel-shadow: rgba(0, 0, 0, 0.28);
+      radial-gradient(120% 80% at 50% -20%, rgba(56, 189, 248, 0.18), transparent 60%),
+      linear-gradient(155deg, rgba(15, 23, 42, 0.92), rgba(11, 17, 32, 0.94));
+    --q-hoverbar-panel-border: rgba(148, 163, 184, 0.35);
+    --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.14);
+    --q-hoverbar-panel-shadow: rgba(0, 0, 0, 0.38);
     --q-hoverbar-card-bg:
-      linear-gradient(112deg, rgba(22, 47, 66, 0.92), rgba(13, 30, 43, 0.88));
-    --q-hoverbar-card-border: rgba(160, 191, 211, 0.26);
+      linear-gradient(135deg, rgba(30, 41, 59, 0.78), rgba(15, 23, 42, 0.72));
+    --q-hoverbar-card-border: rgba(148, 163, 184, 0.22);
     --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.07);
     --q-hoverbar-ink: #f6fafd;
     --q-hoverbar-muted: #c4d4e0;
@@ -288,14 +288,14 @@
 /* 悬浮详情手动主题优先于系统偏好；只覆盖 hoverbar 语义 Token。 */
 :root[data-hoverbar-theme="light"] {
   --q-hoverbar-panel-bg:
-    radial-gradient(110% 74% at 50% -22%, rgba(190, 228, 246, 0.85), transparent 58%),
-    linear-gradient(142deg, rgba(248, 252, 255, 0.98), rgba(223, 240, 248, 0.98));
-  --q-hoverbar-panel-border: rgba(150, 195, 215, 0.7);
-  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.75);
-  --q-hoverbar-panel-shadow: rgba(72, 118, 143, 0.16);
+    radial-gradient(120% 80% at 50% -20%, rgba(186, 230, 253, 0.75), transparent 65%),
+    linear-gradient(155deg, rgba(255, 255, 255, 0.92), rgba(240, 248, 255, 0.88));
+  --q-hoverbar-panel-border: rgba(160, 205, 225, 0.65);
+  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.90);
+  --q-hoverbar-panel-shadow: rgba(72, 118, 143, 0.15);
   --q-hoverbar-card-bg:
-    linear-gradient(112deg, rgba(255, 255, 255, 0.93), rgba(241, 249, 253, 0.84));
-  --q-hoverbar-card-border: rgba(110, 160, 188, 0.28);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(246, 251, 255, 0.82));
+  --q-hoverbar-card-border: rgba(125, 175, 205, 0.28);
   --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.9);
   --q-hoverbar-ink: #122a3d;
   --q-hoverbar-muted: #2f4b64;
@@ -320,14 +320,14 @@
 
 :root[data-hoverbar-theme="dark"] {
   --q-hoverbar-panel-bg:
-    radial-gradient(120% 74% at 50% -24%, rgba(70, 125, 170, 0.3), transparent 58%),
-    linear-gradient(142deg, rgba(15, 36, 50, 0.985), rgba(9, 21, 32, 0.995));
-  --q-hoverbar-panel-border: rgba(160, 191, 211, 0.4);
-  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.08);
-  --q-hoverbar-panel-shadow: rgba(0, 0, 0, 0.28);
+    radial-gradient(120% 80% at 50% -20%, rgba(56, 189, 248, 0.18), transparent 60%),
+    linear-gradient(155deg, rgba(15, 23, 42, 0.92), rgba(11, 17, 32, 0.94));
+  --q-hoverbar-panel-border: rgba(148, 163, 184, 0.35);
+  --q-hoverbar-panel-highlight: rgba(255, 255, 255, 0.14);
+  --q-hoverbar-panel-shadow: rgba(0, 0, 0, 0.38);
   --q-hoverbar-card-bg:
-    linear-gradient(112deg, rgba(22, 47, 66, 0.92), rgba(13, 30, 43, 0.88));
-  --q-hoverbar-card-border: rgba(160, 191, 211, 0.26);
+    linear-gradient(135deg, rgba(30, 41, 59, 0.78), rgba(15, 23, 42, 0.72));
+  --q-hoverbar-card-border: rgba(148, 163, 184, 0.22);
   --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.07);
   --q-hoverbar-ink: #f6fafd;
   --q-hoverbar-muted: #c4d4e0;

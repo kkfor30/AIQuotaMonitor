@@ -5,6 +5,7 @@
  */
 @import "tailwindcss";
 @import "./tokens.css";
+@import "./animations.css";
 
 /* 全局基础样式 */
 html,
@@ -240,6 +241,55 @@ html.hoverbar-window #root {
   box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
 }
 
+/* 被动告警脉冲光晕与全边缘定向适配 */
+.hb-orb.is-alert-error {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 0 0 6px rgba(244, 63, 94, 0.55);
+  animation: orb-alert-pulse-rose 2.4s ease-in-out infinite;
+}
+
+.hb-orb.is-alert-warning {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 0 0 6px rgba(245, 158, 11, 0.45);
+  animation: orb-alert-pulse-amber 3s ease-in-out infinite;
+}
+
+.hb-orb.is-alert-error[data-edge="top"] {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 0 3px 8px rgba(244, 63, 94, 0.55);
+}
+
+.hb-orb.is-alert-error[data-edge="bottom"] {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 0 -3px 8px rgba(244, 63, 94, 0.55);
+}
+
+.hb-orb.is-alert-error[data-edge="left"] {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), 3px 0 8px rgba(244, 63, 94, 0.55);
+}
+
+.hb-orb.is-alert-error[data-edge="right"] {
+  box-shadow: inset 0 0 0 1.5px rgba(244, 63, 94, 0.8), -3px 0 8px rgba(244, 63, 94, 0.55);
+}
+
+.hb-orb.is-alert-warning[data-edge="top"] {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 0 3px 7px rgba(245, 158, 11, 0.45);
+}
+
+.hb-orb.is-alert-warning[data-edge="bottom"] {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 0 -3px 7px rgba(245, 158, 11, 0.45);
+}
+
+.hb-orb.is-alert-warning[data-edge="left"] {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), 3px 0 7px rgba(245, 158, 11, 0.45);
+}
+
+.hb-orb.is-alert-warning[data-edge="right"] {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 158, 11, 0.8), -3px 0 7px rgba(245, 158, 11, 0.45);
+}
+
+.hb-orb.is-detail-open.is-alert-error,
+.hb-orb.is-detail-open.is-alert-warning {
+  animation: none;
+  box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
+}
+
 .hb-orb:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -302,9 +352,10 @@ html.hoverbar-window #root {
   pointer-events: none;
   background: var(--q-hoverbar-panel-bg);
   box-shadow:
+    0 18px 42px -8px rgba(0, 0, 0, 0.22),
     inset 0 1px 0 var(--q-hoverbar-panel-highlight),
     inset 0 -1px 0 var(--q-hoverbar-panel-shadow);
-  backdrop-filter: blur(22px) saturate(1.12);
+  backdrop-filter: blur(28px) saturate(1.35);
   will-change: opacity, transform;
   transition:
     opacity 180ms ease-out,
@@ -385,6 +436,8 @@ html.hoverbar-window #root {
 .hb-refresh-status[data-error="true"] {
   color: var(--q-hoverbar-danger);
 }
+
+
 
 .hb-actions {
   display: inline-flex;
@@ -497,12 +550,20 @@ html.hoverbar-window #root {
   min-width: 0;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 13px 14px;
   border: 1px solid var(--q-hoverbar-card-border);
   border-radius: 18px;
   overflow: hidden;
   background: var(--q-hoverbar-card-bg);
-  box-shadow: inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.04), inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease, border-color 180ms ease;
+}
+
+@media (hover: hover) {
+  .hb-service-card:hover {
+    box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.08), inset 0 1px 0 var(--q-hoverbar-card-shadow);
+    transform: translateY(-1px);
+  }
 }
 
 .hb-service-card[data-status="healthy"] {
@@ -569,35 +630,102 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+.hb-card-head-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
+
 .hb-status-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex: none;
-  margin-left: auto;
   padding: 3px 9px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
   line-height: 15px;
   white-space: nowrap;
+  border: 1px solid transparent;
+  transition: all 140ms ease;
 }
 
 .hb-status-chip[data-status="healthy"] {
   color: var(--q-hoverbar-success);
   background: var(--q-success-soft);
+  border-color: color-mix(in srgb, var(--q-hoverbar-success) 22%, transparent);
 }
 
 .hb-status-chip[data-status="partial"],
 .hb-status-chip[data-status="setup_required"] {
   color: var(--q-hoverbar-warning);
   background: var(--q-warning-soft);
+  border-color: color-mix(in srgb, var(--q-hoverbar-warning) 25%, transparent);
 }
 
 .hb-status-chip[data-status="error"] {
   color: var(--q-hoverbar-danger);
   background: var(--q-danger-soft);
+  border-color: color-mix(in srgb, var(--q-hoverbar-danger) 28%, transparent);
 }
+
+/* 单卡即时刷新按钮与可交互状态 Chip */
+.hb-card-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--q-hoverbar-muted);
+  cursor: pointer;
+  flex: none;
+  opacity: 0.45;
+  transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hb-service-card:hover .hb-card-refresh-btn,
+.hb-card-refresh-btn[data-refreshing="true"] {
+  opacity: 0.9;
+}
+
+.hb-card-refresh-btn:hover:not(:disabled) {
+  opacity: 1 !important;
+  color: var(--q-hoverbar-primary);
+  background: var(--q-hoverbar-action-hover);
+  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 18%, transparent);
+  transform: scale(1.05);
+}
+
+.hb-card-refresh-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.hb-card-refresh-btn:disabled {
+  cursor: default;
+}
+
+button.hb-status-chip,
+.hb-status-chip[data-interactive="true"] {
+  cursor: pointer;
+  border: 0;
+  transition: transform 120ms ease, opacity 120ms ease, filter 120ms ease;
+}
+
+button.hb-status-chip:hover,
+.hb-status-chip[data-interactive="true"]:hover {
+  opacity: 0.9;
+  filter: brightness(1.08);
+  transform: translateY(-0.5px);
+}
+
+
 
 /* 套餐徽章：按账户类型配色（Pro 紫 / Plus 蓝 / Lite 青 / Free 灰）；未知套餐中性底。 */
 .hb-plan-chip {
@@ -641,11 +769,11 @@ html.hoverbar-window #root {
 
 /* 设置页悬浮球排序：拖拽中的行 */
 .sort-row-dragging {
-  z-index: 20;
-  cursor: grabbing;
+  z-index: 30;
+  cursor: grabbing !important;
   will-change: transform;
-  box-shadow: var(--q-shadow-lg);
-  outline: 1px solid var(--q-border-selected);
+  box-shadow: var(--q-shadow-lg), 0 8px 24px -4px rgba(0, 0, 0, 0.28);
+  outline: 1.5px solid var(--q-primary);
   background: var(--q-surface-solid);
 }
 
@@ -727,8 +855,15 @@ html.hoverbar-window #root {
 .hb-group-head {
   display: flex;
   min-width: 0;
+  width: 100%;
   align-items: center;
   gap: 7px;
+}
+
+.hb-group-status,
+.hb-group-head .hb-status-chip {
+  margin-left: auto;
+  flex: none;
 }
 
 /* 卡头账户别名：空间不足时先于平台名截断（shrink 权重更高），平台名保持完整 */
@@ -753,8 +888,9 @@ html.hoverbar-window #root {
 
 .hb-quota-label {
   flex: none;
-  width: 64px;
+  width: 68px;
   overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--q-hoverbar-ink);
   font-size: 12px;
   font-weight: 680;
@@ -776,7 +912,8 @@ html.hoverbar-window #root {
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: 999px;
-  transition: width 300ms ease;
+  transition: width 350ms cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 6px -1px currentColor;
 }
 
 .hb-quota-percent {
@@ -809,16 +946,35 @@ html.hoverbar-window #root {
   white-space: nowrap;
 }
 
+/* 资金组合胶囊容器：宽停靠下双列并排，侧停靠下单列堆叠 */
+.hb-finance-capsules {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-finance-capsules,
+.hb-detail-root[data-edge="right"] .hb-finance-capsules {
+  grid-template-columns: 1fr;
+}
+
 /* 统一余额财务条：钱包线性图标 + 「个人余额」，金额严格右对齐、tabular 等宽 */
 .hb-balance-bar {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  border-radius: 11px;
+  gap: 7px;
+  padding: 8px 11px;
+  border-radius: 12px;
   background: var(--q-hoverbar-empty-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 75%, transparent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: all 160ms ease;
+}
+
+.hb-balance-bar:hover {
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 6%, var(--q-hoverbar-empty-bg));
+  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 28%, transparent);
 }
 
 .hb-balance-bar > svg {
@@ -1180,14 +1336,22 @@ html.hoverbar-window #root {
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: 5px;
-  margin-top: 2px;
-  padding: 9px 11px;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 10px 12px;
   overflow: hidden;
-  border: 1px solid var(--q-hoverbar-card-border);
-  border-radius: 12px;
-  background: var(--q-hoverbar-card-bg);
-  box-shadow: 0 1px 2px rgba(16, 42, 67, 0.05);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-primary) 24%, var(--q-hoverbar-card-border));
+  border-radius: 14px;
+  background:
+    radial-gradient(100% 120% at 100% 0%, color-mix(in srgb, var(--q-hoverbar-primary) 8%, transparent), transparent 70%),
+    var(--q-hoverbar-card-bg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  transition: all 180ms ease;
+}
+
+.hb-radar-strip:hover {
+  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 40%, var(--q-hoverbar-card-border));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
 .hb-radar-strip-head {
@@ -1372,6 +1536,88 @@ html.hoverbar-window #root {
   overflow-wrap: anywhere;
 }
 
+.hb-radar-strip-ref-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--q-hoverbar-empty-bg) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 60%, transparent);
+}
+
+.hb-radar-strip-ref-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--q-hoverbar-ink);
+}
+
+.hb-radar-strip-ref-icon {
+  flex: none;
+  color: var(--q-hoverbar-primary);
+  opacity: 0.85;
+}
+
+.hb-radar-strip-ref-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hb-radar-strip-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.hb-radar-strip-foot .hb-radar-strip-note {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--q-hoverbar-muted);
+}
+
+.hb-radar-ai-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  color: var(--q-hoverbar-muted);
+  background: color-mix(in srgb, var(--q-hoverbar-muted) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 60%, transparent);
+}
+
+.hb-radar-ai-pill[data-state="covered"] {
+  color: var(--q-hoverbar-success);
+  background: color-mix(in srgb, var(--q-hoverbar-success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--q-hoverbar-success) 24%, transparent);
+}
+
+.hb-radar-ai-pill[data-state="historical"] {
+  color: var(--q-hoverbar-primary);
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 20%, transparent);
+}
+
+.hb-radar-ai-pill[data-state="failed"] {
+  color: var(--q-hoverbar-danger, #e5484d);
+  background: color-mix(in srgb, var(--q-hoverbar-danger, #e5484d) 12%, transparent);
+  border-color: color-mix(in srgb, var(--q-hoverbar-danger, #e5484d) 24%, transparent);
+}
+
 /* 雷达二级页（设计稿 13）：同一悬浮窗口内切换，复用窄版宽度。 */
 .hb-radar-page {
   position: relative;
@@ -1547,11 +1793,50 @@ html.hoverbar-window #root {
   min-width: 0;
   flex: none;
   flex-direction: column;
-  padding: 11px 13px;
+  padding: 12px 14px;
   border: 1px solid var(--q-hoverbar-card-border);
   border-radius: 16px;
   background: var(--q-hoverbar-card-bg);
-  box-shadow: inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03), inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  transition: all 180ms ease;
+}
+
+.hb-radar-hero-card {
+  position: relative;
+  overflow: hidden;
+  padding: 13px 15px;
+  border-radius: 18px;
+  border: 1px solid var(--q-hoverbar-card-border);
+  background: var(--q-hoverbar-card-bg);
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.05), inset 0 1px 0 var(--q-hoverbar-card-shadow);
+  transition: all 220ms ease;
+}
+
+.hb-radar-hero-card[data-status="landed_claimed"],
+.hb-radar-hero-card[data-status="landed_observed"],
+.hb-radar-hero-card[data-status="user_confirmed"],
+.hb-radar-hero-card[data-status="expected_time_passed"] {
+  border-color: color-mix(in srgb, var(--q-hoverbar-success) 45%, var(--q-hoverbar-card-border));
+  background:
+    radial-gradient(120% 100% at 90% 10%, color-mix(in srgb, var(--q-hoverbar-success) 14%, transparent), transparent 60%),
+    var(--q-hoverbar-card-bg);
+}
+
+.hb-radar-hero-card[data-status="watching"],
+.hb-radar-hero-card[data-status="signal_surging"],
+.hb-radar-hero-card[data-status="anomaly_detected"] {
+  border-color: color-mix(in srgb, var(--q-hoverbar-warning) 45%, var(--q-hoverbar-card-border));
+  background:
+    radial-gradient(120% 100% at 90% 10%, color-mix(in srgb, var(--q-hoverbar-warning) 14%, transparent), transparent 60%),
+    var(--q-hoverbar-card-bg);
+}
+
+.hb-radar-hero-tag {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  color: var(--q-hoverbar-muted);
+  text-transform: uppercase;
 }
 
 .hb-radar-kv {
@@ -2270,42 +2555,63 @@ html.hoverbar-window #root {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px 8px 14px;
-  border-radius: 10px;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
   background: var(--q-hoverbar-empty-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
+  border-left: 2.5px solid var(--q-hoverbar-muted);
 }
 
-/* 账号详情行：收紧 meta 段落间距，避免行距松散。 */
-.hb-quota-row .hb-radar-meta {
-  margin-top: 2px;
+.hb-quota-row[data-status="unscheduled_reset"],
+.hb-quota-row[data-status="possible_reset"] {
+  border-left-color: var(--q-hoverbar-warning);
 }
 
-/* 状态色侧条：一眼区分观察结果的性质 */
-.hb-quota-row::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 9px;
-  bottom: 9px;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--q-hoverbar-muted);
+.hb-quota-row[data-status="scheduled"],
+.hb-quota-row[data-status="no_change"] {
+  border-left-color: var(--q-hoverbar-success);
 }
 
-.hb-quota-row[data-status="unscheduled_reset"]::before,
-.hb-quota-row[data-status="possible_reset"]::before {
-  background: var(--q-hoverbar-warning);
+.hb-quota-row[data-status="pending"] {
+  border-left-color: var(--q-hoverbar-primary);
 }
 
-.hb-quota-row[data-status="scheduled"]::before,
-.hb-quota-row[data-status="no_change"]::before {
-  background: var(--q-hoverbar-success);
+.hb-quota-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 4px;
 }
 
-.hb-quota-row[data-status="pending"]::before {
-  background: var(--q-hoverbar-primary);
+.hb-quota-metric-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--q-hoverbar-ink) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 50%, transparent);
+  min-width: 0;
+}
+
+.hb-quota-metric-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--q-hoverbar-muted);
+  letter-spacing: 0.02em;
+}
+
+.hb-quota-metric-val {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--q-hoverbar-ink);
+}
+
+.hb-quota-metric-sub {
+  font-size: 9.5px;
+  line-height: 13px;
+  color: var(--q-hoverbar-muted);
 }
 
 .hb-quota-row-head {
@@ -2616,6 +2922,25 @@ html.hoverbar-window #root {
   align-self: flex-end;
 }
 
+/* 左右侧 300px：卡头元素防折行保护，名称弹性截断，刷新按钮与状态徽章防挤压 */
+.hb-detail-root[data-edge="left"] .hb-card-head,
+.hb-detail-root[data-edge="right"] .hb-card-head {
+  gap: 6px;
+}
+
+.hb-detail-root[data-edge="left"] .hb-card-name,
+.hb-detail-root[data-edge="right"] .hb-card-name {
+  font-size: 14px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hb-detail-root[data-edge="left"] .hb-card-refresh-btn,
+.hb-detail-root[data-edge="right"] .hb-card-refresh-btn {
+  width: 20px;
+  height: 20px;
+}
+
 /* 左右侧 300px：三行摘要，徽章保留、标题收起，不缩小核心字号。 */
 .hb-detail-root[data-edge="left"] .hb-radar-strip-head,
 .hb-detail-root[data-edge="right"] .hb-radar-strip-head {
@@ -2674,7 +2999,7 @@ html.hoverbar-window #root {
 
 .hb-detail-root[data-edge="left"] .hb-quota-label,
 .hb-detail-root[data-edge="right"] .hb-quota-label {
-  width: 58px;
+  width: 68px;
   font-size: 11px;
 }
 
@@ -2787,6 +3112,18 @@ html.hoverbar-window #root {
 @keyframes hb-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes hb-orb-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+    filter: brightness(1.2);
   }
 }
 

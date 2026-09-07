@@ -1,6 +1,7 @@
 import { CapabilityDashboard } from "./CapabilityDashboard";
 import { RefreshHistory } from "./RefreshHistory";
 import { SourceHealthSummary } from "./SourceHealthSummary";
+import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
@@ -29,6 +30,10 @@ function planOf(capabilities: CapabilitySnapshotViewModel[]): string | null {
   return capabilities.find((capability) => capability.capabilityId === "plan_level")?.value.primary ?? null;
 }
 
+function userNameOf(capabilities: CapabilitySnapshotViewModel[]): string | null {
+  return capabilities.find((capability) => capability.capabilityId === "account_name")?.value.primary ?? null;
+}
+
 /**
  * 窗口能力可见性：从未成功获取过的窗口不展示（官方拿掉或尚未返回的窗口不写「暂不可用」），
  * 其余能力全部参与组合渲染。
@@ -47,7 +52,13 @@ function isVisibleWindow(capability: CapabilitySnapshotViewModel): boolean {
  * - medium/compact：单栏，刷新记录折叠卡放在来源状态之后、账号额度之前。
  * 滚动由外层 TabContent 统一承担，本组件自身不产生第二个滚动区。
  */
-export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) {
+export function UsageView({
+  platform,
+  onSwitchToSources,
+}: {
+  platform: PlatformSummaryViewModel;
+  onSwitchToSources?: () => void;
+}) {
   const { ref, mode } = useContainerWidth<HTMLDivElement>();
   const wide = mode === "wide";
 
@@ -56,19 +67,47 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
       <EmptyState
         title={`${platform.displayName} 尚未接入`}
         description="配置数据来源后即可在此查看额度与用量。切换到「接入与来源」开始配置。"
+        action={
+          onSwitchToSources && (
+            <Button size="sm" onClick={onSwitchToSources} className="mt-1">
+              前往「接入与来源」配置
+            </Button>
+          )
+        }
       />
     );
   }
 
-  const cardCapabilities = platform.capabilities.filter(isVisibleWindow);
-  const multiAccount = platform.accounts.length > 1;
-  const accountSections = platform.accounts.map((account) => {
-    const capabilities = cardCapabilities.filter((capability) => capability.accountId === account.accountId);
+  const accounts = platform.accounts ?? [];
+  if (accounts.length === 0) {
+    return (
+      <EmptyState
+        title={`${platform.displayName} 暂无可用账户`}
+        description="该平台尚未初始化账户配置，请切换到「接入与来源」配置数据来源。"
+        action={
+          onSwitchToSources && (
+            <Button size="sm" onClick={onSwitchToSources} className="mt-1">
+              前往「接入与来源」配置
+            </Button>
+          )
+        }
+      />
+    );
+  }
+
+  const allCapabilities = platform.capabilities ?? [];
+  const cardCapabilities = allCapabilities.filter(isVisibleWindow);
+  const multiAccount = accounts.length > 1;
+  const accountSections = accounts.map((account) => {
+    const caps = cardCapabilities.filter((capability) => capability.accountId === account.accountId);
     return {
       account,
-      plan: planOf(capabilities),
-      // usage_trend 等趋势能力随账号能力一起进入组合渲染；plan_level 只作徽章
-      capabilities: capabilities.filter((capability) => capability.capabilityId !== "plan_level"),
+      plan: planOf(caps),
+      userName: userNameOf(caps),
+      // usage_trend 等趋势能力随账号能力一起进入组合渲染；plan_level 与 account_name 由账号头渲染为身份信息
+      capabilities: caps.filter(
+        (capability) => capability.capabilityId !== "plan_level" && capability.capabilityId !== "account_name",
+      ),
     };
   });
 
@@ -78,20 +117,24 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
       {!wide && <RefreshHistory platform={platform} variant="inline" />}
       {multiAccount ? (
         <div className="flex flex-col gap-6">
-          {accountSections.map(({ account, plan, capabilities }) => (
+          {accountSections.map(({ account, plan, userName, capabilities }) => (
             <section key={account.accountId} className="flex min-w-0 flex-col gap-3">
-              <AccountHeader account={account} plan={plan} />
+              <AccountHeader account={account} plan={plan} userName={userName} />
               <CapabilityDashboard capabilities={capabilities} wide={wide} />
             </section>
           ))}
         </div>
-      ) : (
+      ) : accountSections[0] ? (
         // 单账号平台同样展示账户头（套餐徽章挂在账户名旁，订阅计划不单独成卡）
         <div className="flex min-w-0 flex-col gap-3">
-          <AccountHeader account={platform.accounts[0]} plan={accountSections[0]?.plan} />
-          <CapabilityDashboard capabilities={accountSections[0]?.capabilities ?? []} wide={wide} />
+          <AccountHeader
+            account={accountSections[0].account}
+            plan={accountSections[0].plan}
+            userName={accountSections[0].userName}
+          />
+          <CapabilityDashboard capabilities={accountSections[0].capabilities} wide={wide} />
         </div>
-      )}
+      ) : null}
     </div>
   );
 
@@ -111,18 +154,36 @@ export function UsageView({ platform }: { platform: PlatformSummaryViewModel }) 
   );
 }
 
-/** 账号区块头：账号名 + 类型 + 套餐徽章（悬浮球同款配色）+ 账号聚合状态。顺序沿用后端 accounts 顺序。 */
-function AccountHeader({ account, plan }: { account: AccountSummaryViewModel; plan?: string | null }) {
-  const statusMeta = AGGREGATE_STATUS_META[account.status];
+/** 账号区块头：账号名（含实际用户别名） + 类型 + 套餐徽章（悬浮球同款配色）+ 账号聚合状态。顺序沿用后端 accounts 顺序。 */
+function AccountHeader({
+  account,
+  plan,
+  userName,
+}: {
+  account: AccountSummaryViewModel;
+  plan?: string | null;
+  userName?: string | null;
+}) {
+  if (!account) return null;
+  const statusMeta = (account.status && AGGREGATE_STATUS_META[account.status]) ?? {
+    label: "未知",
+    icon: "settings" as const,
+    tone: "neutral" as const,
+  };
+  const kindLabel = (account.kind && ACCOUNT_KIND_LABEL[account.kind]) ?? "默认";
+  const displayTitle = userName && account.displayName && !account.displayName.includes(userName)
+    ? `${account.displayName} · ${userName}`
+    : account.displayName || userName || "默认账户";
+
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-1">
-      <h3 className="text-[15px] font-semibold tracking-tight text-q-text-primary">{account.displayName}</h3>
+      <h3 className="text-[15px] font-semibold tracking-tight text-q-text-primary">{displayTitle}</h3>
       <span
         className={`rounded-q-pill px-2 py-0.5 text-[11px] font-medium ${
           account.kind === "local" ? "bg-q-primary-softer text-q-primary" : "bg-q-neutral-soft text-q-neutral"
         }`}
       >
-        {ACCOUNT_KIND_LABEL[account.kind]}
+        {kindLabel}
       </span>
       {plan && (
         <span className="plan-chip" data-plan={planKey(plan)} title="订阅计划">

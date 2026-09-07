@@ -61,7 +61,9 @@ export function QuotaProgress({
   return (
     <div className={className ?? "flex min-w-0 items-center gap-2"}>
       {label && (
-        <span className="w-11 shrink-0 text-[11px] text-q-text-muted">{label}</span>
+        <span className="w-[58px] shrink-0 text-[11px] text-q-text-muted whitespace-nowrap truncate" title={label}>
+          {label}
+        </span>
       )}
       <div
         className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--q-quota-track)]"

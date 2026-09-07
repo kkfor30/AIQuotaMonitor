@@ -46,7 +46,9 @@ import { QuotaProgress, capabilityRemainingPercent, quotaTone, quotaToneColor } 
 import { FreshnessTag } from "@/components/ui/StatusBadge";
 import { compactPercentText, formatTime } from "@/lib/format";
 import type { CapabilitySnapshotViewModel } from "@/lib/types";
+import { cn } from "@/lib/cn";
 import { UsageTrend } from "./UsageTrend";
+import { formatSecondaryText, sortWindowCapabilities } from "./quota-windows";
 
 /* ————————————————— 能力类型体系（capabilityId 语义归类，与平台名无关） ————————————————— */
 
@@ -95,7 +97,7 @@ function ModelIdentityGlyph({ id }: { id: string }) {
 
 function classifyCapability(capability: CapabilitySnapshotViewModel): CapabilityGroup {
   const id = capability.capabilityId;
-  if (id === "plan_level") return "other";
+  if (id === "plan_level" || id === "account_name") return "other";
   if (id.startsWith("quota_window_")) return "window";
   if (id === "cache_hit_rate" || id.endsWith("_cache_hit_rate")) return "efficiency";
   // 请求数与四类 Token 计数归入调用效率模块的统计矩阵（模块渲染规则）
@@ -220,7 +222,7 @@ function WindowQuotaCard({ capability }: { capability: CapabilitySnapshotViewMod
       <QuotaProgress capability={capability} />
       {capability.value.secondary && !missing && (
         <p className="truncate text-[11px] leading-4 text-q-text-muted" title={capability.value.secondary}>
-          {capability.value.secondary}
+          {formatSecondaryText(capability.value.secondary)}
         </p>
       )}
       {line && (
@@ -232,11 +234,20 @@ function WindowQuotaCard({ capability }: { capability: CapabilitySnapshotViewMod
   );
 }
 
+function windowGridCols(count: number): string {
+  if (count === 1) return "grid-cols-1 max-w-md";
+  if (count === 2 || count === 4) return "grid-cols-1 sm:grid-cols-2";
+  if (count === 3) return "grid-cols-1 sm:grid-cols-3";
+  return "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3";
+}
+
 function WindowQuotaSection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  const sorted = sortWindowCapabilities(capabilities);
+  const gridClass = windowGridCols(sorted.length);
   return (
     <ModulePanel icon={TimerReset} title="窗口额度">
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,250px),1fr))] gap-4">
-        {capabilities.map((capability) => (
+      <div className={cn("grid gap-4", gridClass)}>
+        {sorted.map((capability) => (
           <WindowQuotaCard key={`${capability.sourceId}-${capability.capabilityId}`} capability={capability} />
         ))}
       </div>
@@ -248,48 +259,58 @@ function WindowQuotaSection({ capabilities }: { capabilities: CapabilitySnapshot
 
 function FinanceSection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
   const balance = findCapability(capabilities, FINANCE_MAIN_ID);
-  const balanceMissing = isMissing(balance);
-  const balanceLine = freshnessLine(balance);
   const secondary = FINANCE_SECONDARY_META.map(({ id, icon }) => {
     const capability = findCapability(capabilities, id);
     return capability ? { capability, icon } : null;
   }).filter((item): item is { capability: CapabilitySnapshotViewModel; icon: LucideIcon } => item !== null);
+
+  // 若没有 balance 字段，但有消费类能力（如纯 total_spend），提升首个消费字段为主值
+  const primaryCap = balance ?? secondary[0]?.capability ?? null;
+  const otherSecondary = balance ? secondary : secondary.slice(1);
+  const primaryMissing = isMissing(primaryCap);
+  const primaryLine = freshnessLine(primaryCap);
+  const asideCap = primaryCap;
+
   return (
     <ModulePanel
       icon={WalletCards}
       title="资金账户"
-      aside={balance && balance.freshness !== "fresh" ? <FreshnessTag freshness={balance.freshness} /> : null}
+      aside={asideCap && asideCap.freshness !== "fresh" ? <FreshnessTag freshness={asideCap.freshness} /> : null}
     >
-      {/* 余额主值：冰霜白蓝 money Token，右对齐 tabular，字重约 650，无渐变无发光 */}
-      <div className="flex min-w-0 flex-col gap-1 border-t border-q-border pt-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <CircleDollarSign size={14} aria-hidden className="shrink-0 text-q-text-muted" />
-          <span className="min-w-0 flex-1 truncate text-xs text-q-text-muted">{balance?.displayName ?? "余额"}</span>
+      {/* 主值：冰霜白蓝 money Token，右对齐 tabular，字重约 650，无渐变无发光 */}
+      {primaryCap && (
+        <div className="flex min-w-0 flex-col gap-1 border-t border-q-border pt-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <CircleDollarSign size={14} aria-hidden className="shrink-0 text-q-text-muted" />
+            <span className="min-w-0 flex-1 truncate text-xs text-q-text-muted">
+              {primaryCap.displayName || (balance ? "余额" : "消费")}
+            </span>
+          </div>
+          <div className="flex min-w-0 items-baseline justify-between gap-3">
+            <span
+              className="min-w-0 truncate text-[28px] leading-9 tracking-tight text-[var(--q-money)]"
+              style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
+              data-selectable="true"
+              data-missing={primaryMissing || undefined}
+            >
+              {primaryMissing ? "未获取" : primaryText(primaryCap)}
+            </span>
+          </div>
+          {primaryLine && (
+            <p
+              className="text-[11px]"
+              style={{ color: primaryLine.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}
+            >
+              {primaryLine.text}
+            </p>
+          )}
         </div>
-        <div className="flex min-w-0 items-baseline justify-between gap-3">
-          <span
-            className="min-w-0 truncate text-[28px] leading-9 tracking-tight text-[var(--q-money)]"
-            style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}
-            data-selectable="true"
-            data-missing={balanceMissing || undefined}
-          >
-            {balanceMissing ? "未获取" : balance ? primaryText(balance) : ""}
-          </span>
-        </div>
-        {balanceLine && (
-          <p
-            className="text-[11px]"
-            style={{ color: balanceLine.stale ? "var(--q-warning)" : "var(--q-text-muted)" }}
-          >
-            {balanceLine.text}
-          </p>
-        )}
-      </div>
+      )}
 
       {/* 消费次级行：只渲染真实存在的字段，次级 money-secondary */}
-      {secondary.length > 0 && (
+      {otherSecondary.length > 0 && (
         <div className="flex min-w-0 flex-col border-t border-q-border pt-2">
-          {secondary.map(({ capability, icon: Icon }, index) => {
+          {otherSecondary.map(({ capability, icon: Icon }, index) => {
             const missing = isMissing(capability);
             const line = freshnessLine(capability);
             return (
@@ -589,10 +610,14 @@ function EfficiencySection({ capabilities }: { capabilities: CapabilitySnapshotV
 /* ————————————————— 未知能力回退 ————————————————— */
 
 function OtherCapabilitySection({ capabilities }: { capabilities: CapabilitySnapshotViewModel[] }) {
+  const visible = capabilities.filter(
+    (capability) => capability.capabilityId !== "account_name" && capability.capabilityId !== "plan_level",
+  );
+  if (visible.length === 0) return null;
   return (
     <ModulePanel icon={Boxes} title="其他数据">
       <div className="flex min-w-0 flex-col gap-2 border-t border-q-border pt-3">
-        {capabilities.map((capability) => {
+        {visible.map((capability) => {
           const missing = isMissing(capability);
           return (
             <div key={`${capability.sourceId}-${capability.capabilityId}`} className="flex min-w-0 items-baseline justify-between gap-3">

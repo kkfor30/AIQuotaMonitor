@@ -13,7 +13,7 @@
  * stale 保留真实值与进度色，仅以低饱和蓝灰缓存提示；
  * GPT 卡底部为重置信号摘要条（只展示简短 conclusion）。
  */
-import { AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, CircleX, Radar, RefreshCw, TimerReset, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, CircleX, CreditCard, Radar, RefreshCw, RotateCcw, TimerReset, Wallet } from "lucide-react";
 import {
   FlashCrystalIcon,
   ProCoreIcon,
@@ -31,7 +31,9 @@ import { compactPercentText } from "@/lib/format";
 import { capabilityRemainingPercent, quotaTone, quotaToneColor } from "@/components/ui/QuotaProgress";
 import {
   formatHoverbarClock,
-  radarAiStripLine,
+  radarAiStatusLabel,
+  radarBankedChangeLine,
+  radarLatestBankedChange,
   radarDecisionBadge,
   radarDecisionStripLine,
   radarDecisionStripLineCompact,
@@ -42,8 +44,18 @@ import { hoverbarProviderVisual } from "./provider-visuals";
 const DEEPSEEK_EXTRA_IDS = new Set<string>(["today_spend", "month_spend", "cache_hit_rate"]);
 const DEEPSEEK_MODEL_ORDER = ["model_usage_v4_flash", "model_usage_v4_flash_vision", "model_usage_v4_pro"] as const;
 const DEEPSEEK_MODEL_IDS = new Set<string>(DEEPSEEK_MODEL_ORDER);
-const ALLOWED_IDS = new Set<string>(["balance", "credits", "banked_reset_count", "plan_level", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
-const WINDOW_ORDER = ["quota_window_5h", "quota_window_7d", "quota_window_30d"];
+const ALLOWED_IDS = new Set<string>(["balance", "total_spend", "credits", "banked_reset_count", "plan_level", "account_name", ...DEEPSEEK_EXTRA_IDS, ...DEEPSEEK_MODEL_IDS]);
+const WINDOW_ORDER = [
+  "quota_window_5h",
+  "quota_window_7d",
+  "quota_window_30d",
+  "quota_window_7d_opus",
+  "quota_window_7d_sonnet",
+  "quota_window_5h_gemini",
+  "quota_window_7d_gemini",
+  "quota_window_5h_3p",
+  "quota_window_7d_3p",
+];
 
 /**
  * 悬浮模型行身份元数据（重设计 V2）：独立身份图标 + 语义副标题。
@@ -93,7 +105,7 @@ type HoverbarSection = {
   bankedReset: HoverbarFinance | null;
   credits: HoverbarFinance | null;
   balance: HoverbarFinance | null;
-  spend: { today: HoverbarFinance | null; month: HoverbarFinance | null };
+  spend: { today: HoverbarFinance | null; month: HoverbarFinance | null; total?: HoverbarFinance | null };
   models: HoverbarModel[];
   cacheHit: HoverbarCache | null;
   /** 分区内存在 stale 快照时的低饱和缓存提示（带最后一次成功时间）；null 表示无 stale。 */
@@ -111,6 +123,12 @@ const METRIC_LABEL: Record<string, string> = {
   quota_window_5h: "5小时窗口",
   quota_window_7d: "7天窗口",
   quota_window_30d: "30天窗口",
+  quota_window_7d_opus: "周窗口 · Opus",
+  quota_window_7d_sonnet: "周窗口 · Sonnet",
+  quota_window_5h_gemini: "Gemini 5h",
+  quota_window_7d_gemini: "Gemini 周",
+  quota_window_5h_3p: "Claude 5h",
+  quota_window_7d_3p: "Claude 周",
 };
 
 function isQuotaWindow(id: string): boolean {
@@ -128,6 +146,9 @@ function compareWindowIds(left: string, right: string): number {
 
 export function HoverbarPlatformCard({
   platform,
+  onRefreshSinglePlatform,
+  singleRefreshing = false,
+  onNavigateToPlatform,
   radar,
   onOpenRadar,
   onRefreshRadar,
@@ -136,6 +157,9 @@ export function HoverbarPlatformCard({
   radarRefreshError = null,
 }: {
   platform: PlatformSummaryViewModel;
+  onRefreshSinglePlatform?: () => void;
+  singleRefreshing?: boolean;
+  onNavigateToPlatform?: (tab?: "usage" | "sources") => void;
   radar?: RadarSnapshot;
   onOpenRadar?: () => void;
   onRefreshRadar?: () => void;
@@ -169,8 +193,39 @@ export function HoverbarPlatformCard({
             <span>{platform.displayName.slice(0, 1).toUpperCase()}</span>
           )}
         </span>
-        <b className="hb-card-name">{platform.displayName}</b>
-        <StatusChip status={platform.aggregateStatus} />
+        <b className="hb-card-name" title={platform.displayName}>{platform.displayName}</b>
+        <div className="hb-card-head-end">
+          {onRefreshSinglePlatform && (
+            <button
+              type="button"
+              className="hb-card-refresh-btn"
+              aria-label={`刷新 ${platform.displayName} 额度`}
+              title={singleRefreshing ? "正在刷新…" : `重新拉取 ${platform.displayName} 额度`}
+              disabled={singleRefreshing}
+              data-refreshing={singleRefreshing || undefined}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRefreshSinglePlatform();
+              }}
+            >
+              <RefreshCw size={12} className={singleRefreshing ? "animate-spin text-q-primary" : ""} aria-hidden />
+            </button>
+          )}
+          <StatusChip
+            status={platform.aggregateStatus}
+            interactive={Boolean(onNavigateToPlatform)}
+            onClick={
+              onNavigateToPlatform
+                ? () =>
+                    onNavigateToPlatform(
+                      platform.aggregateStatus === "error" || platform.aggregateStatus === "setup_required"
+                        ? "sources"
+                        : "usage",
+                    )
+                : undefined
+            }
+          />
+        </div>
       </header>
 
       {sections.length === 0 || !first ? (
@@ -203,12 +258,44 @@ export function HoverbarPlatformCard({
   );
 }
 
-function StatusChip({ status }: { status: PlatformAggregateStatus }) {
+function StatusChip({
+  status,
+  interactive = false,
+  onClick,
+}: {
+  status: PlatformAggregateStatus;
+  interactive?: boolean;
+  onClick?: () => void;
+}) {
   const Icon = status === "healthy" ? CheckCircle2 : status === "error" ? CircleX : AlertTriangle;
-  return (
-    <span className="hb-status-chip" data-status={status}>
+  const content = (
+    <>
       <Icon size={11} aria-hidden />
       {STATUS_LABEL[status]}
+    </>
+  );
+
+  if (interactive && onClick) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        className="hb-status-chip cursor-pointer hover:brightness-110 active:scale-95 transition-all"
+        data-status={status}
+        data-interactive="true"
+        title="点击在主窗口平台中心管理"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <span className="hb-status-chip" data-status={status}>
+      {content}
     </span>
   );
 }
@@ -227,7 +314,7 @@ function GroupHead({
   showAlias: boolean;
   showStatus: boolean;
 }) {
-  if (!section.plan && !showAlias) return null;
+  if (!section.plan && !showAlias && (!showStatus || section.status === "healthy")) return null;
   return (
     <div className="hb-group-head">
       {section.plan ? (
@@ -236,14 +323,19 @@ function GroupHead({
         </span>
       ) : null}
       {showAlias ? <span className="hb-group-name">{section.title}</span> : null}
-      {showStatus && section.status !== "healthy" ? <StatusChip status={section.status} /> : null}
+      {showStatus && section.status !== "healthy" ? (
+        <span className="hb-group-status">
+          <StatusChip status={section.status} />
+        </span>
+      ) : null}
     </div>
   );
 }
 
 /** 一个账户分区的数据体：窗口额度行 → 可用重置卡 → 额外余额 → 资金组合 → 模型行 → 总缓存块 → 缓存提示。 */
 function SectionBody({ section }: { section: HoverbarSection }) {
-  const hasSpend = section.spend.today !== null || section.spend.month !== null;
+  const hasSpend =
+    section.spend.today !== null || section.spend.month !== null || Boolean(section.spend.total);
   if (
     section.windows.length === 0
     && !section.bankedReset
@@ -260,8 +352,12 @@ function SectionBody({ section }: { section: HoverbarSection }) {
       {section.windows.map((item) => (
         <QuotaLine key={item.id} item={item} />
       ))}
-      {section.bankedReset ? <BankedResetBar item={section.bankedReset} /> : null}
-      {section.credits ? <CreditsBar credits={section.credits} /> : null}
+      {(section.bankedReset || section.credits) && (
+        <div className="hb-finance-capsules">
+          {section.bankedReset ? <BankedResetBar item={section.bankedReset} /> : null}
+          {section.credits ? <CreditsBar credits={section.credits} /> : null}
+        </div>
+      )}
       {(section.balance || hasSpend) && (
         /* 资金组合组：四个停靠方向统一堆叠布局（余额胶囊行 + 今日/本月双胶囊） */
         <div className="hb-finance-group">
@@ -270,6 +366,7 @@ function SectionBody({ section }: { section: HoverbarSection }) {
             <div className="hb-spend-grid">
               {section.spend.today ? <SpendCell label="今日消费" item={section.spend.today} /> : null}
               {section.spend.month ? <SpendCell label="本月消费" item={section.spend.month} /> : null}
+              {section.spend.total ? <SpendCell label="累计消费" item={section.spend.total} /> : null}
             </div>
           ) : null}
         </div>
@@ -294,7 +391,7 @@ function QuotaLine({ item }: { item: HoverbarWindow }) {
   const color = quotaToneColor(tone);
   return (
     <div className="hb-quota-line">
-      <span className="hb-quota-label">{item.label}</span>
+      <span className="hb-quota-label" title={item.label}>{item.label}</span>
       <span
         className="hb-quota-track"
         role="progressbar"
@@ -498,6 +595,15 @@ function RadarStrip({
     decision.status === "landed_observed" || decision.status === "user_confirmed"
       ? null
       : decision.recentSummaryText;
+  const latestBankedChange = radarLatestBankedChange(decision);
+  const recentGrantLine =
+    latestBankedChange == null
+      ? null
+      : latestBankedChange.kind === "grant" &&
+          decision.eventType === "banked_reset" &&
+          (decision.status === "landed_observed" || decision.status === "user_confirmed")
+        ? null
+        : radarBankedChangeLine(latestBankedChange, formatHoverbarClock);
   const staleLine = radar.sourceStatus === "stale" ? radarSourceLine(radar) : null;
   return (
     <footer className="hb-radar-strip">
@@ -537,24 +643,49 @@ function RadarStrip({
         <p className="hb-radar-strip-error">{radarRefreshError}</p>
       ) : (
         <>
-          {recentResetLine ? (
-            <p className="hb-radar-strip-row-text" data-selectable="true">
-              {recentResetLine}
-            </p>
+          {recentResetLine || recentGrantLine ? (
+            <div className="hb-radar-strip-ref-box">
+              {recentResetLine ? (
+                <div className="hb-radar-strip-ref-row">
+                  <RotateCcw size={10} className="hb-radar-strip-ref-icon" aria-hidden />
+                  <span className="hb-radar-strip-ref-text">{recentResetLine}</span>
+                </div>
+              ) : null}
+              {recentGrantLine ? (
+                <div className="hb-radar-strip-ref-row">
+                  <CreditCard size={10} className="hb-radar-strip-ref-icon" aria-hidden />
+                  <span className="hb-radar-strip-ref-text">{recentGrantLine}</span>
+                </div>
+              ) : null}
+            </div>
           ) : null}
-          <p className="hb-radar-strip-row-text" data-selectable="true">
-            {radarAiStripLine(radar.aiAssessment)}
-          </p>
+          <div className="hb-radar-strip-foot">
+            <span className="hb-radar-strip-note">
+              {staleLine ?? `更新 ${formatHoverbarClock(radar.lastSyncedAt ?? Date.now())}`}
+            </span>
+            {radar.aiAssessment.enabled ? (
+              <span
+                className="hb-radar-ai-pill"
+                data-state={radar.aiAssessment.state}
+              >
+                {radarAiStatusLabel(radar.aiAssessment)}
+              </span>
+            ) : null}
+          </div>
         </>
       )}
-      {staleLine ? <p className="hb-radar-strip-note">{staleLine}</p> : null}
     </footer>
   );
 }
 
 function planKey(plan: string): string {
   const key = plan.trim().toLowerCase();
-  return key === "plus" || key === "pro" || key === "free" || key === "lite" ? key : "other";
+  if (key.includes("pro")) return "pro";
+  if (key.includes("plus")) return "plus";
+  if (key.includes("ultra")) return "pro";
+  if (key.includes("free")) return "free";
+  if (key.includes("lite")) return "lite";
+  return "other";
 }
 
 /**
@@ -640,9 +771,11 @@ function sectionFromAccount(
     bankedReset: bankedResetOf(own),
     credits: financeOf(own, "credits"),
     balance: financeOf(own, "balance"),
-    spend: hasDeepseekExtras
-      ? { today: financeOf(own, "today_spend"), month: financeOf(own, "month_spend") }
-      : { today: null, month: null },
+    spend: {
+      today: hasDeepseekExtras ? financeOf(own, "today_spend") : null,
+      month: hasDeepseekExtras ? financeOf(own, "month_spend") : null,
+      total: financeOf(own, "total_spend"),
+    },
     models,
     cacheHit: hasDeepseekExtras ? cacheOf(own, "cache_hit_rate") : null,
     staleNote,

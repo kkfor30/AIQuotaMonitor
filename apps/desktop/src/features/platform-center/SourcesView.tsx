@@ -165,7 +165,24 @@ export function SourcesView({
     },
   });
 
-  const accountsById = new Map(platform.accounts.map((account) => [account.accountId, account]));
+  const effectiveAccounts =
+    platform.accounts && platform.accounts.length > 0
+      ? platform.accounts
+      : platform.sources.length > 0
+        ? [
+            {
+              accountId: `${platform.providerId}-default`,
+              displayName: "默认账户",
+              kind: "default" as const,
+              status: platform.aggregateStatus,
+              sourceIds: platform.sources.map((s) => s.sourceId),
+              canRename: false,
+              canRemove: false,
+            },
+          ]
+        : [];
+
+  const accountsById = new Map(effectiveAccounts.map((account) => [account.accountId, account]));
   const removingAccount =
     removingAccountId !== null ? (accountsById.get(removingAccountId) ?? null) : null;
 
@@ -204,10 +221,17 @@ export function SourcesView({
       )}
 
       <div className="flex flex-col gap-5">
-        {platform.accounts.map((account) => {
-          const sources = platform.sources.filter((source) => source.accountId === account.accountId);
+        {effectiveAccounts.map((account) => {
+          const sources = platform.sources.filter(
+            (source) => source.accountId === account.accountId || effectiveAccounts.length === 1,
+          );
           if (sources.length === 0) return null;
-          const statusMeta = AGGREGATE_STATUS_META[account.status];
+          const statusMeta = (account.status && AGGREGATE_STATUS_META[account.status]) ?? {
+            label: "未知",
+            icon: "settings" as const,
+            tone: "neutral" as const,
+          };
+          const kindLabel = (account.kind && ACCOUNT_KIND_LABEL[account.kind]) ?? "默认";
           return (
             <section key={account.accountId} className="glass-panel flex flex-col gap-1 p-4">
               <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
@@ -219,7 +243,7 @@ export function SourcesView({
                   }
                 />
                 <span className="rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] font-medium text-q-text-secondary">
-                  {ACCOUNT_KIND_LABEL[account.kind]}
+                  {kindLabel}
                 </span>
                 <span
                   className={cn(

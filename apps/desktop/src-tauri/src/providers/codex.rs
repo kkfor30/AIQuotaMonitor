@@ -686,14 +686,15 @@ fn window_capability(window: &Value) -> Option<CapabilityData> {
             )
         })
     });
+    let used_int = used.round() as i64;
     Some(CapabilityData {
         capability_id: id,
         display_name: label,
         value_kind: "percent".into(),
         primary_value: Some(format_percent(remaining)),
         secondary_value: Some(match reset {
-            Some(reset) => format!("已使用 {} · {reset}", format_percent(used)),
-            None => format!("已使用 {}", format_percent(used)),
+            Some(reset) => format!("已使用 {used_int}% · {reset}"),
+            None => format!("已使用 {used_int}%"),
         }),
         progress: Some(remaining / 100.0),
         trend: vec![],

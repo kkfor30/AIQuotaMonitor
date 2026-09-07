@@ -1,7 +1,7 @@
 //! Source 级刷新协调器：平台去重、并行 Source、generation 防覆盖与部分成功。
 
 use crate::domain::refresh::{RefreshError, SourceRefreshOutput};
-use crate::providers::{balance, claude, codex, coding_plan, deepseek, glm, grok, kimi, mimo};
+use crate::providers::{antigravity, balance, claude, codex, coding_plan, deepseek, glm, grok, kimi, mimo};
 use crate::storage::database::Database;
 use crate::storage::repository::SourceRecord;
 use crate::storage::vault;
@@ -171,6 +171,10 @@ impl RefreshCoordinator {
             // 「检测并刷新」才能给出可见反馈，而不是静默跳过。
             return Some(None);
         }
+        if source.adapter_id == antigravity::SOURCE_ID {
+            // Antigravity 始终参与刷新：未运行时返回真实 cli_not_running 错误。
+            return Some(None);
+        }
         if let Some(home) = extra_codex_home(database, source) {
             return codex::auth_available_at(Some(&home)).then_some(None);
         }
@@ -270,6 +274,7 @@ async fn fetch_source(
         }
         grok::SOURCE_ID => grok::fetch(client).await,
         claude::SOURCE_ID => claude::fetch(client).await,
+        antigravity::SOURCE_ID => antigravity::fetch(client).await,
         id if coding_plan::is_coding_plan_source(id) => match secret {
             Some(secret) => coding_plan::fetch(client, id, secret, api_base_url).await,
             None => missing_secret("API Key 未配置"),

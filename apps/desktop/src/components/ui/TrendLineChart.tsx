@@ -14,12 +14,13 @@ export type TrendSeries = {
   name: string;
   color: string;
   points: Array<{ label: string; value: number }>;
+  currency?: string;
 };
 
 export type TrendValueKind = "money" | "percent" | "used_percent" | "plain";
 
-function formatValue(value: number, kind: TrendValueKind): string {
-  if (kind === "money") return `¥${value}`;
+function formatValue(value: number, kind: TrendValueKind, currency = "¥"): string {
+  if (kind === "money") return `${currency}${value}`;
   if (kind === "percent" || kind === "used_percent") return `${value}%`;
   return `${value}`;
 }
@@ -71,7 +72,7 @@ export function TrendLineChart({
     }
     return row;
   });
-  const unitSuffix = valueKind === "money" ? "（¥）" : "";
+  const defaultCurrency = series[0]?.currency ?? "¥";
 
   return (
     <div className="flex min-w-0 flex-col gap-2" data-selectable="true">
@@ -87,7 +88,7 @@ export function TrendLineChart({
               style={{ backgroundColor: item.color }}
             />
             {item.name}
-            {unitSuffix}
+            {valueKind === "money" && `（${item.currency ?? defaultCurrency}）`}
           </span>
         ))}
       </div>
@@ -112,10 +113,10 @@ export function TrendLineChart({
               width={46}
               domain={valueKind === "percent" || valueKind === "used_percent" ? [0, 100] : ["auto", "auto"]}
               ticks={valueKind === "percent" || valueKind === "used_percent" ? [0, 25, 50, 75, 100] : undefined}
-              tickFormatter={(value: number) => formatValue(value, valueKind)}
+              tickFormatter={(value: number) => formatValue(value, valueKind, defaultCurrency)}
             />
             <Tooltip
-              cursor={{ stroke: "var(--q-border-strong)", strokeDasharray: "4 4" }}
+              cursor={{ stroke: "var(--q-primary)", strokeWidth: 1, strokeDasharray: "3 3", strokeOpacity: 0.5 }}
               contentStyle={{
                 borderRadius: 12,
                 border: "1px solid var(--q-border-strong)",
@@ -126,13 +127,14 @@ export function TrendLineChart({
                 padding: "6px 10px",
               }}
               formatter={(value, name) => {
-                const item = series.find((entry) => entry.name === name);
+                const item = series.find((entry) => entry.name === name || entry.id === name);
                 if (valueKind === "used_percent") {
                   const used = Number(value);
                   const remaining = Math.round((100 - used) * 10) / 10;
                   return [`已使用 ${formatValue(used, "percent")} · 剩余 ${remaining}%`, item?.name ?? String(name)];
                 }
-                return [formatValue(Number(value), valueKind), item?.name ?? String(name)];
+                const currency = item?.currency ?? defaultCurrency;
+                return [formatValue(Number(value), valueKind, currency), item?.name ?? String(name)];
               }}
             />
             {series.map((item) => (
@@ -145,7 +147,7 @@ export function TrendLineChart({
                 type="monotone"
                 connectNulls
                 dot={{ r: 2.5, fill: item.color, strokeWidth: 0 }}
-                activeDot={{ r: 4, fill: item.color, strokeWidth: 0 }}
+                activeDot={{ r: 5, fill: item.color, stroke: "var(--q-surface-solid)", strokeWidth: 2 }}
               />
             ))}
           </LineChart>

@@ -1,13 +1,16 @@
 //! 本机 Codex 额度观察：相邻快照先固化为 observation，后续 no_change 不覆盖历史重置事实。
+//! 重置卡数量观察固化 banked_reset_count 的整数增加（到账）与减少（未判定为已使用）。
 
 use crate::storage::database::Database;
 use crate::storage::repository::{
-    QuotaResetObservationRecord, RadarEventRecord, WindowSampleRecord,
+    BankedResetObservationRecord, CapabilityValueSample, QuotaResetObservationRecord,
+    RadarEventRecord, WindowSampleRecord,
 };
 use serde::Serialize;
 
 const RECOVER_MIN: f64 = 0.10;
 const SCHEDULE_TOLERANCE_MS: i64 = 30 * 60_000;
+const SAMPLE_LOOKBACK_MS: i64 = 30 * 86_400_000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +32,29 @@ pub struct QuotaVerificationView {
     pub last_reset_observed_at: Option<i64>,
     /// 只读：可用重置卡 0 张 / 可用重置卡 1 张 / 暂无法获取。
     pub banked_reset_label: String,
+    /// 该账号最近一次本机观察到的重置卡数量增加。
+    pub last_banked_grant_at: Option<i64>,
+    pub last_banked_grant_from: Option<i64>,
+    pub last_banked_grant_to: Option<i64>,
+    /// 该账号最近一次本机观察到的重置卡数量减少；不得单独断言已使用。
+    pub last_banked_decrease_at: Option<i64>,
+    pub last_banked_decrease_from: Option<i64>,
+    pub last_banked_decrease_to: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BankedGrantView {
+    pub account_id: String,
+    pub account_name: String,
+    pub source_id: String,
+    pub previous_count: i64,
+    pub current_count: i64,
+    pub observed_at: i64,
+    /// 该来源当前可用张数；字段缺失为 None，禁止补零。
+    pub live_count: Option<i64>,
+    /// grant = 数量增加（到账）；drop = 数量减少（不能单独判定为已使用）。
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,10 +101,42 @@ pub fn materialize_observations(
     Ok(())
 }
 
+pub fn materialize_banked_grants(
+    database: &Database,
+    event: Option<&RadarEventRecord>,
+) -> Result<(), String> {
+    let since = epoch_ms().saturating_sub(SAMPLE_LOOKBACK_MS);
+    for source in database.openai_quota_sources()? {
+        let samples =
+            database.capability_value_samples(&source.id, "banked_reset_count", since)?;
+        for (previous, current) in parseable_count_pairs(&samples) {
+            if current.1 == previous.1 {
+                continue;
+            }
+            let linked = event.filter(|value| {
+                current.1 > previous.1 && value.first_signal_at <= current.0.captured_at
+            });
+            database.insert_banked_reset_observation(&BankedResetObservationRecord {
+                id: 0,
+                account_id: source.account_id.clone(),
+                source_id: source.id.clone(),
+                previous_snapshot_id: previous.0.id,
+                current_snapshot_id: current.0.id,
+                previous_count: previous.1,
+                current_count: current.1,
+                observed_at: current.0.captured_at,
+                event_id: linked.map(|value| value.id.clone()),
+            })?;
+        }
+    }
+    Ok(())
+}
+
 pub fn assess_quota_verifications(
     database: &Database,
     event: Option<&RadarEventRecord>,
 ) -> Result<Vec<QuotaVerificationView>, String> {
+    let grants = database.banked_reset_observations(None)?;
     let mut result = Vec::new();
     for source in database.openai_quota_sources()? {
         let mut view = empty_view(&source);
@@ -89,6 +147,7 @@ pub fn assess_quota_verifications(
                 .clone()
                 .or_else(|| Some("额度来源暂不可用".into()));
             view.banked_reset_label = banked_reset_state(database, &source.id)?.0;
+            apply_grant(&mut view, &grants);
             result.push(view);
             continue;
         }
@@ -142,6 +201,7 @@ pub fn assess_quota_verifications(
         }
         let (label, previous_count, current_count) = banked_reset_state(database, &source.id)?;
         view.banked_reset_label = label;
+        apply_grant(&mut view, &grants);
         if let (Some(previous), Some(current)) = (previous_count, current_count) {
             if current < previous
                 && matches!(view.status.as_str(), "unscheduled_reset" | "possible_reset")
@@ -195,6 +255,12 @@ fn empty_view(source: &crate::storage::repository::SourceRecord) -> QuotaVerific
         note: None,
         last_reset_observed_at: None,
         banked_reset_label: "暂无法获取".into(),
+        last_banked_grant_at: None,
+        last_banked_grant_from: None,
+        last_banked_grant_to: None,
+        last_banked_decrease_at: None,
+        last_banked_decrease_from: None,
+        last_banked_decrease_to: None,
     }
 }
 
@@ -202,25 +268,63 @@ pub fn banked_reset_observed_at(
     database: &Database,
     event: &RadarEventRecord,
 ) -> Result<Option<i64>, String> {
-    let mut observed = None;
-    for source in database.openai_quota_sources()? {
-        let samples = database.recent_capability_primary_values(&source.id, "banked_reset_count", 2)?;
-        if samples.len() < 2 {
-            continue;
+    Ok(database
+        .banked_reset_observations(None)?
+        .into_iter()
+        .filter(|item| item.current_count > item.previous_count && item.observed_at >= event.first_signal_at)
+        .map(|item| item.observed_at)
+        .min())
+}
+
+pub fn latest_banked_grant(database: &Database) -> Result<Option<BankedGrantView>, String> {
+    latest_banked_change(database, true)
+}
+
+pub fn latest_banked_decrease(database: &Database) -> Result<Option<BankedGrantView>, String> {
+    latest_banked_change(database, false)
+}
+
+fn latest_banked_change(
+    database: &Database,
+    increase: bool,
+) -> Result<Option<BankedGrantView>, String> {
+    let Some(observation) = database
+        .banked_reset_observations(None)?
+        .into_iter()
+        .find(|item| {
+            if increase {
+                item.current_count > item.previous_count
+            } else {
+                item.current_count < item.previous_count
+            }
+        })
+    else {
+        return Ok(None);
+    };
+    let sources = database.openai_quota_sources()?;
+    let source = sources.iter().find(|item| item.id == observation.source_id);
+    let live_count = match source {
+        Some(source) => {
+            let samples =
+                database.recent_capability_primary_values(&source.id, "banked_reset_count", 1)?;
+            samples
+                .first()
+                .and_then(|(_, value)| parse_count(value.as_deref()))
         }
-        let (current_at, current_value) = &samples[0];
-        let previous_value = &samples[1].1;
-        let Some(current) = parse_count(current_value.as_deref()) else {
-            continue;
-        };
-        let Some(previous) = parse_count(previous_value.as_deref()) else {
-            continue;
-        };
-        if current > previous && *current_at >= event.first_signal_at {
-            observed = Some(observed.map_or(*current_at, |at: i64| at.min(*current_at)));
-        }
-    }
-    Ok(observed)
+        None => None,
+    };
+    Ok(Some(BankedGrantView {
+        account_id: observation.account_id,
+        account_name: source
+            .map(|item| item.account_name.clone())
+            .unwrap_or_default(),
+        source_id: observation.source_id,
+        previous_count: observation.previous_count,
+        current_count: observation.current_count,
+        observed_at: observation.observed_at,
+        live_count,
+        kind: if increase { "grant" } else { "drop" }.into(),
+    }))
 }
 
 fn banked_reset_state(
@@ -243,6 +347,42 @@ fn banked_reset_state(
 
 fn parse_count(value: Option<&str>) -> Option<i64> {
     value?.trim().parse::<i64>().ok().filter(|count| *count >= 0)
+}
+
+fn parseable_count_pairs(
+    samples: &[CapabilityValueSample],
+) -> Vec<((&CapabilityValueSample, i64), (&CapabilityValueSample, i64))> {
+    let parsed: Vec<(&CapabilityValueSample, i64)> = samples
+        .iter()
+        .filter_map(|sample| {
+            parse_count(sample.primary_value.as_deref()).map(|count| (sample, count))
+        })
+        .collect();
+    parsed.windows(2).map(|pair| (pair[0], pair[1])).collect()
+}
+
+fn apply_grant(view: &mut QuotaVerificationView, grants: &[BankedResetObservationRecord]) {
+    if let Some(grant) = grants.iter().find(|item| {
+        item.source_id == view.source_id && item.current_count > item.previous_count
+    }) {
+        view.last_banked_grant_at = Some(grant.observed_at);
+        view.last_banked_grant_from = Some(grant.previous_count);
+        view.last_banked_grant_to = Some(grant.current_count);
+    }
+    if let Some(drop) = grants.iter().find(|item| {
+        item.source_id == view.source_id && item.current_count < item.previous_count
+    }) {
+        view.last_banked_decrease_at = Some(drop.observed_at);
+        view.last_banked_decrease_from = Some(drop.previous_count);
+        view.last_banked_decrease_to = Some(drop.current_count);
+    }
+}
+
+fn epoch_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 
 fn point(value: &WindowSampleRecord) -> QuotaWindowPointView {
@@ -368,5 +508,101 @@ mod tests {
         assert_eq!(pairs.len(), 2);
         assert_eq!(classify(pairs[0].0, pairs[0].1), "unscheduled_reset");
         assert_eq!(classify(pairs[1].0, pairs[1].1), "no_change");
+    }
+
+    fn temp_db() -> (Database, std::path::PathBuf) {
+        let path = std::env::temp_dir().join(format!(
+            "ai-quota-banked-{}-{}.db",
+            std::process::id(),
+            epoch_ms()
+        ));
+        let database = Database::initialize_at(path.clone()).expect("db");
+        (database, path)
+    }
+
+    fn insert_count(database: &Database, captured_at: i64, count: Option<&str>) {
+        let connection = database.connect().unwrap();
+        connection
+            .execute(
+                "INSERT INTO capability_snapshots(account_id, source_id, capability_id, display_name, value_kind, primary_value, secondary_value, progress, trend_json, captured_at, generation)
+                 VALUES ('openai-codex-local','openai-codex-local','banked_reset_count','可用重置卡','count',?1,NULL,NULL,'[]',?2,1)",
+                rusqlite::params![count, captured_at],
+            )
+            .unwrap();
+    }
+
+    fn watching_banked_event(first_signal_at: i64) -> RadarEventRecord {
+        RadarEventRecord {
+            id: "banked-event".into(),
+            phase: "watching".into(),
+            title: "重置卡可能即将到账".into(),
+            summary: None,
+            first_signal_at,
+            latest_evidence_at: first_signal_at,
+            claimed_landed_at: None,
+            observed_reset_at: None,
+            closed_at: None,
+            close_reason: None,
+            expected_at: None,
+            expires_at: None,
+            state_revision: 0,
+            user_confirmed_reset_at: None,
+            event_type: "banked_reset".into(),
+        }
+    }
+
+    #[test]
+    fn materializes_count_increases_and_decreases_skips_missing_and_unchanged() {
+        let (database, path) = temp_db();
+        let t0 = epoch_ms() - 4 * 3_600_000;
+        insert_count(&database, t0, Some("1"));
+        insert_count(&database, t0 + 1_000, None);
+        insert_count(&database, t0 + 2_000, Some("1"));
+        insert_count(&database, t0 + 3_000, Some("2"));
+        insert_count(&database, t0 + 4_000, Some("2"));
+        insert_count(&database, t0 + 5_000, Some("1"));
+        materialize_banked_grants(&database, None).unwrap();
+        let changes = database.banked_reset_observations(None).unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].previous_count, 2);
+        assert_eq!(changes[0].current_count, 1);
+        assert_eq!(changes[0].observed_at, t0 + 5_000);
+        assert_eq!(changes[1].previous_count, 1);
+        assert_eq!(changes[1].current_count, 2);
+        assert_eq!(changes[1].observed_at, t0 + 3_000);
+        let grant = latest_banked_grant(&database).unwrap().expect("grant");
+        assert_eq!(grant.kind, "grant");
+        assert_eq!((grant.previous_count, grant.current_count), (1, 2));
+        let drop = latest_banked_decrease(&database).unwrap().expect("drop");
+        assert_eq!(drop.kind, "drop");
+        assert_eq!((drop.previous_count, drop.current_count), (2, 1));
+        let event = watching_banked_event(t0 - 60_000);
+        assert_eq!(
+            banked_reset_observed_at(&database, &event).unwrap(),
+            Some(t0 + 3_000)
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn grant_observation_survives_later_unchanged_snapshots() {
+        let (database, path) = temp_db();
+        let t0 = epoch_ms() - 3 * 3_600_000;
+        insert_count(&database, t0, Some("1"));
+        insert_count(&database, t0 + 1_000, Some("2"));
+        insert_count(&database, t0 + 2_000, Some("2"));
+        materialize_banked_grants(&database, None).unwrap();
+        let event = watching_banked_event(t0 - 60_000);
+        assert_eq!(
+            banked_reset_observed_at(&database, &event).unwrap(),
+            Some(t0 + 1_000)
+        );
+        let grant = latest_banked_grant(&database).unwrap().expect("grant");
+        assert_eq!(grant.previous_count, 1);
+        assert_eq!(grant.current_count, 2);
+        assert_eq!(grant.live_count, Some(2));
+        let later_event = watching_banked_event(t0 + 1_500);
+        assert_eq!(banked_reset_observed_at(&database, &later_event).unwrap(), None);
+        let _ = std::fs::remove_file(path);
     }
 }

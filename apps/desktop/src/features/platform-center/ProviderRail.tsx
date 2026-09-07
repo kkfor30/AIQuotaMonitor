@@ -1,5 +1,5 @@
-import { Trash2, Plus } from "lucide-react";
-import { Boxes } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Boxes, Plus, Search, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { providerBrand } from "@/lib/provider-brand";
 import type { PlatformSummaryViewModel } from "@/lib/types";
@@ -59,6 +59,18 @@ export function ProviderRail({
   mode?: "full" | "icons";
 }) {
   const icons = mode === "icons";
+  const [filterQuery, setFilterQuery] = useState("");
+
+  const filteredPlatforms = useMemo(() => {
+    if (!filterQuery.trim()) return platforms;
+    const query = filterQuery.trim().toLowerCase();
+    return platforms.filter(
+      (platform) =>
+        platform.displayName.toLowerCase().includes(query) ||
+        platform.providerId.toLowerCase().includes(query),
+    );
+  }, [platforms, filterQuery]);
+
   return (
     <aside
       className={cn(
@@ -83,10 +95,39 @@ export function ProviderRail({
           <Button variant="secondary" onClick={onAdd}>
             + 添加平台
           </Button>
+          {platforms.length > 3 && (
+            <div className="relative my-0.5">
+              <Search
+                size={12}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-q-text-muted"
+                aria-hidden
+              />
+              <input
+                type="text"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                placeholder="快速筛选…"
+                className="w-full rounded-q-control border border-q-border bg-q-surface-solid/70 py-1 pl-7 pr-6 text-[11px] text-q-text-primary placeholder:text-q-text-muted/80 focus:border-q-border-selected focus:outline-none"
+              />
+              {filterQuery && (
+                <button
+                  type="button"
+                  aria-label="清除搜索"
+                  onClick={() => setFilterQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-q-text-muted hover:text-q-text-primary"
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
       <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
-        {platforms.map((platform) => {
+        {filteredPlatforms.length === 0 && (
+          <p className="px-2 py-4 text-center text-xs text-q-text-muted">无匹配平台</p>
+        )}
+        {filteredPlatforms.map((platform) => {
           const selected = platform.providerId === selectedId;
           if (icons) {
             return (
@@ -118,7 +159,7 @@ export function ProviderRail({
                         : platform.aggregateStatus === "partial"
                           ? "bg-q-warning"
                           : platform.aggregateStatus === "error"
-                            ? "bg-q-danger"
+                            ? "bg-q-danger animate-pulse-subtle"
                             : "bg-q-neutral",
                     )}
                   />
@@ -149,7 +190,7 @@ export function ProviderRail({
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-2 py-2.5 text-left"
               >
                 <PlatformMark providerId={platform.providerId} />
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex min-w-0 flex-1 flex-col gap-1 pr-6">
                   <span
                     className={cn(
                       "truncate text-sm font-medium",
@@ -158,7 +199,9 @@ export function ProviderRail({
                   >
                     {platform.displayName}
                   </span>
-                  <AggregateStatusBadge status={platform.aggregateStatus} />
+                  <div className="flex items-center">
+                    <AggregateStatusBadge status={platform.aggregateStatus} />
+                  </div>
                 </div>
               </button>
               {onRemove && (
@@ -166,13 +209,13 @@ export function ProviderRail({
                   type="button"
                   aria-label={`移除 ${platform.displayName}`}
                   title="移除平台"
-                  className="absolute right-1.5 top-1/2 hidden h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md bg-q-surface text-q-text-muted shadow-q-sm hover:bg-q-danger-soft hover:text-q-danger group-hover:flex"
+                  className="absolute right-2 top-2.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-q-text-muted/60 opacity-0 transition-all duration-150 hover:bg-q-danger-soft hover:text-q-danger group-hover:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation();
                     onRemove(platform.providerId);
                   }}
                 >
-                  <Trash2 size={14} aria-hidden />
+                  <Trash2 size={13} aria-hidden />
                 </button>
               )}
             </div>

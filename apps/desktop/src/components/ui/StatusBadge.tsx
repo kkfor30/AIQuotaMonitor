@@ -55,7 +55,11 @@ const AGGREGATE_ICON = {
 
 /** 平台聚合状态徽章。 */
 export function AggregateStatusBadge({ status }: { status: PlatformAggregateStatus }) {
-  const meta = AGGREGATE_STATUS_META[status];
+  const meta = (status && AGGREGATE_STATUS_META[status]) ?? {
+    label: "需配置",
+    icon: "settings" as const,
+    tone: "neutral" as const,
+  };
   return (
     <StatusBadge tone={meta.tone} withIcon icon={AGGREGATE_ICON[meta.icon]}>
       {meta.label}
@@ -65,7 +69,10 @@ export function AggregateStatusBadge({ status }: { status: PlatformAggregateStat
 
 /** 数据新鲜度徽章：「实时」用低饱和蓝灰胶囊（新鲜度语义，不是主操作/额度状态），其余沿用状态语义色。 */
 export function FreshnessTag({ freshness }: { freshness: DataFreshness }) {
-  const meta = FRESHNESS_META[freshness];
+  const meta = (freshness && FRESHNESS_META[freshness]) ?? {
+    label: "暂无数据",
+    tone: "neutral" as const,
+  };
   if (freshness === "fresh") {
     return (
       <span className="live-pill">

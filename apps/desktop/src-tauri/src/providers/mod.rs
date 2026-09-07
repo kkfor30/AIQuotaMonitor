@@ -1,5 +1,6 @@
 //! 平台模板注册、真实 ViewModel 聚合与 Source adapter 路由。
 
+pub mod antigravity;
 pub mod balance;
 pub mod catalog;
 pub mod claude;
@@ -68,6 +69,7 @@ fn source_definitions(platform_id: &str) -> Vec<SourceDefinition> {
         )],
         "claude_code" => vec![one(claude::SOURCE_ID, "local_cli", "本地 Claude 订阅")],
         "grok" => vec![one(grok::SOURCE_ID, "local_cli", "本机 Grok")],
+        "antigravity" => vec![one(antigravity::SOURCE_ID, "local_cli", "本机 Antigravity")],
         "mimo" => vec![one(mimo::SOURCE_ID, "web_session", "网页会话")],
         "siliconflow" => vec![one(balance::SILICONFLOW_SOURCE_ID, "api_key", "账户余额")],
         "siliconflow_intl" => vec![one(
@@ -251,14 +253,81 @@ fn claude_templates(
         .iter()
         .filter(|source| source.adapter_id == claude::SOURCE_ID)
     {
-        for snapshot in database.latest_window_snapshots(&source.id)? {
+        let windows = database.latest_window_snapshots(&source.id)?;
+        if windows.is_empty() {
             templates.push(template(
-                &snapshot.capability_id,
+                "quota_window_5h",
                 &source.id,
-                &snapshot.display_name,
+                "5 小时窗口",
                 "percent",
             ));
+            templates.push(template(
+                "quota_window_7d",
+                &source.id,
+                "周窗口",
+                "percent",
+            ));
+        } else {
+            for snapshot in windows {
+                templates.push(template(
+                    &snapshot.capability_id,
+                    &source.id,
+                    &snapshot.display_name,
+                    "percent",
+                ));
+            }
         }
+    }
+    Ok(templates)
+}
+
+fn antigravity_templates(
+    database: &Database,
+    sources: &[SourceRecord],
+) -> Result<Vec<CapabilityTemplate>, String> {
+    let mut templates = Vec::new();
+    for source in sources
+        .iter()
+        .filter(|source| source.adapter_id == antigravity::SOURCE_ID)
+    {
+        let windows = database.latest_window_snapshots(&source.id)?;
+        if windows.is_empty() {
+            templates.push(template(
+                "quota_window_5h_gemini",
+                &source.id,
+                "Gemini 5 小时窗口",
+                "percent",
+            ));
+            templates.push(template(
+                "quota_window_7d_gemini",
+                &source.id,
+                "Gemini 周窗口",
+                "percent",
+            ));
+            templates.push(template(
+                "quota_window_5h_3p",
+                &source.id,
+                "Claude/GPT 5 小时窗口",
+                "percent",
+            ));
+            templates.push(template(
+                "quota_window_7d_3p",
+                &source.id,
+                "Claude/GPT 周窗口",
+                "percent",
+            ));
+        } else {
+            for snapshot in windows {
+                templates.push(template(
+                    &snapshot.capability_id,
+                    &source.id,
+                    &snapshot.display_name,
+                    "percent",
+                ));
+            }
+        }
+        templates.push(template("plan_level", &source.id, "套餐类型", "text"));
+        templates.push(template("account_name", &source.id, "账号", "text"));
     }
     Ok(templates)
 }
@@ -355,6 +424,14 @@ pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryView
             "claude_code" => platforms.push(real_platform(
                 database,
                 "claude_code",
+                display_name,
+                official_url,
+                added.api_base_url.as_deref(),
+                &[],
+            )?),
+            "antigravity" => platforms.push(real_platform(
+                database,
+                "antigravity",
                 display_name,
                 official_url,
                 added.api_base_url.as_deref(),
@@ -605,6 +682,8 @@ fn real_platform(
         openai_templates(database, &records)?
     } else if provider_id == "claude_code" {
         claude_templates(database, &records)?
+    } else if provider_id == "antigravity" {
+        antigravity_templates(database, &records)?
     } else {
         materialize_templates(&records, templates)
     };
@@ -624,6 +703,7 @@ fn real_platform(
             match source.adapter_id.as_str() {
                 id if id == codex::SOURCE_ID => "本机 Codex".to_string(),
                 id if id == grok::SOURCE_ID => "本机 Grok".to_string(),
+                id if id == antigravity::SOURCE_ID => "本机 Antigravity".to_string(),
                 _ => source.display_name.clone(),
             }
         } else {
@@ -872,6 +952,7 @@ fn real_platform(
         "mimo" if configured_count > 0 => "网页会话".to_string(),
         "grok" if configured_count > 0 => "本机 Grok".to_string(),
         "claude_code" if configured_count > 0 => "本机 Claude".to_string(),
+        "antigravity" if configured_count > 0 => "本机 Antigravity".to_string(),
         "minimax" | "minimax_intl" if configured_count > 0 => "Token Plan".to_string(),
         id if balance::source_id_for_platform(id).is_some() && configured_count > 0 => {
             "API Key".to_string()
@@ -924,6 +1005,9 @@ fn source_configured(database: &Database, source: &SourceRecord) -> bool {
     }
     if source.adapter_id == claude::SOURCE_ID {
         return claude::local_auth_available();
+    }
+    if source.adapter_id == antigravity::SOURCE_ID {
+        return antigravity::local_auth_available();
     }
     if source.adapter_id == codex::SOURCE_ID && source.account_kind == "additional" {
         return database

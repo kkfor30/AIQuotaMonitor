@@ -349,6 +349,19 @@ export type RadarRecentEvent = {
   eventType: string;
 };
 
+export type RadarBankedGrant = {
+  accountId: string;
+  accountName: string;
+  sourceId: string;
+  previousCount: number;
+  currentCount: number;
+  observedAt: number;
+  /** 该来源当前可用张数；字段缺失为 null，禁止补零。 */
+  liveCount: number | null;
+  /** grant = 到账；drop = 数量减少，不能单独判定为已使用。 */
+  kind: "grant" | "drop" | string;
+};
+
 /** Rust 推导的综合判断；React 只消费不二次判断。 */
 export type RadarDecision = {
   /** no_signal | watching | upcoming | expected_time_passed | landed_claimed | landed_observed | user_confirmed */
@@ -368,6 +381,10 @@ export type RadarDecision = {
   signalLevel: string | null;
   /** 最近一次本机观察/用户确认的重置；“最近一次重置”唯一来源。 */
   recentReset: RadarRecentEvent | null;
+  /** 最近一次本机观察到的重置卡发放；不得写入 recentReset。 */
+  recentBankedGrant: RadarBankedGrant | null;
+  /** 最近一次本机观察到的重置卡数量减少；不得单独断言已使用。 */
+  recentBankedDecrease: RadarBankedGrant | null;
   /** 最近关闭的普通雷达事件（invalid_historical_replay 等），只用于历史与来源声称提示。 */
   recentClosedEvent: RadarRecentEvent | null;
   relevantPostIds: string[];
@@ -424,6 +441,12 @@ export type QuotaVerification = {
   lastResetObservedAt: number | null;
   /** 可用重置卡 0 张 / 可用重置卡 1 张 / 暂无法获取 */
   bankedResetLabel: string;
+  lastBankedGrantAt: number | null;
+  lastBankedGrantFrom: number | null;
+  lastBankedGrantTo: number | null;
+  lastBankedDecreaseAt: number | null;
+  lastBankedDecreaseFrom: number | null;
+  lastBankedDecreaseTo: number | null;
 };
 
 export type RadarModelOption = {

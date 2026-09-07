@@ -340,6 +340,8 @@ function previewDecision(overrides: Partial<RadarDecision> = {}): RadarDecision 
     timeKind: "claimed",
     signalLevel: "strong",
     recentReset: null,
+    recentBankedGrant: null,
+    recentBankedDecrease: null,
     recentClosedEvent: null,
     relevantPostIds: [...previewEvent.postIds],
     currentKeyCitationIds: ["2094252447271366730"],
@@ -379,6 +381,12 @@ const previewQuota: QuotaVerification[] = [
     note: "未到原定时间窗口已恢复，重置时间明显后移",
     lastResetObservedAt: Date.now() - 8 * 60 * 1000,
     bankedResetLabel: "可用重置卡 0 张",
+    lastBankedGrantAt: null,
+    lastBankedGrantFrom: null,
+    lastBankedGrantTo: null,
+    lastBankedDecreaseAt: null,
+    lastBankedDecreaseFrom: null,
+    lastBankedDecreaseTo: null,
   },
   {
     accountId: "openai-extra-2",
@@ -397,6 +405,12 @@ const previewQuota: QuotaVerification[] = [
     lastResetObservedAt: null,
     note: "已成功刷新，本次未观察到窗口恢复",
     bankedResetLabel: "可用重置卡 1 张",
+    lastBankedGrantAt: Date.now() - 20 * 60 * 60 * 1000,
+    lastBankedGrantFrom: 0,
+    lastBankedGrantTo: 1,
+    lastBankedDecreaseAt: null,
+    lastBankedDecreaseFrom: null,
+    lastBankedDecreaseTo: null,
   },
 ];
 
@@ -585,6 +599,12 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             lastResetObservedAt: null,
             note: "示例：暂时无法刷新",
             bankedResetLabel: "暂无法获取",
+            lastBankedGrantAt: null,
+            lastBankedGrantFrom: null,
+            lastBankedGrantTo: null,
+    lastBankedDecreaseAt: null,
+    lastBankedDecreaseFrom: null,
+    lastBankedDecreaseTo: null,
           },
         ],
       }),
@@ -614,6 +634,12 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             lastResetObservedAt: null,
             note: "缺少额度基线快照，成功刷新两次后可观察",
             bankedResetLabel: "暂无法获取",
+            lastBankedGrantAt: null,
+            lastBankedGrantFrom: null,
+            lastBankedGrantTo: null,
+    lastBankedDecreaseAt: null,
+    lastBankedDecreaseFrom: null,
+    lastBankedDecreaseTo: null,
           },
         ],
       }),
@@ -687,6 +713,12 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
             lastResetObservedAt: null,
             note: "到达原定时间后的正常周期刷新",
             bankedResetLabel: "可用重置卡 0 张",
+            lastBankedGrantAt: null,
+            lastBankedGrantFrom: null,
+            lastBankedGrantTo: null,
+    lastBankedDecreaseAt: null,
+    lastBankedDecreaseFrom: null,
+    lastBankedDecreaseTo: null,
           },
         ],
       }),
@@ -773,6 +805,26 @@ function lifecycleVariants(): Array<{ label: string; snapshot: RadarSnapshot }> 
           stripPrimaryCompact: "下一次时间暂无法判断",
           stripSecondary: "最近重置于 08-31 10:27",
           recentSummaryText: "最近一次重置于 08-31 10:27 · 本机观察确认",
+          recentBankedGrant: {
+            accountId: "openai-local",
+            accountName: "本机 Codex",
+            sourceId: "openai-codex-local",
+            previousCount: 1,
+            currentCount: 2,
+            observedAt: Date.now() - 40 * 60 * 60 * 1000,
+            liveCount: 1,
+            kind: "grant",
+          },
+          recentBankedDecrease: {
+            accountId: "openai-local",
+            accountName: "本机 Codex",
+            sourceId: "openai-codex-local",
+            previousCount: 2,
+            currentCount: 1,
+            observedAt: Date.now() - 12 * 60 * 60 * 1000,
+            liveCount: 1,
+            kind: "drop",
+          },
           recentReset: {
             id: "preview-event-closed",
             phase: "closed",
@@ -906,7 +958,7 @@ function PreviewPanel({
           </div>
           {/* 预览页脚：全部为示例文案，仅供四边/主题人工检查 */}
           <footer className="hb-foot">
-            <span>数据仅供参考 · v0.1.0</span>
+            <span>数据仅供参考 · v0.1.1</span>
             <span>共 {platforms.length} 个平台</span>
             <span className="hb-foot-time">最后更新：11:51</span>
           </footer>

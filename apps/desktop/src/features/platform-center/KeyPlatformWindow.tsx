@@ -9,7 +9,7 @@ import { compactPercentText, formatTime } from "@/lib/format";
 import { reorderPlatforms } from "@/lib/ipc";
 import { PLATFORM_SUMMARIES_QUERY_KEY } from "@/lib/query-client";
 import { cn } from "@/lib/cn";
-import { sortWindowCapabilities, windowShortLabel } from "./quota-windows";
+import { formatSecondaryText, sortWindowCapabilities, windowShortLabel } from "./quota-windows";
 import type {
   AccountKind,
   AccountSummaryViewModel,
@@ -140,20 +140,17 @@ export function KeyPlatformWindow({
     updateScrollState();
   }, [updateScrollState, order]);
 
-  // 垂直滚轮转横向滚动；仅当窗口确实可继续滚动时消费，否则放行给页面。
+  // 仅当用户主动按住 Shift + 滚轮时响应横向滚动；绝不拦截常规垂直滚轮，保证页面上下滑动绝对自然连贯。
   useEffect(() => {
     const el = stripRef.current;
     if (!el) return;
     const onWheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-      const max = el.scrollWidth - el.clientWidth;
-      if (max <= 0) return;
-      const canConsume =
-        (event.deltaY > 0 && el.scrollLeft < max - 1) ||
-        (event.deltaY < 0 && el.scrollLeft > 1);
-      if (!canConsume) return;
-      event.preventDefault();
-      el.scrollLeft += event.deltaY;
+      if (event.shiftKey && Math.abs(event.deltaY) > 0) {
+        const max = el.scrollWidth - el.clientWidth;
+        if (max <= 0) return;
+        event.preventDefault();
+        el.scrollLeft += event.deltaY;
+      }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -466,6 +463,27 @@ export function KeyPlatformWindow({
     scheduleFrameRef.current();
   };
 
+  const maskStyle = useMemo(() => {
+    const { atStart, atEnd } = scrollState;
+    if (atStart && atEnd) return undefined;
+    if (atStart && !atEnd) {
+      return {
+        maskImage: "linear-gradient(to right, black 0%, black calc(100% - 48px), transparent 100%)",
+        WebkitMaskImage: "linear-gradient(to right, black 0%, black calc(100% - 48px), transparent 100%)",
+      };
+    }
+    if (!atStart && atEnd) {
+      return {
+        maskImage: "linear-gradient(to right, transparent 0%, black 48px, black 100%)",
+        WebkitMaskImage: "linear-gradient(to right, transparent 0%, black 48px, black 100%)",
+      };
+    }
+    return {
+      maskImage: "linear-gradient(to right, transparent 0%, black 36px, black calc(100% - 48px), transparent 100%)",
+      WebkitMaskImage: "linear-gradient(to right, transparent 0%, black 36px, black calc(100% - 48px), transparent 100%)",
+    };
+  }, [scrollState]);
+
   // 窗口失焦 / 页面隐藏时指针事件不再派发（如切窗、系统截图覆盖层），
   // 拖拽会永久挂在"悬浮态"——此时立即取消：卡片回原位、不提交排序。
   const onWindowBlurCancel = useCallback(() => {
@@ -572,7 +590,8 @@ export function KeyPlatformWindow({
         onPointerMove={onStripPointerMove}
         onPointerUp={onStripPointerUp}
         onPointerLeave={onStripPointerUp}
-        className="no-scrollbar flex items-stretch gap-[14px] overflow-x-auto py-1 pl-0.5 pr-0.5"
+        style={maskStyle}
+        className="no-scrollbar flex items-stretch gap-[14px] overflow-x-auto py-1 pl-0.5 pr-0.5 transition-[mask-image] duration-200"
       >
         {connected.map((platform) => (
           <PlatformDeckCard
@@ -763,13 +782,20 @@ function AccountCardBody({
   onSelectAccount: (accountId: string) => void;
   onOpenAll: () => void;
 }) {
-  // 最多展示两个优先窗口（5h → 7d → 30d → 其他动态窗口），其余聚合为「+N 个窗口」
-  const windows = accountWindows(platform, account.accountId);
-  const priorityWindows = windows.slice(0, 2);
-  const hiddenWindowCount = windows.length - priorityWindows.length;
+  // 有余额/消费条时最多展示 2 个窗口（保持固定卡底）；
+  // 纯窗口账号（如 Antigravity）放宽至最多 4 个窗口，充分利用 296px 高度。
   const balance = accountCapability(platform, account.accountId, "balance");
   const totalSpend = accountCapability(platform, account.accountId, "total_spend");
+  const hasFinance = Boolean(balance || totalSpend);
+  const maxWindows = hasFinance ? 2 : 4;
+  const windows = accountWindows(platform, account.accountId);
+  const priorityWindows = windows.slice(0, maxWindows);
+  const hiddenWindowCount = windows.length - priorityWindows.length;
   const plan = planOf(platform, account.accountId);
+  const userName = accountCapability(platform, account.accountId, "account_name")?.value.primary;
+  const accountTitle = userName && account.displayName && !account.displayName.includes(userName)
+    ? `${account.displayName} · ${userName}`
+    : account.displayName || userName || "默认账户";
 
   return (
     <>
@@ -792,17 +818,17 @@ function AccountCardBody({
           <GripVertical size={15} aria-hidden />
         </div>
         {multiAccount && (
-          <span className="flex shrink-0 items-center gap-0.5">
+          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-q-border bg-q-surface/80 px-1 py-0.5 shadow-q-sm backdrop-blur-sm">
             <button
               type="button"
               aria-label="上一个账号"
               disabled={index === 0}
               onClick={() => onSelectAccount(platform.accounts[index - 1].accountId)}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-soft hover:text-q-primary disabled:cursor-default disabled:opacity-25 disabled:hover:bg-transparent"
             >
-              <ChevronLeft size={14} aria-hidden />
+              <ChevronLeft size={13} aria-hidden />
             </button>
-            <span className="min-w-[24px] text-center text-[11px] tabular-nums text-q-text-muted">
+            <span className="min-w-[20px] text-center text-[10.5px] tabular-nums font-medium text-q-text-muted">
               {index + 1}/{total}
             </span>
             <button
@@ -810,9 +836,9 @@ function AccountCardBody({
               aria-label="下一个账号"
               disabled={index >= total - 1}
               onClick={() => onSelectAccount(platform.accounts[index + 1].accountId)}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-softer hover:text-q-primary disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-q-text-secondary transition-colors hover:bg-q-primary-soft hover:text-q-primary disabled:cursor-default disabled:opacity-25 disabled:hover:bg-transparent"
             >
-              <ChevronRight size={14} aria-hidden />
+              <ChevronRight size={13} aria-hidden />
             </button>
           </span>
         )}
@@ -820,8 +846,8 @@ function AccountCardBody({
 
       {/* ② 账户行：别名 + 不可变类型标签 + 套餐徽章（订阅计划不单独成卡） */}
       <div className="mt-2 flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 truncate text-[12px] font-medium text-q-text-primary" title={account.displayName}>
-          {account.displayName}
+        <span className="min-w-0 truncate text-[12px] font-medium text-q-text-primary" title={accountTitle}>
+          {accountTitle}
         </span>
         <span className="shrink-0 rounded-q-pill bg-q-neutral-soft px-1.5 py-px text-[10px] font-medium text-q-text-secondary">
           {ACCOUNT_KIND_LABEL[account.kind]}
@@ -846,15 +872,24 @@ function AccountCardBody({
             +{hiddenWindowCount} 个窗口
           </p>
         )}
-        {windows.length === 0 && balance && <BalanceBlock balance={balance} totalSpend={totalSpend} large />}
-        {windows.length === 0 && !balance && (
+        {windows.length === 0 && (balance || totalSpend) && (
+          <BalanceBlock
+            primary={balance ?? totalSpend!}
+            secondary={balance ? totalSpend : null}
+            large
+          />
+        )}
+        {windows.length === 0 && !balance && !totalSpend && (
           <p className="flex flex-1 items-center text-[11px] leading-relaxed text-q-text-muted">
             暂无该账号的额度数据，刷新后展示。
           </p>
         )}
-        {windows.length > 0 && balance && (
+        {windows.length > 0 && (balance || totalSpend) && (
           <div className="mt-auto">
-            <BalanceBlock balance={balance} totalSpend={totalSpend} />
+            <BalanceBlock
+              primary={balance ?? totalSpend!}
+              secondary={balance ? totalSpend : null}
+            />
           </div>
         )}
       </div>
@@ -871,21 +906,33 @@ function AccountCardBody({
   );
 }
 
-/** 窗口行的辅助小字：紧凑数据说明（11.5px secondary，保持单行与基线位置，不抢占百分比主值）。 */
+/** 窗口行的辅助小字：紧凑数据说明（左右两翼分栏：左侧「已使用 xx%」取整无小数，右侧「重置时间」绝不截断）。 */
 function WindowFootnote({ capability }: { capability: CapabilitySnapshotViewModel }) {
   if (capability.freshness === "missing") return null;
   if (capability.freshness === "stale") {
     return (
-      <p className="truncate pl-[52px] text-[11.5px] leading-4 text-q-text-secondary">
-        缓存 · 上次成功 {formatTime(capability.lastGoodAt ?? capability.capturedAt)}
-      </p>
+      <div className="flex min-w-0 items-center justify-between text-[11px] leading-4 text-q-text-secondary">
+        <span>缓存</span>
+        <span className="shrink-0 tabular-nums">上次成功 {formatTime(capability.lastGoodAt ?? capability.capturedAt)}</span>
+      </div>
     );
   }
   if (capability.value.secondary) {
+    const raw = capability.value.secondary;
+    const clean = formatSecondaryText(raw);
+    const parts = clean.split("·").map((p) => p.trim());
+    if (parts.length >= 2) {
+      return (
+        <div className="flex min-w-0 items-center justify-between text-[11px] leading-4 text-q-text-secondary" title={raw}>
+          <span className="truncate text-q-text-muted">{parts[0]}</span>
+          <span className="shrink-0 text-right tabular-nums">{parts.slice(1).join(" · ")}</span>
+        </div>
+      );
+    }
     return (
-      <p className="truncate pl-[52px] text-[11.5px] leading-4 text-q-text-secondary" title={capability.value.secondary}>
-        {capability.value.secondary}
-      </p>
+      <div className="truncate text-[11px] leading-4 text-q-text-secondary" title={raw}>
+        {clean}
+      </div>
     );
   }
   return null;
@@ -894,18 +941,18 @@ function WindowFootnote({ capability }: { capability: CapabilitySnapshotViewMode
 /** 资金行：有窗口账号为紧凑底行（mt-auto 固定卡底），纯余额账号为资金主行；
  *  金额右对齐 tabular 使用 money Token，消费次级行使用 money-secondary，不画比例。 */
 function BalanceBlock({
-  balance,
-  totalSpend,
+  primary,
+  secondary,
   large = false,
 }: {
-  balance: CapabilitySnapshotViewModel;
-  totalSpend: CapabilitySnapshotViewModel | null;
+  primary: CapabilitySnapshotViewModel;
+  secondary?: CapabilitySnapshotViewModel | null;
   large?: boolean;
 }) {
   return (
     <div className="rounded-[10px] border border-q-border bg-q-surface-muted/60 px-3 py-2">
       <div className="flex min-w-0 items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate text-[11px] text-q-text-muted">{balance.displayName}</span>
+        <span className="min-w-0 truncate text-[11px] text-q-text-muted">{primary.displayName}</span>
         <span
           className={cn(
             "min-w-0 truncate text-right font-bold tabular-nums text-[var(--q-money)]",
@@ -913,17 +960,17 @@ function BalanceBlock({
           )}
           data-selectable="true"
         >
-          {compactPercentText(balance.value.primary ?? "")}
+          {compactPercentText(primary.value.primary ?? "")}
         </span>
       </div>
-      {totalSpend && (
+      {secondary && (
         <div className="mt-0.5 flex min-w-0 items-baseline justify-between gap-2">
-          <span className="min-w-0 truncate text-[11px] text-q-text-muted">{totalSpend.displayName}</span>
+          <span className="min-w-0 truncate text-[11px] text-q-text-muted">{secondary.displayName}</span>
           <span
             className="min-w-0 truncate text-right text-[11px] font-semibold tabular-nums text-[var(--q-money-secondary)]"
             data-selectable="true"
           >
-            {compactPercentText(totalSpend.value.primary ?? "")}
+            {compactPercentText(secondary.value.primary ?? "")}
           </span>
         </div>
       )}

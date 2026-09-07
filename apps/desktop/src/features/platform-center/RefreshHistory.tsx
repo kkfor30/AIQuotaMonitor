@@ -19,7 +19,7 @@ export function RefreshHistory({
   variant?: "panel" | "inline";
 }) {
   const entries = platform.refreshHistory ?? [];
-  const multiAccount = platform.accounts.length > 1;
+  const multiAccount = (platform.accounts?.length ?? 0) > 1;
   const [expanded, setExpanded] = useState(false);
   const latest = entries[0] ?? null;
 

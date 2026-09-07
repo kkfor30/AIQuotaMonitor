@@ -169,6 +169,35 @@ pub fn run() {
             commands::settings_commands::open_local_data_dir,
             commands::settings_commands::refresh_all_platforms,
         ])
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "hb_refresh_all" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let (Some(coordinator), Some(database)) = (
+                        app.try_state::<refresh::RefreshCoordinator>(),
+                        app.try_state::<storage::database::Database>(),
+                    ) {
+                        if coordinator.refresh_all(&database).await.is_ok() {
+                            let _ = radar::reconcile_event_state_now(&database);
+                            let _ = app.emit("platform-data-changed", ());
+                        }
+                    }
+                });
+            }
+            "hb_open_main" => {
+                commands::window_commands::show_main_window(app);
+            }
+            "hb_toggle_detail" => {
+                let _ = app.emit("hoverbar-action-toggle-detail", ());
+            }
+            "hb_hide_orb" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    let _ = windows::hoverbar::set_hoverbar_enabled(&app, false);
+                });
+            }
+            _ => {}
+        })
         .on_window_event(|window, event| {
             // 主窗口点 X 只隐藏（悬浮球继续监控）；其它窗口保持默认关闭行为
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

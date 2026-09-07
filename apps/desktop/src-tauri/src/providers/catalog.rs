@@ -205,6 +205,18 @@ pub const CATALOG: &[CatalogEntry] = &[
         needs_web_login: false,
         needs_local_cli: false,
     },
+    CatalogEntry {
+        id: "antigravity",
+        display_name: "Antigravity",
+        official_url: "https://antigravity.google",
+        api_base_url: None,
+        api_key_url: None,
+        api_endpoint_hint: "",
+        access_hint: "检测本机 Antigravity 客户端登录；监控 Gemini 与 Claude/GPT 窗口额度",
+        needs_api_key: false,
+        needs_web_login: false,
+        needs_local_cli: true,
+    },
 ];
 
 pub fn entry(id: &str) -> Option<&'static CatalogEntry> {

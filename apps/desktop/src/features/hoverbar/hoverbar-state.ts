@@ -25,7 +25,7 @@ export type HoverbarEdge = "top" | "right" | "bottom" | "left";
 export type HoverbarSortMode = "manual" | "smart";
 
 import type { PlatformSummaryViewModel } from "@/lib/types";
-import type { RadarDecision, RadarSnapshot } from "@/lib/ipc";
+import type { RadarBankedGrant, RadarDecision, RadarSnapshot } from "@/lib/ipc";
 
 /** 默认平台顺序（后续由设置页排序编辑持久化）。 */
 export const DEFAULT_HOVERBAR_PROVIDER_ORDER = [
@@ -52,11 +52,13 @@ export type HoverbarAnchor = {
   ratio: number;
 };
 
-export const HOVERBAR_ENTER_DELAY_MS = 1000;
-export const HOVERBAR_LEAVE_DELAY_MS = 800;
+export type HoverbarViewMode = "quota" | "radar";
+
+export const HOVERBAR_ENTER_DELAY_MS = 350;
+export const HOVERBAR_LEAVE_DELAY_MS = 450;
 export const HOVERBAR_EXIT_ANIMATION_MS = 160;
 /** 拖动结束后抑制悬停展开的时间窗口。 */
-export const HOVERBAR_DRAG_SUPPRESS_MS = 350;
+export const HOVERBAR_DRAG_SUPPRESS_MS = 200;
 
 /** 详情面板开合动画相位状态机。 */
 export function nextHoverbarMotionPhase(
@@ -88,6 +90,7 @@ export function measureHoverbar(
   edge: HoverbarEdge,
   state: HoverbarViewState,
   contentHeight: number,
+  _mode: HoverbarViewMode = "quota",
 ): { width: number; height: number } {
   if (state === "anchor") return { width: 40, height: 40 };
   if (edge === "top" || edge === "bottom") {
@@ -293,6 +296,81 @@ export function radarSignalTypeLabel(value: string | null | undefined): string {
   }
 }
 
+export function radarBankedChangeRows(decision: {
+  recentBankedGrant: RadarBankedGrant | null;
+  recentBankedDecrease: RadarBankedGrant | null;
+}): RadarBankedGrant[] {
+  return [decision.recentBankedDecrease, decision.recentBankedGrant]
+    .filter((item): item is RadarBankedGrant => Boolean(item))
+    .sort((a, b) => b.observedAt - a.observedAt);
+}
+
+export function radarLatestBankedChange(decision: {
+  recentBankedGrant: RadarBankedGrant | null;
+  recentBankedDecrease: RadarBankedGrant | null;
+}): RadarBankedGrant | null {
+  return radarBankedChangeRows(decision)[0] ?? null;
+}
+
+export function radarBankedChangeTitle(
+  change: Pick<RadarBankedGrant, "kind" | "previousCount" | "currentCount">,
+): string {
+  return change.kind === "drop" || change.currentCount < change.previousCount
+    ? "本机观察到重置卡减少"
+    : "上次重置卡到账";
+}
+
+export function radarBankedChangeMeta(
+  change: Pick<RadarBankedGrant, "previousCount" | "currentCount" | "observedAt" | "kind">,
+  clock: (ms: number) => string,
+): string {
+  const delta = `${change.previousCount}→${change.currentCount}`;
+  if (change.kind === "drop" || change.currentCount < change.previousCount) {
+    return `${clock(change.observedAt)} · ${delta} · 不能单独判定为已使用`;
+  }
+  return `${clock(change.observedAt)} · ${delta}`;
+}
+
+export function radarBankedChangeLine(
+  change: Pick<RadarBankedGrant, "previousCount" | "currentCount" | "observedAt" | "kind">,
+  clock: (ms: number) => string,
+): string {
+  return `${radarBankedChangeTitle(change)} ${radarBankedChangeMeta(change, clock)}`;
+}
+
+export function radarAccountBankedChangeNotes(
+  item: {
+    lastBankedGrantAt: number | null;
+    lastBankedGrantFrom: number | null;
+    lastBankedGrantTo: number | null;
+    lastBankedDecreaseAt: number | null;
+    lastBankedDecreaseFrom: number | null;
+    lastBankedDecreaseTo: number | null;
+  },
+  clock: (ms: number) => string,
+): string | null {
+  const parts: string[] = [];
+  if (
+    item.lastBankedDecreaseAt != null &&
+    item.lastBankedDecreaseFrom != null &&
+    item.lastBankedDecreaseTo != null
+  ) {
+    parts.push(
+      `本机观察到减少 ${clock(item.lastBankedDecreaseAt)}（${item.lastBankedDecreaseFrom}→${item.lastBankedDecreaseTo}），不能单独判定为已使用`,
+    );
+  }
+  if (
+    item.lastBankedGrantAt != null &&
+    item.lastBankedGrantFrom != null &&
+    item.lastBankedGrantTo != null
+  ) {
+    parts.push(
+      `上次到账 ${clock(item.lastBankedGrantAt)}（${item.lastBankedGrantFrom}→${item.lastBankedGrantTo}）`,
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export function radarConfirmationSourceLabel(source: string | null | undefined): string {
   switch (source) {
     case "observed":
@@ -472,6 +550,20 @@ export function quotaBadgeLabel(status: string, attribution: string, lastResetOb
     return `观察到额度重置于 ${formatHoverbarClock(lastResetObservedAt)}`;
   }
   return quotaStatusLabel(status, attribution);
+}
+
+/** 紧凑版徽章文案：用于悬浮详情卡头，避免长字符串撑破布局。 */
+export function quotaBadgeLabelCompact(status: string, _attribution: string, lastResetObservedAt: number | null): string {
+  if (status === "possible_reset") {
+    return lastResetObservedAt != null
+      ? `疑似刷新 · ${formatHoverbarClock(lastResetObservedAt)}`
+      : "疑似刷新";
+  }
+  if (lastResetObservedAt != null && (status === "unscheduled_reset" || status === "no_change")) {
+    return `已重置 · ${formatHoverbarClock(lastResetObservedAt)}`;
+  }
+  if (status === "unscheduled_reset") return "已观察到重置";
+  return quotaStatusText(status);
 }
 
 /** 本机额度状态 + 归因的最终文案：时间与事件吻合或用户确认时，明确说「已重置」。 */

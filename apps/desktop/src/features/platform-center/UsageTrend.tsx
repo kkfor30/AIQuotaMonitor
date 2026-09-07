@@ -4,9 +4,10 @@ import { FreshnessTag } from "@/components/ui/StatusBadge";
 import { formatTime } from "@/lib/format";
 import type { CapabilitySnapshotViewModel } from "@/lib/types";
 
-/** 小金额刻度：低于 0.01 元保留三位小数，避免 ¥0 或省略前导零造成误读。 */
-function formatTrendMoney(value: number): string {
-  return value !== 0 && Math.abs(value) < 0.01 ? `¥${value.toFixed(3)}` : `¥${value}`;
+/** 小金额刻度：低于 0.01 保留三位小数，避免 0 或省略前导零造成误读。 */
+function formatTrendMoney(value: number, currency = "¥"): string {
+  const formatted = value !== 0 && Math.abs(value) < 0.01 ? value.toFixed(3) : String(value);
+  return `${currency}${formatted}`;
 }
 
 /**
@@ -18,6 +19,13 @@ export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewM
     label: point.label,
     value: point.value,
   }));
+
+  const isUsd =
+    capability.value.primary?.includes("$") ||
+    capability.value.secondary?.includes("$") ||
+    capability.sourceId?.toLowerCase().includes("usd") ||
+    false;
+  const currency = isUsd ? "$" : "¥";
 
   return (
     <div className="glass-panel flex flex-col gap-3 p-4">
@@ -68,7 +76,7 @@ export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewM
                 axisLine={false}
                 tick={{ fill: "var(--q-text-muted)", fontSize: 11 }}
                 width={46}
-                tickFormatter={formatTrendMoney}
+                tickFormatter={(val) => formatTrendMoney(val, currency)}
               />
               <Tooltip
                 cursor={{ stroke: "rgba(7,86,238,0.3)", strokeDasharray: "4 4" }}
@@ -79,7 +87,7 @@ export function UsageTrend({ capability }: { capability: CapabilitySnapshotViewM
                   fontSize: 12,
                   padding: "6px 10px",
                 }}
-                formatter={(value) => [formatTrendMoney(value as number), "消费"]}
+                formatter={(value) => [formatTrendMoney(value as number, currency), "消费"]}
               />
               <Area
                 type="monotone"

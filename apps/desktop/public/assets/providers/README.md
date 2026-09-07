@@ -18,5 +18,6 @@
 | `openrouter.png` | OpenRouter | https://openrouter.ai/favicon/glyph.png（openrouter.ai 官方 Brand 素材） | 2026-08-29 |
 | `novita.svg` | Novita | https://novita.ai/logo/logo_small.svg | 2026-08-29 |
 | `grok.svg` | Grok（xAI） | https://grok.com/images/favicon.svg（Grok 官网 favicon，黑底白色弯月斜杠标，字节级原样保存） | 2026-08-30 |
+| `antigravity.png` | Antigravity | Google Antigravity 官方客户端内置资源（从 `%LOCALAPPDATA%\Programs\Antigravity\resources\app.asar` 提取，256x256 原版透明 PNG） | 2026-09-07 |
 
 商标权利归各平台所有；素材仅用于平台识别，不用于暗示背书或推广。

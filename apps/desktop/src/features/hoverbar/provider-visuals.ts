@@ -30,6 +30,7 @@ const HOVERBAR_LOGO_SCALE: Record<string, number> = {
   openrouter: 0.8,
   novita: 0.85,
   grok: 0.82,
+  antigravity: 0.82,
 };
 
 export function hoverbarProviderVisual(providerId: string): HoverbarProviderVisual | null {
