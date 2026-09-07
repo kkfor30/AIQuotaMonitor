@@ -446,6 +446,12 @@ function BalanceBar({ balance }: { balance: HoverbarFinance }) {
 /** Codex 可用重置卡：真实 0 显示「0 张」，字段缺失显示暂不可用，不补零、不与额外余额换算。 */
 function BankedResetBar({ item }: { item: HoverbarFinance }) {
   const missing = item.freshness === "missing" || item.value === null;
+  const rawValue = item.value?.trim() ?? "";
+  const countText = missing
+    ? "暂不可用"
+    : rawValue.endsWith("张")
+    ? rawValue
+    : `${rawValue} 张`;
   return (
     <div className="hb-balance-bar hb-credits-bar">
       <TimerReset size={15} aria-hidden />
@@ -456,7 +462,7 @@ function BankedResetBar({ item }: { item: HoverbarFinance }) {
         data-freshness={item.freshness}
         data-selectable="true"
       >
-        {missing ? "暂不可用" : `${item.value} 张`}
+        {countText}
       </span>
     </div>
   );
@@ -588,11 +594,13 @@ function RadarStrip({
   radarRefreshError: string | null;
 }) {
   // 判断先行：摘要页收敛为 当前判断 → 最近一次真实重置 → AI 状态；
-  // landed_observed/user_confirmed 时主行已表达本机观察/确认，不重复显示同义的重置行。
+  // landed_observed/user_confirmed 且事件为 quota_reset 时主行已表达本机观察/确认，不重复显示同义的重置行；
+  // 但当事件为 banked_reset（重置卡到账）时，并列展示最近一次额度重置。
   const decision = radar.decision;
   const badge = radarDecisionBadge(decision);
   const recentResetLine =
-    decision.status === "landed_observed" || decision.status === "user_confirmed"
+    (decision.status === "landed_observed" || decision.status === "user_confirmed") &&
+    decision.eventType === "quota_reset"
       ? null
       : decision.recentSummaryText;
   const latestBankedChange = radarLatestBankedChange(decision);

@@ -43,25 +43,19 @@ export function HoverbarAnchorApp() {
   });
 
   const alertTone: "error" | "warning" | null = (() => {
-    let hasError = false;
-    let hasLowQuota = false;
+    let hasDanger = false;
+    let hasWarning = false;
     for (const p of platforms) {
-      if (p.aggregateStatus === "error") {
-        hasError = true;
-        break;
-      }
-      if (p.aggregateStatus === "partial") {
-        hasLowQuota = true;
-      }
+      if (p.aggregateStatus === "error") hasDanger = true;
+      if (p.aggregateStatus === "partial") hasWarning = true;
       for (const c of p.capabilities) {
         const rem = capabilityRemainingPercent(c);
-        if (rem !== null && rem <= 15) {
-          hasLowQuota = true;
-        }
+        if (rem !== null && rem <= 5) hasDanger = true;
+        else if (rem !== null && rem <= 15) hasWarning = true;
       }
     }
-    if (hasError) return "error";
-    if (hasLowQuota) return "warning";
+    if (hasDanger) return "error";
+    if (hasWarning) return "warning";
     return null;
   })();
 
