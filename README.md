@@ -9,7 +9,7 @@
 ## 功能
 
 - **平台中心**：从注册表平台中按需添加（DeepSeek、GLM、Kimi、MiMo、MiniMax、SiliconFlow、StepFun、OpenRouter、Novita），API Key 填写后先验证连接再保存；平台、来源、账号按 `Platform → Account → Source → Capability → Snapshot` 领域模型组织。
-- **本地订阅检测**：GPT/Codex（app-server 优先、WHAM 回退）、Claude Code、Grok CLI 自动检测本机登录，只读本机凭据（由官方 CLI 负责续期），提供「重新登录」引导，不在本应用中代管第三方登录。
+- **本地订阅检测**：GPT/Codex（app-server 优先、WHAM 回退）、Claude Code、Grok CLI 自动检测本机登录；GPT 额外账号由应用调用官方 Codex 组件拉起浏览器 OAuth，并保存到独立目录，不覆盖本机账号。本应用不代管第三方登录。
 - **多账号**：同平台多账号分组展示、重命名、独立会话，异常隔离到 Source 级——单个来源失败不影响其他来源的成功快照。
 - **真实快照语义**：全部数据为真实快照；失败时保留最后成功快照并标记 `stale`，无真实值时为 `missing`，从不补零或伪造数据；金额全部使用定点 Decimal 计算。
 - **安全存储**：API Key 等凭据存入 Windows Credential Manager，SQLite 只保存凭据引用；数据库存储本机数据，应用不向任何服务器上传数据。

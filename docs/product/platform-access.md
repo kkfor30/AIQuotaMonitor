@@ -13,7 +13,7 @@
 3. 添加后进入该平台的 `接入与来源`，按 Source 完成凭据。
 4. 大多数平台填 API Key、保存前验证即可。
 5. 个别能力没有官方接口时，再用网页登录抓字段。
-6. GPT / Claude Code 这类本机 CLI 订阅，检测本机登录，不在本应用再做网页登录。
+6. GPT 默认账号与 Claude Code 检测本机登录；GPT 额外账号从应用内调用官方 Codex 组件拉起浏览器 OAuth。
 
 移除已添加的平台需要二次确认，并说明会失去该平台快照和凭据引用。
 
@@ -85,7 +85,7 @@
 
 | 平台 | 查询内容 | 说明 |
 | --- | --- | --- |
-| GPT / Codex | 5 小时/7 天窗口、计划、接口返回的 Credits | 默认检测本机 `~/.codex`，不必开网页。可再登录额外 ChatGPT 账号（独立 Codex 目录，不覆盖 CLI） |
+| GPT / Codex | 5 小时/7 天窗口、计划、接口返回的 Credits | 默认检测本机 `~/.codex`，不必开网页。可从应用内拉起浏览器 OAuth 登录额外 ChatGPT 账号（独立 Codex 目录，不覆盖默认账号） |
 | Claude Code | 会话/周窗口 | 本机 Claude 登录与 `/usage` |
 | Grok CLI | SuperGrok 周额度窗口与重置时间 | 检测本机 `~/.grok` OAuth（SuperGrok OIDC 条目优先）；查询走 CLI 内部 billing 端点 `cli-chat-proxy.grok.com/v1/billing?format=credits`（无公开文档，改版时报结构变化不补零）。token 刷新由 Grok CLI 负责，过期提示在终端 `grok login`；本应用只读登录态，不代登录不代退出 |
 | Gemini CLI | 订阅窗口 | 有本机凭据时再开放 |
@@ -122,18 +122,18 @@ DeepSeek 被用户添加后，应同时出现「官方余额（API Key）」和�
 
 - 展示该平台注册表声明的全部 Source 卡片，含待配置。
 - 默认动作是「编辑来源」填 API Key 并验证保存。
-- `web_session` 显示网页登录；本机 Codex 默认「检测并刷新」；额外 ChatGPT 账号才拉起官方登录。
+- `web_session` 显示网页登录；本机 Codex 默认「检测并刷新」；额外 ChatGPT 账号由应用拉起官方浏览器登录。
 - 清除凭据、移除平台都要二次确认。清除本机 Codex 会退出 CLI 登录；清除额外账号不影响 `~/.codex`。
 
 ## 5. GPT 刷新失败怎么理解
 
-GPT 被添加后默认走本机 Codex OAuth，直接检查 `~/.codex` 登录，不是必须先网页登录。若要同时监控第二个 ChatGPT 账号，再添加额外账号：用官方 `codex login` 写入独立目录，额度按 Source 分开展示。
+GPT 被添加后默认走本机 Codex OAuth，直接检查 `~/.codex` 登录，不是必须先网页登录。若要同时监控第二个 ChatGPT 账号，再添加额外账号：应用调用官方 Codex 组件拉起浏览器 OAuth，登录结果写入独立目录，额度按 Source 分开展示。Windows 发行版会自动发现 Codex 桌面应用自带的组件，不要求用户自行配置终端 PATH。
 
 刷新：`codex app-server` → 不行再回退 `https://chatgpt.com/backend-api/wham/usage`。
 
 若只看到 chatgpt.com 连不上，说明本机 app-server 也没读到额度，并且 WHAM 请求没发出去（网络/代理/TLS）。错误文案会同时带上 app-server 失败原因。这不是要改成网页抓 ChatGPT。
 
-Windows 上必须启动 `codex.cmd`，不能误跑 PATH 里那个无扩展名的 Unix 脚本。`接入与来源` 提供「重新登录 Codex CLI」和「清除本机登录」。
+Windows 上优先使用终端 PATH 中的 `codex.cmd` / `codex.exe`，找不到时再发现 `%LOCALAPPDATA%\OpenAI\Codex\bin\<version-id>\codex.exe`。`接入与来源` 的额外账号提供「重新登录 / 更换登录」，点击后只呈现浏览器 OAuth，不显示中间控制台；本机账号仍只做检测，避免覆盖默认登录。
 
 ## 6. 明确不做
 

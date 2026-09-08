@@ -38,7 +38,7 @@ V1 不直接访问 X，使用独立的 `CodexRadarSource` 从 `https://codexrada
 
 ## D010：用户从注册表添加平台；默认 API Key，网页登录只补官方缺口
 
-平台目录只显示用户已添加的平台。可添加项来自产品维护的注册表（优先覆盖 cc-switch 已能查询余额/Token Plan 的平台），不开放注册表以外的供应商。接入表单必须展示官网链接和官方 API 请求地址（预填完整 URL），让用户看见额度查询打到哪里。默认动作是填写 API Key 并验证。GPT 默认检测本机 Codex 登录，不必先开网页；额外 ChatGPT 账号用独立 Codex 目录登录，不覆盖 `~/.codex`。Claude Code 检测本机 CLI。仅当目标字段没有官方接口时才用隔离登录窗，例如 DeepSeek 网页用量与缓存、GLM 个人余额、MiMo 网页会话。不复制 cc-switch 的 Provider 路由、测速代理或 MCP。
+平台目录只显示用户已添加的平台。可添加项来自产品维护的注册表（优先覆盖 cc-switch 已能查询余额/Token Plan 的平台），不开放注册表以外的供应商。接入表单必须展示官网链接和官方 API 请求地址（预填完整 URL），让用户看见额度查询打到哪里。默认动作是填写 API Key 并验证。GPT 默认检测本机 Codex 登录，不必先开网页；额外 ChatGPT 账号由应用调用官方 Codex 组件拉起浏览器 OAuth，写入独立 Codex 目录，不覆盖 `~/.codex`。Windows 发行版同时发现终端 PATH 与 Codex 桌面应用自带的组件，用户不需要单独配置 CLI 路径。Claude Code 检测本机 CLI。仅当目标字段没有官方接口时才用隔离登录窗，例如 DeepSeek 网页用量与缓存、GLM 个人余额、MiMo 网页会话。不复制 cc-switch 的 Provider 路由、测速代理或 MCP。
 
 ## D011：时间解析与事件状态确定性优先
 
