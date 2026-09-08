@@ -11,9 +11,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { AppRoot } from "@/app/AppRoot";
-import { HoverbarAnchorApp } from "@/features/hoverbar/HoverbarAnchorApp";
-import { HoverbarDetailApp } from "@/features/hoverbar/HoverbarDetailApp";
 import { createQueryClient } from "@/lib/query-client";
 import { useAppTheme } from "@/lib/theme";
 import { useBackendQuerySync } from "@/lib/use-backend-sync";
@@ -35,12 +32,21 @@ if (isHoverbarAnchor || isHoverbarDetail) {
 
 const queryClient = createQueryClient();
 
+// 每个 WebView 只加载自己的界面，避免 40px 小球也解析主窗口与雷达代码。
+const WindowApp = React.lazy(() => {
+  if (isHoverbarAnchor) {
+    return import("@/features/hoverbar/HoverbarAnchorApp").then((module) => ({ default: module.HoverbarAnchorApp }));
+  }
+  if (isHoverbarDetail) {
+    return import("@/features/hoverbar/HoverbarDetailApp").then((module) => ({ default: module.HoverbarDetailApp }));
+  }
+  return import("@/app/AppRoot").then((module) => ({ default: module.AppRoot }));
+});
+
 function RootApp() {
   useBackendQuerySync();
   useAppTheme();
-  if (isHoverbarAnchor) return <HoverbarAnchorApp />;
-  if (isHoverbarDetail) return <HoverbarDetailApp />;
-  return <AppRoot />;
+  return <React.Suspense fallback={null}><WindowApp /></React.Suspense>;
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

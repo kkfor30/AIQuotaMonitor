@@ -11,7 +11,6 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchHoverbarPreferences, fetchPlatformSummaries } from "@/lib/ipc";
@@ -36,7 +35,6 @@ export function HoverbarAnchorApp() {
   const enterTimer = useRef<number | undefined>(undefined);
   const collapseTimer = useRef<number | undefined>(undefined);
   const dragging = useRef(false);
-  const dragMoved = useRef(false);
   const dragFinishedAt = useRef(0);
   const detailPointerInsideRef = useRef(false);
 
@@ -84,13 +82,6 @@ export function HoverbarAnchorApp() {
     collapseTimer.current = undefined;
   }, []);
 
-  const snapToEdge = useCallback(async () => {
-    const next = await invoke<HoverbarAnchor>("snap_hoverbar_to_edge");
-    const normalized = normalizeHoverbarAnchor(next);
-    setAnchor(normalized);
-    return normalized;
-  }, []);
-
   const showDetail = useCallback(() => {
     if (dragging.current) return;
     const reqSeq = ++showDetailSeqRef.current;
@@ -99,7 +90,8 @@ export function HoverbarAnchorApp() {
     void invoke<HoverbarAnchor>("show_hoverbar_detail")
       .then((next) => {
         if (reqSeq !== showDetailSeqRef.current || dragging.current) {
-          void invoke("hide_hoverbar_detail_immediately").catch(() => {});
+          // 拖动中由后端负责隐藏；松手后才清理迟到的展开回复。
+          if (!dragging.current) void invoke("hide_hoverbar_detail_immediately").catch(() => {});
           return;
         }
         setAnchor(normalizeHoverbarAnchor(next));
@@ -185,6 +177,7 @@ export function HoverbarAnchorApp() {
     const unlisteners: Array<() => void> = [];
     void listen<boolean>("hoverbar-detail-visibility", (event) => {
       if (disposed) return;
+      if (dragging.current && event.payload) return;
       setDetailVisible(event.payload);
       if (!event.payload) {
         detailPointerInsideRef.current = false;
@@ -203,27 +196,9 @@ export function HoverbarAnchorApp() {
     };
   }, [clearCollapseTimer, scheduleHide]);
 
-  // onMoved 标记真实位移：区分「点击展开」与「拖动后吸附」
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void getCurrentWindow()
-      .onMoved(() => {
-        if (!dragging.current) return;
-        dragMoved.current = true;
-      })
-      .then((nextUnlisten) => {
-        if (disposed) nextUnlisten();
-        else unlisten = nextUnlisten;
-      });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-
-  const activateOrb = useCallback(() => {
-    if (dragMoved.current || dragging.current) return;
+  const activateOrb = useCallback((event?: React.MouseEvent<HTMLButtonElement>) => {
+    // 鼠标点击由完整拖动事务处理；只保留键盘激活和菜单调用，避免松手后二次切换。
+    if ((event && event.detail !== 0) || dragging.current) return;
     if (detailVisible) requestHide();
     else showDetail();
   }, [detailVisible, requestHide, showDetail]);
@@ -253,35 +228,27 @@ export function HoverbarAnchorApp() {
       clearEnterTimer();
       clearCollapseTimer();
 
-      // 拖拽最高优先：立即标记收起状态并通知 Rust 瞬间隐藏详情窗口，绝不等待动画，避免干扰 Win32 消息循环
+      // 单一后端事务接管抓取点、隐藏与原生拖动，不并发发送窗口控制请求。
+      dragging.current = true;
       setDetailVisible(false);
       detailPointerInsideRef.current = false;
-      void invoke("set_hoverbar_dragging", { dragging: true }).catch(() => {});
-
-      dragging.current = true;
-      dragMoved.current = false;
-      void getCurrentWindow()
-        .startDragging()
+      void invoke<{ anchor: HoverbarAnchor; moved: boolean }>("drag_hoverbar", {
+        pointerX: event.clientX,
+        pointerY: event.clientY,
+      })
+        .then(({ anchor: next, moved }) => {
+          setAnchor(normalizeHoverbarAnchor(next));
+          dragging.current = false;
+          dragFinishedAt.current = Date.now();
+          clearEnterTimer();
+          if (!moved && !detailWasVisible) showDetail();
+        })
         .catch((error) => console.error("无法拖动悬浮球", error))
         .finally(() => {
-          void snapToEdge()
-            .catch((error) => console.error("无法吸附悬浮球", error))
-            .finally(() => {
-              const moved = dragMoved.current;
-              dragging.current = false;
-              dragMoved.current = false;
-              void invoke("set_hoverbar_dragging", { dragging: false }).catch(() => {});
-              if (moved) {
-                dragFinishedAt.current = Date.now();
-                // 拖拽完成松手后，保持停靠吸附状态，不自动弹出详情卡片，避免遮挡
-                clearEnterTimer();
-              } else if (!detailWasVisible) {
-                showDetail();
-              }
-            });
+          dragging.current = false;
         });
     },
-    [clearCollapseTimer, clearEnterTimer, detailVisible, showDetail, snapToEdge],
+    [clearCollapseTimer, clearEnterTimer, detailVisible, showDetail],
   );
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {

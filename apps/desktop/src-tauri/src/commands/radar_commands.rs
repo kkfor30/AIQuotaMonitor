@@ -5,8 +5,11 @@ use crate::storage::database::Database;
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
 #[tauri::command]
-pub fn get_radar_snapshot(database: State<'_, Database>, control: State<'_, RadarControl>) -> Result<RadarSnapshot, String> {
-    let mut snapshot = radar::snapshot(&database)?;
+pub async fn get_radar_snapshot(database: State<'_, Database>, control: State<'_, RadarControl>) -> Result<RadarSnapshot, String> {
+    let database = database.inner().clone();
+    let mut snapshot = tauri::async_runtime::spawn_blocking(move || radar::snapshot(&database))
+        .await
+        .map_err(|error| format!("读取雷达快照任务失败: {error}"))??;
     snapshot.check_running = control.is_running();
     Ok(snapshot)
 }

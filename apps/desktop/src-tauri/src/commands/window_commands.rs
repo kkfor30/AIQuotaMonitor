@@ -80,6 +80,10 @@ pub fn hide_hoverbar_detail_immediately(
     window: WebviewWindow,
 ) -> Result<(), String> {
     require_label(&window, &["hoverbar", "hoverbar-detail"])?;
+    // 迟到的前端清理请求不能在新一轮原生拖动中改变窗口捕获。
+    if app.state::<HoverbarRuntime>().is_dragging.load(Ordering::SeqCst) {
+        return Ok(());
+    }
     if let Some(detail) = app.get_webview_window("hoverbar-detail") {
         let _ = detail.hide();
     }
@@ -117,6 +121,101 @@ pub fn set_hoverbar_dragging(
         }
     }
     Ok(())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HoverbarDragResult {
+    anchor: HoverbarAnchor,
+    moved: bool,
+}
+
+/// 在窗口线程内串行隐藏面板、进入原生拖动、松手后吸附。
+/// 不使用前端多个并发 IPC，也不把 startDragging 请求入队当作拖动结束。
+#[tauri::command]
+pub async fn drag_hoverbar(
+    app: AppHandle,
+    window: WebviewWindow,
+    pointer_x: f64,
+    pointer_y: f64,
+) -> Result<HoverbarDragResult, String> {
+    require_label(&window, &["hoverbar"])?;
+    if !pointer_x.is_finite() || !pointer_y.is_finite() {
+        return Err("拖动起点无效".into());
+    }
+    // 离开 WebView 的 IPC 回调栈后再进入系统模态循环，避免回调重入。
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let drag_window = window.clone();
+    window.run_on_main_thread(move || {
+        let _ = send.send(drag_hoverbar_on_main(app, drag_window, pointer_x, pointer_y));
+    }).map_err(|error| error.to_string())?;
+    receive.await.map_err(|_| "悬浮球拖动任务已结束".to_string())?
+}
+
+fn drag_hoverbar_on_main(
+    app: AppHandle,
+    window: WebviewWindow,
+    pointer_x: f64,
+    pointer_y: f64,
+) -> Result<HoverbarDragResult, String> {
+    if app.state::<HoverbarRuntime>().is_dragging.load(Ordering::SeqCst) {
+        return Err("悬浮球正在拖动".into());
+    }
+    set_hoverbar_dragging(app.clone(), window.clone(), true)?;
+    let result = (|| {
+        let before = window.outer_position().map_err(|error| error.to_string())?;
+        drag_hoverbar_native(&window, pointer_x, pointer_y)?;
+        let after = window.outer_position().map_err(|error| error.to_string())?;
+        let moved = before != after;
+        let anchor = if moved {
+            snap_and_persist(&window)?
+        } else {
+            storage::load_preferences(&app).anchor
+        };
+        Ok(HoverbarDragResult { anchor, moved })
+    })();
+    // 无论原生调用或吸附是否失败，都允许下一次按下重新拖动。
+    let _ = set_hoverbar_dragging(app, window, false);
+    result
+}
+
+#[cfg(target_os = "windows")]
+fn drag_hoverbar_native(window: &WebviewWindow, pointer_x: f64, pointer_y: f64) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, ReleaseCapture, VK_LBUTTON};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetCursorPos, SendMessageW, SetWindowPos, HTCAPTION, SWP_NOACTIVATE,
+        SWP_NOSIZE, SWP_NOZORDER, WM_NCLBUTTONDOWN,
+    };
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?.0;
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    unsafe {
+        // IPC 到达前已经松手的短点击不能重新进入系统拖动循环。
+        if GetAsyncKeyState(VK_LBUTTON as i32) >= 0 { return Ok(()); }
+        let mut cursor = POINT { x: 0, y: 0 };
+        if GetCursorPos(&mut cursor) == 0 { return Err(std::io::Error::last_os_error().to_string()); }
+        // 鼠标可能已移出 40px 小球；保留按下时的抓取点，补上 IPC 期间的位移。
+        let x = cursor.x - (pointer_x.clamp(0.0, 40.0) * scale).round() as i32;
+        let y = cursor.y - (pointer_y.clamp(0.0, 40.0) * scale).round() as i32;
+        if SetWindowPos(hwnd, std::ptr::null_mut(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        ReleaseCapture();
+        // LPARAM 是打包的有符号屏幕坐标，不能传局部 POINTS 的指针。
+        // SendMessage 在松手/取消退出系统模态拖动后返回，期间不轮询、不逐帧 IPC。
+        SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION as usize, drag_message_position(cursor.x, cursor.y));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn drag_hoverbar_native(_window: &WebviewWindow, _pointer_x: f64, _pointer_y: f64) -> Result<(), String> {
+    Err("当前系统尚不支持此悬浮球拖动方式".into())
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn drag_message_position(x: i32, y: i32) -> isize {
+    ((x as u16 as u32) | ((y as u16 as u32) << 16)) as isize
 }
 
 /// 动画结束后真正隐藏详情窗口。仅详情窗口可调用。
@@ -300,7 +399,16 @@ pub async fn set_hoverbar_enabled(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_http_url;
+    use super::{drag_message_position, validate_http_url};
+
+    #[test]
+    fn drag_message_packs_screen_coordinates_including_negative_monitors() {
+        for (x, y) in [(125, 360), (-1920, 200), (200, -1080), (-2500, -1200)] {
+            let packed = drag_message_position(x, y);
+            assert_eq!(packed as u16 as i16 as i32, x);
+            assert_eq!((packed >> 16) as u16 as i16 as i32, y);
+        }
+    }
 
     #[test]
     fn accepts_http_s_urls() {

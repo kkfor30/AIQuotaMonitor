@@ -392,9 +392,20 @@ fn materialize_templates(
 }
 
 pub fn platform_summaries(database: &Database) -> Result<Vec<PlatformSummaryViewModel>, String> {
-    let mut platforms = Vec::new();
-    for added in database.list_user_platforms()? {
+    let added_platforms = database.list_user_platforms()?;
+    // 来源补齐可能写库，必须在只读快照外完成。
+    for added in &added_platforms {
         ensure_declared_sources(database, &added.platform_id)?;
+    }
+    database.read_snapshot(|database| read_platform_summaries(database, added_platforms))
+}
+
+fn read_platform_summaries(
+    database: &Database,
+    added_platforms: Vec<crate::storage::repository::UserPlatformRecord>,
+) -> Result<Vec<PlatformSummaryViewModel>, String> {
+    let mut platforms = Vec::new();
+    for added in added_platforms {
         let entry = catalog::entry(&added.platform_id);
         let official_url = entry.map(|item| item.official_url).unwrap_or("");
         let display_name = if added.display_name.trim().is_empty() {
@@ -1203,6 +1214,34 @@ fn millis(value: Option<i64>) -> Option<u64> {
 mod tests {
     use super::*;
     use crate::domain::{CapabilityDisplayValue, DataFreshness, SourceState, SourceType};
+
+    #[test]
+    fn platform_read_snapshot_preserves_viewmodel() {
+        let path = std::env::temp_dir().join(format!(
+            "aqm-platform-read-{}-{}.db", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let database = Database::initialize_at(path.clone()).unwrap();
+        database.add_user_platform("deepseek", "DeepSeek", None).unwrap();
+        database.add_user_platform("glm", "GLM", None).unwrap();
+        ensure_declared_sources(&database, "glm").unwrap();
+        database.connect().unwrap().execute(
+            "INSERT INTO capability_snapshots(account_id,source_id,capability_id,display_name,value_kind,primary_value,trend_json,captured_at,generation)
+             VALUES ('deepseek-default',?1,'balance','余额','money','12.34','[]',1000,1)",
+            [deepseek::BALANCE_SOURCE_ID],
+        ).unwrap();
+        let started = std::time::Instant::now();
+        let expected = read_platform_summaries(&database, database.list_user_platforms().unwrap()).unwrap();
+        assert_eq!(expected[0].capabilities.iter().find(|capability| capability.capability_id == "balance").unwrap().value.primary.as_deref(), Some("12.34"));
+        let unshared = started.elapsed();
+        let started = std::time::Instant::now();
+        let actual = platform_summaries(&database).unwrap();
+        let shared = started.elapsed();
+        assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(expected).unwrap());
+        eprintln!("fixture ViewModel: per-query connections={unshared:?}, shared read snapshot={shared:?}");
+        drop(database);
+        std::fs::remove_file(path).unwrap();
+    }
 
     fn source(id: &str, configured: bool, state: SourceState) -> SourceSummaryViewModel {
         SourceSummaryViewModel {
