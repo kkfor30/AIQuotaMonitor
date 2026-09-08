@@ -133,8 +133,10 @@ pub async fn login_cli_at(home: Option<&Path>) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-        command.creation_flags(CREATE_NEW_CONSOLE);
+        // Codex 的默认登录流程会自行拉起浏览器并在本机回调；隐藏中间控制台，
+        // 让额外账号登录保持为应用内发起的网页登录体验。
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
     }
     let status = command
         .status()
@@ -259,7 +261,7 @@ fn resolve_codex_program() -> Result<PathBuf, AppServerError> {
         }
     }
     Err(AppServerError::Unavailable(
-        "未找到 Codex CLI。请确认终端里可以运行 `codex`，或设置 CODEX_BIN 指向可执行文件。".into(),
+        "未找到官方 Codex 组件。请安装 Codex 应用或 Codex CLI 后重试，也可设置 CODEX_BIN 指向可执行文件。".into(),
     ))
 }
 
@@ -294,6 +296,47 @@ fn codex_search_dirs() -> Vec<PathBuf> {
             dirs.push(extra);
         }
     }
+    #[cfg(windows)]
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        for dir in codex_desktop_search_dirs(Path::new(&local_app_data)) {
+            if !dirs.iter().any(|existing| existing == &dir) {
+                dirs.push(dir);
+            }
+        }
+    }
+    dirs
+}
+
+/// Codex Windows 桌面应用把随应用更新的 CLI 放在
+/// `%LOCALAPPDATA%\OpenAI\Codex\bin\<version-id>\codex.exe`。GUI 应用从开始菜单
+/// 启动时通常拿不到 Codex 注入终端的 PATH，因此需要显式发现这个官方安装位置。
+#[cfg(windows)]
+fn codex_desktop_search_dirs(local_app_data: &Path) -> Vec<PathBuf> {
+    let bin_dir = local_app_data.join("OpenAI").join("Codex").join("bin");
+    let mut version_dirs = std::fs::read_dir(&bin_dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let dir = entry.path();
+            let program = dir.join("codex.exe");
+            program.is_file().then(|| {
+                let modified = program
+                    .metadata()
+                    .and_then(|metadata| metadata.modified())
+                    .unwrap_or(UNIX_EPOCH);
+                (modified, dir)
+            })
+        })
+        .collect::<Vec<_>>();
+    version_dirs.sort_by(|left, right| right.0.cmp(&left.0));
+
+    let mut dirs = Vec::with_capacity(version_dirs.len() + 1);
+    if bin_dir.join("codex.exe").is_file() {
+        dirs.push(bin_dir);
+    }
+    dirs.extend(version_dirs.into_iter().map(|(_, dir)| dir));
     dirs
 }
 
@@ -1013,6 +1056,27 @@ mod tests {
             Some("codex.cmd")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn finds_cli_bundled_with_codex_desktop() {
+        let root = std::env::temp_dir().join(format!(
+            "codex-desktop-install-{}-{}",
+            std::process::id(),
+            epoch_for_test()
+        ));
+        let version_dir = root
+            .join("OpenAI")
+            .join("Codex")
+            .join("bin")
+            .join("0123456789abcdef");
+        std::fs::create_dir_all(&version_dir).expect("desktop version dir");
+        std::fs::write(version_dir.join("codex.exe"), b"test").expect("desktop codex binary");
+
+        let dirs = codex_desktop_search_dirs(&root);
+        assert_eq!(dirs, vec![version_dir]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     fn epoch_for_test() -> u64 {
