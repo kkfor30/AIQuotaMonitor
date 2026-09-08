@@ -176,6 +176,7 @@ pub fn run() {
             commands::window_commands::request_hide_hoverbar_detail,
             commands::window_commands::hide_hoverbar_detail_immediately,
             commands::window_commands::set_hoverbar_dragging,
+            commands::window_commands::drag_hoverbar,
             commands::window_commands::finish_hide_hoverbar_detail,
             commands::window_commands::set_hoverbar_detail_size,
             commands::window_commands::set_hoverbar_detail_pointer_inside,
