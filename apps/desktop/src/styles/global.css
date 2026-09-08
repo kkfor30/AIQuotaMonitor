@@ -90,14 +90,14 @@ button {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--q-text-primary) 16%, transparent);
+  background: color-mix(in srgb, var(--q-text-primary) 24%, transparent);
   border: 3px solid transparent;
   border-radius: 999px;
   background-clip: content-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--q-text-primary) 28%, transparent);
+  background: color-mix(in srgb, var(--q-text-primary) 38%, transparent);
   border: 3px solid transparent;
   background-clip: content-box;
 }
@@ -159,11 +159,14 @@ html.hoverbar-window #root {
   overflow: hidden;
 }
 
-/* 40×40 锚点窗口：只绘制圆形动态素材，不继承矩形表面。 */
+/* 40×40 锚点窗口：只绘制圆形动态素材，不继承矩形表面，物理级纯圆裁切杜绝方形盒边缘。 */
 .hoverbar-anchor-root {
+  position: relative;
   width: 40px;
   height: 40px;
   overflow: hidden;
+  border-radius: 50%;
+  clip-path: circle(19px at 20px 20px);
   background: transparent;
 }
 
@@ -188,16 +191,30 @@ html.hoverbar-window #root {
   cursor: grab;
   touch-action: none;
   transition: transform 150ms ease-out;
+  isolation: isolate;
 }
 
-/* 小球发光与动效专属全息光环层（置于 picture 之上，确保正圆无缝贴合且绝对不发生窗口方形裁切） */
+/* 方案 D：深空悬浮透底投影微光层（置于 picture 之下，紧贴 32px 球体外缘精致微光晕，97% 半径自然消隐，外延仅 0.85px，零窗口裁切） */
+.hb-orb .hb-ambient-bloom {
+  position: absolute;
+  inset: -1.5px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: -1;
+  box-shadow: none;
+  -webkit-mask: radial-gradient(circle at center, #000 75%, #000 89%, rgba(0, 0, 0, 0.3) 93.5%, transparent 97%);
+  mask: radial-gradient(circle at center, #000 75%, #000 89%, rgba(0, 0, 0, 0.3) 93.5%, transparent 97%);
+  transition: opacity 300ms ease;
+}
+
+/* 方案 D：玻璃球外层光学漫射微边缘（置于 picture 之上，更克制纤细的内折射） */
 .hb-orb::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: 50%;
   pointer-events: none;
-  z-index: 5;
+  z-index: 2;
   box-shadow: none;
   transition: box-shadow 250ms ease-out, opacity 250ms ease-out;
 }
@@ -215,26 +232,10 @@ html.hoverbar-window #root {
   -webkit-user-select: none;
 }
 
-.hb-orb[data-edge="top"] {
-  top: 0;
-}
-
-.hb-orb[data-edge="bottom"] {
-  top: 8px;
-}
-
-.hb-orb[data-edge="left"] {
-  left: 0;
-}
-
-.hb-orb[data-edge="right"] {
-  left: 8px;
-}
-
 @media (hover: hover) {
   .hb-orb:hover,
   .hb-orb.is-hover {
-    transform: scale(1.1);
+    transform: scale(1.08);
   }
 }
 
@@ -253,6 +254,12 @@ html.hoverbar-window #root {
   box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
 }
 
+.hb-orb.is-detail-open .hb-ambient-bloom {
+  animation: none !important;
+  opacity: 0 !important;
+  visibility: hidden;
+}
+
 .hb-orb.is-detail-open::after {
   animation: none !important;
   box-shadow: none !important;
@@ -260,120 +267,129 @@ html.hoverbar-window #root {
   opacity: 0 !important;
 }
 
-/* 被动告警脉冲光晕与全边缘定向适配 */
-.hb-orb.is-alert-error {
-  box-shadow: 0 0 2px rgba(244, 63, 94, 0.25);
-}
-
-.hb-orb.is-alert-error::after {
-  animation: orb-alert-pulse-rose 2.4s ease-in-out infinite;
-}
-
-.hb-orb.is-alert-warning {
-  box-shadow: 0 0 2px rgba(245, 158, 11, 0.2);
-}
-
-.hb-orb.is-alert-warning::after {
-  animation: orb-alert-pulse-amber 3s ease-in-out infinite;
-}
-
-.hb-orb.is-alert-error[data-edge="top"] {
-  box-shadow: 0 1px 3px rgba(244, 63, 94, 0.3);
-}
-
-.hb-orb.is-alert-error[data-edge="bottom"] {
-  box-shadow: 0 -1px 3px rgba(244, 63, 94, 0.3);
-}
-
-.hb-orb.is-alert-error[data-edge="left"] {
-  box-shadow: 1px 0 3px rgba(244, 63, 94, 0.3);
-}
-
-.hb-orb.is-alert-error[data-edge="right"] {
-  box-shadow: -1px 0 3px rgba(244, 63, 94, 0.3);
-}
-
-.hb-orb.is-alert-warning[data-edge="top"] {
-  box-shadow: 0 1px 3px rgba(245, 158, 11, 0.25);
-}
-
-.hb-orb.is-alert-warning[data-edge="bottom"] {
-  box-shadow: 0 -1px 3px rgba(245, 158, 11, 0.25);
-}
-
-.hb-orb.is-alert-warning[data-edge="left"] {
-  box-shadow: 1px 0 3px rgba(245, 158, 11, 0.25);
-}
-
-.hb-orb.is-alert-warning[data-edge="right"] {
-  box-shadow: -1px 0 3px rgba(245, 158, 11, 0.25);
-}
-
-.hb-orb.is-detail-open.is-alert-error,
-.hb-orb.is-detail-open.is-alert-warning,
-.hb-orb.is-detail-open[class*="is-glow-"] {
-  animation: none;
-  box-shadow: 0 0 0 3px var(--q-hoverbar-orb-ring);
-}
-
 /* ==========================================================================
-   6 大动态语义光效系统规则 (Semantic Orb Glow Classes) - 克制柔和高质感
+   方案 D：6 大动态语义光效系统规则 (Deep-Space Ambient Bloom)
+   采用数学纯圆多级向外自然渐变 + 97% 半径完全归零裁切蒙版，彻底剔除外扩 box-shadow，
+   从根源消除 40x40 物理透明窗口边缘被直线截断产生的方形盒状伪影。
+   整体发光带再做薄 1/3：外延微光晕收紧至 0.85px，内边缘采用 0.4px 发丝微边 + 1.0px 晶体浅折射，总厚度仅约 1.8px。
    ========================================================================== */
 
-.hb-orb.is-glow-normal {
-  box-shadow: 0 0 2px rgba(6, 182, 212, 0.2);
+/* 1. 幽蓝生息 (normal): 额度充沛健康态，青蓝舒缓慢速呼吸 (3.6s 周期) */
+.hb-orb.is-glow-normal .hb-ambient-bloom {
+  background: radial-gradient(
+    circle at center,
+    rgba(6, 182, 212, 0.42) 0%,
+    rgba(6, 182, 212, 0.34) 76%,
+    rgba(6, 182, 212, 0.18) 89%,
+    rgba(6, 182, 212, 0.04) 93.5%,
+    transparent 97%
+  );
+  animation: bloom-breathe 3.6s ease-in-out infinite;
 }
 .hb-orb.is-glow-normal::after {
-  animation: orb-glow-breathe-cyan 3.6s ease-in-out infinite;
+  box-shadow:
+    inset 0 0 0 0.4px rgba(6, 182, 212, 0.5),
+    inset 0 0 1.0px rgba(6, 182, 212, 0.3);
 }
 
-.hb-orb.is-glow-warning {
-  box-shadow: 0 0 2px rgba(245, 158, 11, 0.2);
+/* 2. 琥珀金芒 (warning / is-alert-warning): 额度预警与告罄态 (余量 ≤ 15% 或额度已完全枯竭，2.4s 周期微脉冲) */
+.hb-orb.is-glow-warning .hb-ambient-bloom,
+.hb-orb.is-alert-warning .hb-ambient-bloom {
+  background: radial-gradient(
+    circle at center,
+    rgba(245, 158, 11, 0.46) 0%,
+    rgba(245, 158, 11, 0.38) 76%,
+    rgba(245, 158, 11, 0.2) 89%,
+    rgba(245, 158, 11, 0.05) 93.5%,
+    transparent 97%
+  );
+  animation: bloom-pulse 2.4s ease-in-out infinite;
 }
-.hb-orb.is-glow-warning::after {
-  animation: orb-glow-pulse-amber 2.2s ease-in-out infinite;
+.hb-orb.is-glow-warning::after,
+.hb-orb.is-alert-warning::after {
+  box-shadow:
+    inset 0 0 0 0.4px rgba(245, 158, 11, 0.55),
+    inset 0 0 1.0px rgba(245, 158, 11, 0.32);
 }
 
-.hb-orb.is-glow-active {
-  box-shadow: 0 0 2px rgba(16, 185, 129, 0.22);
+/* 3. 静谧绯红 (danger / is-alert-error): 仅限 API Key 失效或 401 等异常阻断性故障 (常态静止红色，不参与额度监控) */
+.hb-orb.is-glow-danger .hb-ambient-bloom,
+.hb-orb.is-alert-error .hb-ambient-bloom {
+  background: radial-gradient(
+    circle at center,
+    rgba(244, 63, 94, 0.5) 0%,
+    rgba(244, 63, 94, 0.42) 76%,
+    rgba(244, 63, 94, 0.22) 89%,
+    rgba(244, 63, 94, 0.05) 93.5%,
+    transparent 97%
+  );
+  opacity: 0.85;
+}
+.hb-orb.is-glow-danger::after,
+.hb-orb.is-alert-error::after {
+  box-shadow:
+    inset 0 0 0 0.4px rgba(244, 63, 94, 0.58),
+    inset 0 0 1.0px rgba(244, 63, 94, 0.35);
+}
+
+/* 4. 翡翠高能 (active): 重置卡到账或额度恢复至 100% (1.8s 周期) */
+.hb-orb.is-glow-active .hb-ambient-bloom {
+  background: radial-gradient(
+    circle at center,
+    rgba(16, 185, 129, 0.46) 0%,
+    rgba(16, 185, 129, 0.38) 76%,
+    rgba(16, 185, 129, 0.2) 89%,
+    rgba(16, 185, 129, 0.05) 93.5%,
+    transparent 97%
+  );
+  animation: bloom-active 1.8s ease-in-out infinite;
 }
 .hb-orb.is-glow-active::after {
-  animation: orb-glow-aurora-emerald 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  box-shadow:
+    inset 0 0 0 0.4px rgba(16, 185, 129, 0.55),
+    inset 0 0 1.0px rgba(16, 185, 129, 0.32);
 }
 
-.hb-orb.is-glow-danger {
-  box-shadow: 0 0 2px rgba(244, 63, 94, 0.25);
-}
-.hb-orb.is-glow-danger::after {
-  animation: orb-glow-heartbeat-rose 1.3s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
-}
-
-.hb-orb.is-glow-verifying {
-  box-shadow: 0 0 2px rgba(6, 182, 212, 0.2);
-  animation: orb-vortex-glow 1.2s ease-in-out infinite;
-}
-
-.hb-orb.is-glow-verifying::after {
+/* 5. 蓝绿涡流 (verifying): 异步核验中 / 后台多平台同步 (1.4s 线性公转) */
+.hb-orb.is-glow-verifying .hb-ambient-bloom {
   background: conic-gradient(
     from 0deg,
-    rgba(6, 182, 212, 0) 0%,
-    rgba(6, 182, 212, 0.45) 30%,
-    rgba(16, 185, 129, 0.6) 60%,
-    rgba(6, 182, 212, 0.45) 85%,
-    rgba(6, 182, 212, 0) 100%
+    rgba(6, 182, 212, 0.45) 0%,
+    rgba(16, 185, 129, 0.55) 50%,
+    rgba(6, 182, 212, 0.45) 100%
   );
-  -webkit-mask: radial-gradient(circle, transparent 66%, black 78%);
-  mask: radial-gradient(circle, transparent 66%, black 78%);
-  animation: orb-vortex-spin 1.2s linear infinite;
+  animation: satellite-spin-orbit 1.4s linear infinite;
+}
+.hb-orb.is-glow-verifying::after {
+  box-shadow:
+    inset 0 0 0 0.4px rgba(6, 182, 212, 0.5),
+    inset 0 0 1.0px rgba(6, 182, 212, 0.32);
 }
 
+/* 6. 冷灰沉睡 (stale): 网络断开或本地缓存失效降级 */
 .hb-orb.is-glow-stale {
   filter: grayscale(0.4) opacity(0.9);
-  box-shadow: none;
+}
+.hb-orb.is-glow-stale .hb-ambient-bloom {
+  background: radial-gradient(
+    circle at center,
+    rgba(148, 163, 184, 0.2) 0%,
+    rgba(148, 163, 184, 0.14) 76%,
+    rgba(148, 163, 184, 0.05) 89%,
+    transparent 95%
+  );
+  opacity: 0.25;
+}
+.hb-orb.is-glow-stale::after {
+  box-shadow:
+    inset 0 0 0 0.4px rgba(148, 163, 184, 0.28),
+    inset 0 0 0.8px rgba(148, 163, 184, 0.16);
 }
 
-.hb-orb.is-glow-stale::after {
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.45), inset 0 0 3px rgba(100, 116, 139, 0.2);
+@media (prefers-reduced-motion: reduce) {
+  .hb-orb .hb-ambient-bloom {
+    animation: none !important;
+  }
 }
 
 
@@ -610,10 +626,10 @@ html.hoverbar-window #root {
   gap: 10px;
   margin-top: 9px;
   padding: 0 5px;
-  color: var(--q-hoverbar-muted);
-  font-size: 10.5px;
-  font-weight: 620;
-  line-height: 14px;
+  color: var(--q-hoverbar-muted-strong);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 16px;
   user-select: none;
 }
 
@@ -1025,8 +1041,8 @@ button.hb-status-chip:hover,
 
 .hb-quota-time {
   flex: none;
-  color: var(--q-hoverbar-muted);
-  font-size: 11px;
+  color: var(--q-hoverbar-muted-strong);
+  font-size: 11.5px;
   font-weight: 650;
   line-height: 17px;
   font-variant-numeric: tabular-nums;
@@ -1244,10 +1260,10 @@ button.hb-status-chip:hover,
 /* 语义副标题：宽停靠展示「语义 · 本月 Token」，侧边 300px 只保留语义部分 */
 .hb-model-sub {
   min-width: 0;
-  color: var(--q-hoverbar-muted);
-  font-size: 10.5px;
-  font-weight: 620;
-  line-height: 14px;
+  color: var(--q-hoverbar-muted-strong);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 16px;
 }
 
 .hb-model-sub-full {
@@ -1341,10 +1357,10 @@ button.hb-status-chip:hover,
 .hb-cache-desc {
   margin: 0;
   overflow: hidden;
-  color: var(--q-hoverbar-muted);
-  font-size: 10.5px;
-  font-weight: 620;
-  line-height: 14px;
+  color: var(--q-hoverbar-muted-strong);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 16px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1418,27 +1434,26 @@ button.hb-status-chip:hover,
   font-size: 11px;
 }
 
-/* GPT 重置信号摘要条（UI V4）：近白实体卡、细灰蓝边框、极轻阴影，不再大面积蓝底。 */
+/* GPT 重置信号小卡片：平台卡片内的独立小卡片，层级明确，去突兀顶线 */
 .hb-radar-strip {
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
-  padding: 10px 12px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--q-hoverbar-primary) 24%, var(--q-hoverbar-card-border));
-  border-radius: 14px;
-  background:
-    radial-gradient(100% 120% at 100% 0%, color-mix(in srgb, var(--q-hoverbar-primary) 8%, transparent), transparent 70%),
-    var(--q-hoverbar-card-bg);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
-  transition: all 180ms ease;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  border: 0;
+  background: color-mix(in srgb, var(--q-hoverbar-primary) 4%, var(--q-hoverbar-empty-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
+  transition: box-shadow 180ms ease, background-color 180ms ease;
 }
 
-.hb-radar-strip:hover {
-  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 40%, var(--q-hoverbar-card-border));
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+@media (hover: hover) {
+  .hb-radar-strip:hover {
+    background: color-mix(in srgb, var(--q-hoverbar-primary) 6%, var(--q-hoverbar-empty-bg));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-primary) 32%, var(--q-hoverbar-card-border));
+  }
 }
 
 .hb-radar-strip-head {
@@ -1626,12 +1641,12 @@ button.hb-status-chip:hover,
 .hb-radar-strip-ref-box {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  margin-top: 6px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--q-hoverbar-empty-bg) 80%, transparent);
-  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 60%, transparent);
+  gap: 2px;
+  margin-top: 1px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
 }
 
 .hb-radar-strip-ref-row {
@@ -1640,14 +1655,15 @@ button.hb-status-chip:hover,
   gap: 5px;
   min-width: 0;
   font-size: 11px;
+  font-weight: 550;
   line-height: 15px;
-  color: var(--q-hoverbar-ink);
+  color: var(--q-hoverbar-muted-strong);
 }
 
 .hb-radar-strip-ref-icon {
   flex: none;
   color: var(--q-hoverbar-primary);
-  opacity: 0.85;
+  opacity: 1;
 }
 
 .hb-radar-strip-ref-text {
@@ -1662,15 +1678,16 @@ button.hb-status-chip:hover,
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: 2px;
   min-width: 0;
 }
 
 .hb-radar-strip-foot .hb-radar-strip-note {
   margin: 0;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--q-hoverbar-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--q-hoverbar-muted-strong);
+  opacity: 1;
 }
 
 .hb-radar-ai-pill {
@@ -1712,6 +1729,7 @@ button.hb-status-chip:hover,
   min-width: 0;
   flex-direction: column;
   gap: 8px;
+  padding-bottom: 16px;
 }
 
 .hb-source-tag {
@@ -1767,10 +1785,41 @@ button.hb-status-chip:hover,
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 6px;
   padding: 3px 0 6px;
   background: var(--q-hoverbar-panel-bg);
   box-shadow: 0 8px 14px -14px var(--q-hoverbar-panel-shadow);
+}
+
+.hb-radar-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.hb-radar-icon-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: var(--q-hoverbar-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+@media (hover: hover) {
+  .hb-radar-icon-btn:hover {
+    color: var(--q-hoverbar-primary);
+    background: var(--q-hoverbar-action-hover);
+  }
 }
 
 .hb-radar-back {
@@ -1824,6 +1873,44 @@ button.hb-status-chip:hover,
 
 .hb-radar-refresh[data-loading="true"] svg {
   animation: hb-spin 0.85s linear infinite;
+}
+
+/* 「完整雷达」低强调入口：打开主窗口雷达页；宽停靠完整文案，左右 300px 窄停靠用短文案。 */
+.hb-radar-open-main {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--q-hoverbar-muted);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 15px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .hb-radar-open-main:hover {
+    color: var(--q-hoverbar-primary);
+    background: var(--q-hoverbar-action-hover);
+  }
+}
+
+.hb-radar-open-main .hb-radar-range-compact {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-open-main .hb-radar-range-full,
+.hb-detail-root[data-edge="right"] .hb-radar-open-main .hb-radar-range-full {
+  display: none;
+}
+
+.hb-detail-root[data-edge="left"] .hb-radar-open-main .hb-radar-range-compact,
+.hb-detail-root[data-edge="right"] .hb-radar-open-main .hb-radar-range-compact {
+  display: inline;
 }
 
 /* 分析范围只读标签：右对齐与刷新/仅为推测成组；宽停靠完整文案，左右 300px 窄停靠
@@ -2016,19 +2103,19 @@ button.hb-status-chip:hover,
 }
 
 .hb-radar-basis {
-  margin: 0;
+  margin: 4px 0 0;
   padding: 8px 10px;
   border-radius: 12px;
-  color: var(--q-hoverbar-muted-strong);
+  color: var(--q-hoverbar-ink);
   /* 与 .hb-radar-strip 同款：带主色调衬底 + 内描边形成明显框 */
   background: color-mix(in srgb, var(--q-hoverbar-primary) 7%, var(--q-hoverbar-empty-bg));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-hoverbar-card-border) 90%, transparent);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 17px;
+  font-size: 12.5px;
+  font-weight: 550;
+  line-height: 18.5px;
   overflow-wrap: anywhere;
   /* 依据超长时在自身窗口内滚动，不把悬浮页撑出屏幕 */
-  max-height: 132px;
+  max-height: 120px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -2411,14 +2498,20 @@ button.hb-status-chip:hover,
   min-height: 0;
   grid-template-rows: 0fr;
   opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
   transition:
     grid-template-rows 210ms cubic-bezier(0.2, 0.75, 0.25, 1),
-    opacity 160ms ease;
+    opacity 160ms ease,
+    visibility 0s linear 210ms;
 }
 
 .radar-collapse[data-open="true"] {
   grid-template-rows: 1fr;
   opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 .radar-collapse-inner {
@@ -2426,16 +2519,96 @@ button.hb-status-chip:hover,
   overflow: hidden;
 }
 
+/* 折叠展开内部内容：自然延展，杜绝多层内嵌滚动条套娃与上下拖拽冲突 */
 .radar-collapse-scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 历史技术检查日志：保留上限但强化滚动隔离保护，防止滚轮带动外层晃动 */
+.radar-history-scroll {
   max-height: 320px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 
-.radar-history-scroll {
-  max-height: 360px;
-  overscroll-behavior: contain;
+/* 精致轻薄折叠面板（Slim Accordion）：高度从 60px 压薄至 36px，轻薄干练 */
+.radar-slim-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-radius: 12px;
+  border: 1px solid var(--q-border);
+  background: var(--q-surface-card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+  overflow: hidden;
+}
+
+.radar-slim-panel:hover {
+  border-color: color-mix(in srgb, var(--q-primary) 28%, var(--q-border));
+}
+
+.radar-slim-panel .radar-collapse-trigger {
+  padding: 8px 12px;
+  transition: background-color 120ms ease;
+}
+
+.radar-slim-panel .radar-collapse-trigger:hover {
+  background: var(--q-surface-hover);
+}
+
+.radar-slim-content {
+  padding: 0 12px 12px 12px;
+}
+
+/* 一体化历史时间线容器：消除孤岛大白砖，聚合为规整紧凑的事件流水 */
+.radar-timeline-container {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-radius: 14px;
+  border: 1px solid var(--q-border);
+  background: var(--q-surface-card);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
+}
+
+.radar-timeline-item {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid color-mix(in srgb, var(--q-border) 60%, transparent);
+  transition: background-color 120ms ease;
+}
+
+.radar-timeline-item:last-child {
+  border-bottom: 0;
+}
+
+.radar-timeline-item-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.radar-timeline-item-trigger:hover {
+  background: var(--q-surface-hover);
+}
+
+.radar-timeline-item-content {
+  padding: 0 14px 14px 34px;
 }
 
 .radar-collapse-trigger {
@@ -2470,6 +2643,24 @@ button.hb-status-chip:hover,
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
+}
+
+/* 依据区内的 AI 解释容器：默认折叠态只露出开关行，不占大卡。 */
+.hb-ai-compact {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 4px;
+}
+
+/* 「最近一次重置/事件」折叠开关在历史记录卡内的缩进分组。 */
+.hb-radar-recent-toggle {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
 }
 
 /* AI 详情开关：左对齐纯文字 + Chevron，与卡片内容左缘对齐（账号详情开关同款）。 */
@@ -2511,14 +2702,20 @@ button.hb-status-chip:hover,
   min-height: 0;
   grid-template-rows: 0fr;
   opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
   transition:
     grid-template-rows 200ms cubic-bezier(0.2, 0.75, 0.25, 1),
-    opacity 150ms ease;
+    opacity 150ms ease,
+    visibility 0s linear 200ms;
 }
 
 .hb-radar-collapse[data-open="true"] {
   grid-template-rows: 1fr;
   opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 .hb-radar-collapse-inner {
@@ -2642,26 +2839,28 @@ button.hb-status-chip:hover,
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
-  border-radius: 8px;
+  gap: 5px;
+  padding: 9px 11px;
+  border-radius: 10px;
   background: var(--q-hoverbar-empty-bg);
-  border: 1px solid color-mix(in srgb, var(--q-hoverbar-card-border) 70%, transparent);
-  border-left: 2.5px solid var(--q-hoverbar-muted);
+  border: 1.5px solid color-mix(in srgb, var(--q-hoverbar-card-border) 80%, transparent);
+  transition: border-color 160ms ease, background-color 160ms ease;
 }
 
 .hb-quota-row[data-status="unscheduled_reset"],
 .hb-quota-row[data-status="possible_reset"] {
-  border-left-color: var(--q-hoverbar-warning);
+  border-color: color-mix(in srgb, var(--q-hoverbar-warning) 50%, transparent);
+  background: color-mix(in srgb, var(--q-hoverbar-warning) 3.5%, var(--q-hoverbar-empty-bg));
 }
 
 .hb-quota-row[data-status="scheduled"],
 .hb-quota-row[data-status="no_change"] {
-  border-left-color: var(--q-hoverbar-success);
+  border-color: color-mix(in srgb, var(--q-hoverbar-success) 45%, transparent);
+  background: color-mix(in srgb, var(--q-hoverbar-success) 3.5%, var(--q-hoverbar-empty-bg));
 }
 
 .hb-quota-row[data-status="pending"] {
-  border-left-color: var(--q-hoverbar-primary);
+  border-color: color-mix(in srgb, var(--q-hoverbar-primary) 40%, transparent);
 }
 
 .hb-quota-metrics-grid {
@@ -2683,22 +2882,24 @@ button.hb-status-chip:hover,
 }
 
 .hb-quota-metric-label {
-  font-size: 9.5px;
-  font-weight: 600;
-  color: var(--q-hoverbar-muted);
-  letter-spacing: 0.02em;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--q-hoverbar-muted-strong);
+  letter-spacing: 0.01em;
 }
 
 .hb-quota-metric-val {
-  font-size: 11px;
-  line-height: 15px;
+  font-size: 12px;
+  line-height: 16px;
   color: var(--q-hoverbar-ink);
 }
 
 .hb-quota-metric-sub {
-  font-size: 9.5px;
-  line-height: 13px;
-  color: var(--q-hoverbar-muted);
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--q-hoverbar-muted-strong);
+  font-weight: 550;
+  word-break: break-word;
 }
 
 .hb-quota-row-head {
@@ -3098,8 +3299,8 @@ button.hb-status-chip:hover,
 
 .hb-detail-root[data-edge="left"] .hb-quota-time,
 .hb-detail-root[data-edge="right"] .hb-quota-time {
-  font-size: 10.5px;
-  line-height: 16px;
+  font-size: 11.5px;
+  line-height: 17px;
 }
 
 .hb-detail-root[data-edge="left"] .hb-balance-amount,

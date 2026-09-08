@@ -10,7 +10,7 @@ import { cn } from "@/lib/cn";
 /**
  * 自定义窗口标题栏（无边框主窗口）。
  * data-tauri-drag-region 提供原生拖动与双击最大化；
- * 窗口控制按钮左侧提供主题（换肤）快捷入口，与设置页共用同一份主题设置。
+ * 窗口控制按钮左侧提供主题（换肤）快捷入口。
  */
 export function WindowTitleBar() {
   const [maximized, setMaximized] = useState(false);
@@ -18,39 +18,84 @@ export function WindowTitleBar() {
 
   useEffect(() => {
     let disposed = false;
-    const unlisten = appWindow.onResized(async () => {
-      const next = await appWindow.isMaximized().catch(() => false);
-      if (!disposed) setMaximized(next);
-    });
-    void appWindow
-      .isMaximized()
-      .then((next) => {
+
+    const checkMaximized = async () => {
+      try {
+        const next = await appWindow.isMaximized();
         if (!disposed) setMaximized(next);
-      })
-      .catch(() => undefined);
+      } catch {
+        if (!disposed && typeof window !== "undefined" && window.screen) {
+          const isNearFull =
+            Math.abs(window.innerWidth - window.screen.availWidth) < 24 &&
+            Math.abs(window.innerHeight - window.screen.availHeight) < 24;
+          setMaximized(isNearFull);
+        }
+      }
+    };
+
+    void checkMaximized();
+
+    const onDomResize = () => {
+      void checkMaximized();
+    };
+    window.addEventListener("resize", onDomResize);
+
+    const unlistenPromise = appWindow.onResized(() => {
+      void checkMaximized();
+    });
+
     return () => {
       disposed = true;
-      void unlisten.then((fn) => fn());
+      window.removeEventListener("resize", onDomResize);
+      void unlistenPromise.then((fn) => fn?.()).catch(() => {});
     };
   }, [appWindow]);
 
   const minimize = useCallback(() => void appWindow.minimize(), [appWindow]);
-  const toggleMaximize = useCallback(
-    () => void appWindow.toggleMaximize(),
-    [appWindow],
-  );
+  const toggleMaximize = useCallback(async () => {
+    try {
+      const currentMax = await appWindow.isMaximized().catch(() => maximized);
+      if (currentMax) {
+        await appWindow.unmaximize();
+        setMaximized(false);
+      } else {
+        await appWindow.maximize();
+        setMaximized(true);
+      }
+      setTimeout(async () => {
+        const confirmed = await appWindow.isMaximized().catch(() => !currentMax);
+        setMaximized(confirmed);
+      }, 100);
+    } catch (err) {
+      console.warn("Direct maximize/unmaximize failed, fallback to toggleMaximize:", err);
+      try {
+        await appWindow.toggleMaximize();
+        const next = await appWindow.isMaximized().catch(() => !maximized);
+        setMaximized(next);
+      } catch (fallbackErr) {
+        console.error("toggleMaximize fallback failed:", fallbackErr);
+      }
+    }
+  }, [appWindow, maximized]);
   const close = useCallback(() => void appWindow.close(), [appWindow]);
 
   return (
     <div className="flex h-10 shrink-0 items-center justify-end pr-2" data-tauri-drag-region>
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-1.5">
         <ThemeSwitchButton />
-        <span aria-hidden className="mx-1 h-4 w-px bg-q-border" />
+        <span aria-hidden className="mx-0.5 h-4 w-px bg-q-border" />
         <TitleBarButton label="最小化" onClick={minimize}>
           <Minus size={14} />
         </TitleBarButton>
         <TitleBarButton label={maximized ? "还原" : "最大化"} onClick={toggleMaximize}>
-          <Square size={12} />
+          {maximized ? (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+              <rect x="3.5" y="1.5" width="7" height="7" rx="1" />
+              <path d="M1.5 4.5v5a1 1 0 0 0 1 1h5" />
+            </svg>
+          ) : (
+            <Square size={12} />
+          )}
         </TitleBarButton>
         <TitleBarButton label="关闭" onClick={close} danger>
           <X size={15} />

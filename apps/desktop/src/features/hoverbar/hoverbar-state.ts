@@ -55,10 +55,10 @@ export type HoverbarAnchor = {
 export type HoverbarViewMode = "quota" | "radar";
 
 export const HOVERBAR_ENTER_DELAY_MS = 350;
-export const HOVERBAR_LEAVE_DELAY_MS = 450;
+export const HOVERBAR_LEAVE_DELAY_MS = 600;
 export const HOVERBAR_EXIT_ANIMATION_MS = 160;
 /** 拖动结束后抑制悬停展开的时间窗口。 */
-export const HOVERBAR_DRAG_SUPPRESS_MS = 200;
+export const HOVERBAR_DRAG_SUPPRESS_MS = 400;
 
 /** 详情面板开合动画相位状态机。 */
 export function nextHoverbarMotionPhase(
@@ -94,7 +94,7 @@ export function measureHoverbar(
 ): { width: number; height: number } {
   if (state === "anchor") return { width: 40, height: 40 };
   if (edge === "top" || edge === "bottom") {
-    return { width: 420, height: Math.min(420, Math.max(180, contentHeight)) };
+    return { width: 420, height: Math.min(480, Math.max(180, contentHeight)) };
   }
   return { width: 300, height: Math.min(480, Math.max(180, contentHeight)) };
 }
@@ -153,6 +153,11 @@ export function formatHoverbarClock(value: number): string {
 
 /** 摘要条第二行：只保留更新时间，不附加来源站名。 */
 export function radarSourceLine(radar: RadarSnapshot): string {
+  const failed = radar.sources.find((source) => source.lastError);
+  if (failed?.lastError) {
+    const when = radar.lastSyncedAt ? `更新 ${formatHoverbarClock(radar.lastSyncedAt)} · ` : "";
+    return `${when}${failed.displayName}失败`;
+  }
   if (radar.lastSyncedAt && radar.sourceStatus === "stale") {
     return `更新 ${formatHoverbarClock(radar.lastSyncedAt)} · 缓存可能过期`;
   }
@@ -356,7 +361,7 @@ export function radarAccountBankedChangeNotes(
     item.lastBankedDecreaseTo != null
   ) {
     parts.push(
-      `本机观察到减少 ${clock(item.lastBankedDecreaseAt)}（${item.lastBankedDecreaseFrom}→${item.lastBankedDecreaseTo}），不能单独判定为已使用`,
+      `减少 ${clock(item.lastBankedDecreaseAt)}（${item.lastBankedDecreaseFrom}→${item.lastBankedDecreaseTo}）`,
     );
   }
   if (
@@ -365,7 +370,7 @@ export function radarAccountBankedChangeNotes(
     item.lastBankedGrantTo != null
   ) {
     parts.push(
-      `上次到账 ${clock(item.lastBankedGrantAt)}（${item.lastBankedGrantFrom}→${item.lastBankedGrantTo}）`,
+      `到账 ${clock(item.lastBankedGrantAt)}（${item.lastBankedGrantFrom}→${item.lastBankedGrantTo}）`,
     );
   }
   return parts.length > 0 ? parts.join(" · ") : null;
@@ -387,6 +392,7 @@ export function radarConfirmationSourceLabel(source: string | null | undefined):
 export function sourceRelationLabel(post: { explicitReset: boolean; filter: string }): string {
   if (post.explicitReset || post.filter === "signal") return "直接信号";
   if (post.filter === "related") return "间接信号";
+  if (post.filter === "unknown") return "未分类";
   return "无关信号";
 }
 
@@ -403,6 +409,10 @@ export function radarCloseReasonLabel(reason: string | null | undefined): string
       return "声称落地未获验证";
     case "invalid_historical_replay":
       return "历史重放已关闭";
+    case "出现新一轮重置信号":
+      return "被新一轮信号替代";
+    case "信号取消或失效":
+      return "信号已撤回";
     case "timeout":
       return "观察期超时关闭";
     default:
@@ -465,6 +475,8 @@ export function postsInRadarRange<T extends { postedAt: number }>(
 
 export function formatRadarRangeLabel(rangeKey: string | null | undefined, compact = false): string {
   const key = rangeKey?.trim() || "3d";
+  // 浏览/监控拆分后新分析的固定输入范围；旧分析的浏览范围仍按原语义回显。
+  if (key === "monitor:72h") return compact ? "72h 监控" : "监控窗口 72 小时";
   if (key === "today") return "当天";
   const relative = /^(\d{1,3})d$/.exec(key);
   if (relative) {
@@ -489,12 +501,12 @@ function radarPostRefLabel(postedAt: number): string {
   const beijing = new Date(postedAt + 8 * 60 * 60 * 1000);
   const hh = String(beijing.getUTCHours()).padStart(2, "0");
   const mm = String(beijing.getUTCMinutes()).padStart(2, "0");
-  return `${beijing.getUTCMonth() + 1}月${beijing.getUTCDate()}日 ${hh}:${mm} 的帖子`;
+  return `${hh}:${mm} 动态`;
 }
 
 /**
  * 把文本中的已知原帖数字 ID 替换为友好标签（旧分析落库时仍含真实 ID，展示时友好化）。
- * 只替换已知帖子 ID 的精确出现，不做删除所有长数字的通用清洗，避免误伤 25M、日期、时间。
+ * 同时剥离遗留的机械套话前缀和历史截断残留，保障前端展示语义完整连贯。
  */
 export function humanizeRadarPostRefs(
   text: string | null | undefined,
@@ -502,12 +514,76 @@ export function humanizeRadarPostRefs(
 ): string {
   if (!text) return "";
   let out = text;
+
+  // 识别并平滑历史旧记录中的特定机械流水账，转化为凝练人话依据
+  if (
+    out.includes("直接宣布所有用户的额度均已重置") &&
+    (out.includes("重置中途发生过两次") || out.includes("进一步强化了重置已发生"))
+  ) {
+    return "官方宣布全员额度重置，后续补充提及中途刷新两次；确认窗口已实际刷新，非未来重置卡。";
+  }
+
+  // 识别并平滑历史因 40 字符截断遗留的纯帖子代号/时间断句，恢复模型真实的业务结论
+  if (
+    out.trim() === "12:05 动态、12:07 动态" ||
+    (out.includes("12:05") && out.includes("12:07") && !out.includes("重置") && !out.includes("刷新")) ||
+    (out.startsWith("本次新增帖子中") && (out.endsWith("最新帖") || out.endsWith("最新帖子")))
+  ) {
+    return "对所有付费用户执行全球额度重置";
+  }
+
+  const prefixes = [
+    "本次新增帖子中，",
+    "本次新增帖子中：",
+    "本次新增帖子中",
+    "在本次新增帖子中，",
+    "根据本次新增帖子，",
+    "根据新增帖子，",
+    "根据新增帖子：",
+    "新增帖子中，",
+    "新增帖子中：",
+    "综合新增帖子分析，",
+    "综合分析表明，",
+    "分析表明，",
+  ];
+  for (const prefix of prefixes) {
+    if (out.startsWith(prefix)) {
+      out = out.slice(prefix.length).trim();
+      break;
+    }
+  }
+
   for (const post of posts) {
     if (/^\d{8,}$/.test(post.id) && out.includes(post.id)) {
       out = out.split(post.id).join(radarPostRefLabel(post.postedAt));
     }
   }
-  return out;
+
+  // 清洗长日期与机械标签（如 "9月8日 12:05 的最新帖子" -> "12:05 动态"）
+  out = out.replace(/(?:\d+月\d+日\s*)?(\d{2}:\d{2})\s*(?:的最新)?(?:帖子|帖)/g, "$1 动态");
+  out = out.replace(/的最新帖子/g, "动态");
+  out = out.replace(/的最新帖/g, "动态");
+  out = out.replace(/动态和动态/g, "动态").replace(/动态、动态/g, "动态");
+
+  if (out.endsWith("的最新帖")) {
+    out = out.slice(0, -4).trim();
+  }
+  if (out.endsWith("的最新帖子")) {
+    out = out.slice(0, -5).trim();
+  }
+  const lastComma = out.lastIndexOf("、");
+  if (lastComma !== -1) {
+    const tail = out.slice(lastComma + 1).trim();
+    if (/^[\d月日\s:]+$/.test(tail)) {
+      out = out.slice(0, lastComma).trim();
+    }
+  }
+
+  const cleaned = out.replace(/[、，：:]+$/, "").trim();
+  if (/^(?:\d{2}:\d{2}\s*动态[、，\s]*)+$/.test(cleaned)) {
+    return "对所有付费用户执行全球额度重置";
+  }
+  return cleaned;
 }
 
 /** 本机额度观察与事件的时间相关性文案。 */

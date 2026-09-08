@@ -31,6 +31,11 @@ pub fn show_hoverbar_detail(
     window: WebviewWindow,
 ) -> Result<HoverbarAnchor, String> {
     require_label(&window, &["hoverbar"])?;
+    if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
+        if runtime.is_dragging.load(Ordering::SeqCst) {
+            return Err("正在拖拽小球，取消展开详情".to_string());
+        }
+    }
     let anchor = storage::load_preferences(&app).anchor;
     let detail = hoverbar::ensure_hoverbar_detail_window(&app)?;
     let (width, height) = app
@@ -44,6 +49,11 @@ pub fn show_hoverbar_detail(
             }
         });
     hoverbar::apply_detail_layout(&detail, &window, &anchor, width, height)?;
+    if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
+        if runtime.is_dragging.load(Ordering::SeqCst) {
+            return Err("正在拖拽小球，取消展开详情".to_string());
+        }
+    }
     let _ = detail.show();
     // 两个独立窗口发生视觉重叠时，小球必须始终位于详情面板上方。
     hoverbar::keep_anchor_above_detail(&window)?;
@@ -61,6 +71,52 @@ pub fn request_hide_hoverbar_detail(app: AppHandle, window: WebviewWindow) -> Re
     require_label(&window, &["hoverbar", "hoverbar-detail"])?;
     app.emit("hoverbar-detail-close", ())
         .map_err(|error| error.to_string())
+}
+
+/// 立即隐藏悬浮详情窗口（跳过退出动画，供拖拽或极速收起使用）。悬浮球或详情窗口可调用。
+#[tauri::command]
+pub fn hide_hoverbar_detail_immediately(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<(), String> {
+    require_label(&window, &["hoverbar", "hoverbar-detail"])?;
+    if let Some(detail) = app.get_webview_window("hoverbar-detail") {
+        let _ = detail.hide();
+    }
+    if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
+        runtime.detail_visible.store(false, Ordering::SeqCst);
+    }
+    let _ = app.emit("hoverbar-detail-close-immediate", ());
+    let _ = app.emit("hoverbar-detail-visibility", false);
+    Ok(())
+}
+
+/// 标记悬浮球正在被拖拽或拖拽结束。仅悬浮球窗口可调用。
+#[tauri::command]
+pub fn set_hoverbar_dragging(
+    app: AppHandle,
+    window: WebviewWindow,
+    dragging: bool,
+) -> Result<(), String> {
+    require_label(&window, &["hoverbar"])?;
+    if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
+        runtime.is_dragging.store(dragging, Ordering::SeqCst);
+        if dragging {
+            let pos = window.outer_position().ok().map(|p| (p.x, p.y));
+            if let Ok(mut lock) = runtime.drag_start_pos.lock() {
+                *lock = pos;
+            }
+            if let Some(detail) = app.get_webview_window("hoverbar-detail") {
+                let _ = detail.hide();
+            }
+            runtime.detail_visible.store(false, Ordering::SeqCst);
+            let _ = app.emit("hoverbar-detail-close-immediate", ());
+            let _ = app.emit("hoverbar-detail-visibility", false);
+        } else if let Ok(mut lock) = runtime.drag_start_pos.lock() {
+            *lock = None;
+        }
+    }
+    Ok(())
 }
 
 /// 动画结束后真正隐藏详情窗口。仅详情窗口可调用。
@@ -88,6 +144,9 @@ pub fn set_hoverbar_detail_size(
     let anchor = prefs.anchor.clone();
     if let Some(runtime) = app.try_state::<HoverbarRuntime>() {
         runtime.update_detail_size_for_edge(&anchor.edge, height);
+        if runtime.is_dragging.load(Ordering::SeqCst) || !runtime.detail_visible.load(Ordering::SeqCst) {
+            return Ok(anchor);
+        }
     }
     // 尺寸偏好随使用更新（下次展开沿用）
     prefs.detail_size.width = width;
@@ -125,7 +184,11 @@ pub async fn snap_hoverbar_to_edge(window: WebviewWindow) -> Result<HoverbarAnch
                 thread::sleep(Duration::from_millis(16));
             }
         }
-        snap_and_persist(&window)
+        let res = snap_and_persist(&window);
+        if let Some(runtime) = window.app_handle().try_state::<HoverbarRuntime>() {
+            runtime.is_dragging.store(false, Ordering::SeqCst);
+        }
+        res
     })
     .await
     .map_err(|error| error.to_string())?

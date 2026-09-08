@@ -6,13 +6,28 @@
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::ops::{Deref, DerefMut};
 use tauri::{AppHandle, Manager};
 
-const CURRENT_SCHEMA_VERSION: i64 = 14;
+const CURRENT_SCHEMA_VERSION: i64 = 18;
 
 #[derive(Debug, Clone)]
 pub struct Database {
     path: PathBuf,
+    session: Option<Arc<Mutex<Connection>>>,
+}
+
+pub enum DatabaseConnection<'a> {
+    Owned(Connection),
+    Session(MutexGuard<'a, Connection>),
+}
+impl Deref for DatabaseConnection<'_> {
+    type Target = Connection;
+    fn deref(&self) -> &Connection { match self { Self::Owned(c) => c, Self::Session(c) => c } }
+}
+impl DerefMut for DatabaseConnection<'_> {
+    fn deref_mut(&mut self) -> &mut Connection { match self { Self::Owned(c) => c, Self::Session(c) => c } }
 }
 
 impl Database {
@@ -35,11 +50,35 @@ impl Database {
         let mut connection = open_connection(&path)?;
         migrate(&mut connection, previous_version)?;
         seed_platform_sources(&mut connection)?;
-        Ok(Self { path })
+        Ok(Self { path, session: None })
     }
 
-    pub fn connect(&self) -> Result<Connection, String> {
-        open_connection(&self.path)
+    pub fn connect(&self) -> Result<DatabaseConnection<'_>, String> {
+        match &self.session {
+            Some(session) => session.lock().map(DatabaseConnection::Session).map_err(|_| "数据库事务已中断".into()),
+            None => open_connection(&self.path).map(DatabaseConnection::Owned),
+        }
+    }
+
+    pub(crate) fn in_transaction(&self) -> bool { self.session.is_some() }
+
+    /// A synchronous unit of work: every repository call uses the same connection.
+    /// Dropping the scoped connection on an error/panic rolls back SQLite's transaction.
+    pub(crate) fn atomic<T>(&self, work: impl FnOnce(&Database) -> Result<T, String>) -> Result<T, String> {
+        if self.in_transaction() { return work(self); }
+        let connection = open_connection(&self.path)?;
+        connection.execute_batch("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
+        let scoped = Self { path: self.path.clone(), session: Some(Arc::new(Mutex::new(connection))) };
+        match work(&scoped) {
+            Ok(value) => {
+                scoped.connect()?.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+                Ok(value)
+            }
+            Err(error) => {
+                let _ = scoped.connect()?.execute_batch("ROLLBACK");
+                Err(error)
+            }
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -82,11 +121,17 @@ fn read_schema_version(path: &Path) -> Result<i64, String> {
         .map(|value| value.flatten().unwrap_or(0))
 }
 
+/// SQLite online backup captures committed WAL data consistently; verify before migrating.
 fn backup_before_upgrade(path: &Path, version: i64) -> Result<(), String> {
     let backup = path.with_extension(format!("v{version}.bak"));
-    fs::copy(path, &backup)
-        .map(|_| ())
-        .map_err(|err| format!("升级前备份 SQLite 失败: {err}"))
+    let source = Connection::open(path).map_err(|e| e.to_string())?;
+    let mut target = Connection::open(&backup).map_err(|e| e.to_string())?;
+    rusqlite::backup::Backup::new(&source, &mut target)
+        .and_then(|backup| backup.run_to_completion(128, std::time::Duration::from_millis(10), None))
+        .map_err(|err| format!("升级前备份 SQLite 失败: {err}"))?;
+    let integrity: String = target.query_row("PRAGMA integrity_check", [], |r|r.get(0)).map_err(|e|e.to_string())?;
+    if integrity != "ok" { return Err(format!("数据库备份校验失败：{integrity}")); }
+    Ok(())
 }
 
 fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), String> {
@@ -143,6 +188,89 @@ fn migrate(connection: &mut Connection, previous_version: i64) -> Result<(), Str
     }
     if previous_version < 14 {
         migrate_v14(&transaction)?;
+    }
+    if previous_version < 15 {
+        migrate_v15(&transaction)?;
+    }
+    if previous_version < 16 {
+        transaction.execute_batch(r#"
+            ALTER TABLE tibo_posts ADD COLUMN material_version INTEGER NOT NULL DEFAULT 1;
+            ALTER TABLE tibo_posts ADD COLUMN published_at INTEGER;
+            UPDATE tibo_posts SET published_at = CASE WHEN posted_at > 0 THEN posted_at ELSE NULL END;
+            CREATE TABLE radar_material_versions (
+                post_id TEXT NOT NULL, version INTEGER NOT NULL, input_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL, PRIMARY KEY(post_id,version)
+            );
+            CREATE TABLE radar_applications (
+                analysis_id TEXT NOT NULL, post_id TEXT NOT NULL, material_version INTEGER NOT NULL,
+                event_id TEXT, outcome TEXT NOT NULL, reason TEXT NOT NULL,
+                created_at INTEGER NOT NULL, PRIMARY KEY(analysis_id,post_id,material_version)
+            );
+            CREATE TABLE radar_analysis_events (
+                analysis_id TEXT NOT NULL, event_id TEXT NOT NULL,
+                PRIMARY KEY(analysis_id,event_id)
+            );
+            CREATE TABLE radar_transitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL,
+                at INTEGER NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL,
+                reason TEXT NOT NULL
+            );
+            CREATE TABLE radar_analysis_inputs (
+                analysis_id TEXT PRIMARY KEY, input_json TEXT NOT NULL, result_json TEXT NOT NULL
+            );
+            CREATE TABLE radar_prepared_analyses (cache_key TEXT PRIMARY KEY, record_json TEXT NOT NULL, input_json TEXT NOT NULL, result_json TEXT NOT NULL);
+            CREATE TABLE radar_repairs (repair_key TEXT PRIMARY KEY, at INTEGER NOT NULL, detail TEXT NOT NULL);
+            CREATE TABLE radar_event_time_basis (
+                event_id TEXT PRIMARY KEY, post_id TEXT, raw_text TEXT,
+                precision TEXT NOT NULL, timezone_kind TEXT, timezone_assumed INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO radar_material_versions
+                SELECT id,1,json_object('legacy',1,'text',text,'postedAt',published_at,'context',json_extract(extra_json,'$.context')),synced_at FROM tibo_posts;
+            CREATE TRIGGER radar_material_insert AFTER INSERT ON tibo_posts BEGIN
+                UPDATE tibo_posts SET published_at=CASE WHEN NEW.posted_at>0 THEN NEW.posted_at ELSE NULL END WHERE id=NEW.id;
+                INSERT INTO radar_material_versions VALUES(NEW.id,NEW.material_version,json_object('text',NEW.text,'postedAt',CASE WHEN NEW.posted_at>0 THEN NEW.posted_at ELSE NULL END,'context',json_extract(NEW.extra_json,'$.context')),NEW.synced_at);
+            END;
+            CREATE TRIGGER radar_material_update AFTER UPDATE OF text,posted_at,extra_json ON tibo_posts
+            WHEN NEW.text IS NOT OLD.text OR NEW.posted_at IS NOT OLD.posted_at OR json_extract(NEW.extra_json,'$.context') IS NOT json_extract(OLD.extra_json,'$.context') BEGIN
+                UPDATE tibo_posts SET material_version=OLD.material_version+1,lifecycle_consumed_at=NULL,
+                  published_at=CASE WHEN NEW.posted_at>0 THEN NEW.posted_at ELSE NULL END WHERE id=NEW.id;
+                INSERT INTO radar_material_versions VALUES(NEW.id,OLD.material_version+1,json_object('text',NEW.text,'postedAt',CASE WHEN NEW.posted_at>0 THEN NEW.posted_at ELSE NULL END,'context',json_extract(NEW.extra_json,'$.context')),NEW.synced_at);
+            END;
+            INSERT INTO radar_transitions(event_id,at,before_json,after_json,reason)
+                SELECT id,updated_at,json_object('phase',phase),json_object('phase','closed'),'legacy_closed_phase_repair'
+                FROM radar_events WHERE closed_at IS NOT NULL AND phase!='closed';
+            UPDATE radar_events SET phase='closed',state_revision=state_revision+1 WHERE closed_at IS NOT NULL AND phase!='closed';
+            INSERT INTO radar_analysis_events SELECT id,event_id FROM radar_analyses WHERE event_id IS NOT NULL;
+            CREATE TRIGGER radar_event_transition AFTER UPDATE ON radar_events
+            WHEN OLD.state_revision != NEW.state_revision BEGIN
+                INSERT INTO radar_transitions(event_id,at,before_json,after_json,reason) VALUES(NEW.id,NEW.updated_at,
+                json_object('phase',OLD.phase,'expectedAt',OLD.expected_at,'revision',OLD.state_revision,'observedAt',OLD.observed_reset_at,'confirmedAt',OLD.user_confirmed_reset_at),
+                json_object('phase',NEW.phase,'expectedAt',NEW.expected_at,'revision',NEW.state_revision,'observedAt',NEW.observed_reset_at,'confirmedAt',NEW.user_confirmed_reset_at),
+                COALESCE(NEW.close_reason,'state_update'));
+            END;
+            INSERT INTO schema_migrations VALUES(16,CAST(strftime('%s','now') AS INTEGER)*1000);
+        "#).map_err(|e| format!("迁移雷达 v16 失败: {e}"))?;
+    }
+    if previous_version < 17 {
+        transaction.execute_batch(r#"
+            CREATE TABLE IF NOT EXISTS radar_prepared_analyses (
+                cache_key TEXT PRIMARY KEY, record_json TEXT NOT NULL,
+                input_json TEXT NOT NULL, result_json TEXT NOT NULL
+            );
+            INSERT INTO schema_migrations VALUES(17,CAST(strftime('%s','now') AS INTEGER)*1000);
+        "#).map_err(|e|format!("迁移雷达 v17 失败: {e}"))?;
+    }
+    if previous_version < 18 {
+        transaction.execute_batch(r#"
+            CREATE TRIGGER IF NOT EXISTS radar_event_transition AFTER UPDATE ON radar_events
+            WHEN OLD.state_revision != NEW.state_revision BEGIN
+                INSERT INTO radar_transitions(event_id,at,before_json,after_json,reason) VALUES(NEW.id,NEW.updated_at,
+                json_object('phase',OLD.phase,'expectedAt',OLD.expected_at,'revision',OLD.state_revision,'observedAt',OLD.observed_reset_at,'confirmedAt',OLD.user_confirmed_reset_at),
+                json_object('phase',NEW.phase,'expectedAt',NEW.expected_at,'revision',NEW.state_revision,'observedAt',NEW.observed_reset_at,'confirmedAt',NEW.user_confirmed_reset_at),
+                COALESCE(NEW.close_reason,'state_update'));
+            END;
+            INSERT INTO schema_migrations VALUES(18,CAST(strftime('%s','now') AS INTEGER)*1000);
+        "#).map_err(|e|format!("迁移雷达 v18 失败: {e}"))?;
     }
     transaction
         .commit()
@@ -695,6 +823,33 @@ fn migrate_v14(transaction: &Transaction<'_>) -> Result<(), String> {
         .map_err(|err| format!("执行 SQLite v14 迁移失败: {err}"))
 }
 
+/// v15：雷达来源状态独立持久化 + 时间声明语义类别。
+/// - radar_source_status：CodexRadar / WillCodex 分别记录成功时间、失败与缓存状态，
+///   单一来源失败不再只留整体日志，快照可分来源展示新鲜度。
+/// - radar_time_claims.claim_kind：区分发放/预告时间、资格截止、活动截止与历史时间，
+///   预计重置时间的计算不得把截止或历史时间当预告。旧数据回填 unknown（不改变既有行为）。
+fn migrate_v15(transaction: &Transaction<'_>) -> Result<(), String> {
+    transaction
+        .execute_batch(
+            r#"
+            CREATE TABLE radar_source_status (
+                source_id TEXT PRIMARY KEY NOT NULL,
+                last_check_at INTEGER NOT NULL,
+                last_success_at INTEGER,
+                last_error TEXT,
+                last_post_count INTEGER,
+                updated_at INTEGER NOT NULL
+            );
+
+            ALTER TABLE radar_time_claims ADD COLUMN claim_kind TEXT NOT NULL DEFAULT 'unknown';
+
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (15, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            "#,
+        )
+        .map_err(|err| format!("执行 SQLite v15 迁移失败: {err}"))
+}
+
 fn seed_platform_sources(connection: &mut Connection) -> Result<(), String> {
     let now = epoch_ms();
     let transaction = connection
@@ -836,5 +991,26 @@ mod tests {
         assert!(version >= 9);
         drop(connection);
         let _ = fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod repair_migration_tests {
+    use super::*;
+    #[test]
+    fn incomplete_v16_is_backed_up_and_upgraded_idempotently() {
+        let path=std::env::temp_dir().join(format!("aqm-v17-{}.db",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let db=Database::initialize_at(path.clone()).unwrap();
+        db.connect().unwrap().execute_batch("DROP TABLE radar_prepared_analyses; DELETE FROM schema_migrations WHERE version>=17;").unwrap();
+        let db=Database::initialize_at(path.clone()).unwrap();
+        assert_eq!(read_schema_version(&path).unwrap(),18);
+        db.connect().unwrap().execute("INSERT INTO radar_prepared_analyses VALUES('key','{}','input','{}')",[]).unwrap();
+        let backup=path.with_extension("v16.bak");
+        assert_eq!(read_schema_version(&backup).unwrap(),16);
+        Database::initialize_at(path.clone()).unwrap();
+        let count:i64=db.connect().unwrap().query_row("SELECT count(*) FROM radar_prepared_analyses",[],|r|r.get(0)).unwrap();
+        assert_eq!(count,1);
+        drop(db);
+        std::fs::remove_file(path).unwrap();std::fs::remove_file(backup).unwrap();
     }
 }

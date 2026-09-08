@@ -119,7 +119,7 @@ pub struct RadarCheckRecord {
     pub post_count: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RadarAnalysisRecord {
     pub id: String,
     pub created_at: i64,
@@ -204,6 +204,19 @@ pub struct RadarTimeClaimRecord {
     pub resolved_at: Option<i64>,
     pub precision: String,
     pub parser_version: String,
+    /// grant | deadline | historical | unknown：发放/预告时间、截止时间、历史时间。
+    /// 预计重置时间只允许 grant/unknown 参与，截止与历史时间不得冒充预告。
+    pub claim_kind: String,
+}
+
+/// 雷达来源（codexradar / willcodex）各自的同步状态；一个来源失败不影响另一来源。
+#[derive(Debug, Clone)]
+pub struct RadarSourceStatusRecord {
+    pub source_id: String,
+    pub last_check_at: Option<i64>,
+    pub last_success_at: Option<i64>,
+    pub last_error: Option<String>,
+    pub last_post_count: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -1064,11 +1077,14 @@ impl Database {
                     "INSERT INTO tibo_posts(id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source, lifecycle_consumed_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
                      ON CONFLICT(id) DO UPDATE SET
-                        url = excluded.url, text = excluded.text, posted_at = excluded.posted_at, kind = excluded.kind,
-                        tibo_lane = excluded.tibo_lane, explicit_reset = excluded.explicit_reset,
+                        url = CASE WHEN excluded.url<>'' THEN excluded.url ELSE tibo_posts.url END,
+                        text = CASE WHEN excluded.text<>'' THEN excluded.text ELSE tibo_posts.text END,
+                        posted_at = CASE WHEN excluded.posted_at>0 THEN excluded.posted_at ELSE tibo_posts.posted_at END,
+                        kind = CASE WHEN excluded.kind='unknown' THEN tibo_posts.kind ELSE excluded.kind END,
+                        tibo_lane = COALESCE(excluded.tibo_lane,tibo_posts.tibo_lane), explicit_reset = MAX(excluded.explicit_reset,tibo_posts.explicit_reset),
                         verification_status = excluded.verification_status, is_reply = excluded.is_reply,
                         replies = excluded.replies, reposts = excluded.reposts, likes = excluded.likes,
-                        extra_json = excluded.extra_json, synced_at = excluded.synced_at,
+                        extra_json = json_patch(tibo_posts.extra_json, excluded.extra_json), synced_at = excluded.synced_at,
                         translated_text = COALESCE(excluded.translated_text, tibo_posts.translated_text),
                         translated_at = COALESCE(excluded.translated_at, tibo_posts.translated_at),
                         translation_source = COALESCE(excluded.translation_source, tibo_posts.translation_source)",
@@ -1102,6 +1118,108 @@ impl Database {
             .map_err(|err| format!("读取雷达动态失败: {err}"))
     }
 
+    /// 监控窗口内尚未消费的帖子（分析 NEW 候选）。与浏览分页（list_tibo_posts）完全独立，
+    /// 不受 UI 列表条数限制；浏览范围筛选不改变本查询。
+    pub fn unconsumed_tibo_posts_since(
+        &self,
+        since_ms: i64,
+        limit: usize,
+    ) -> Result<Vec<TiboPostRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source, lifecycle_consumed_at
+                 FROM tibo_posts
+                 WHERE lifecycle_consumed_at IS NULL AND posted_at >= ?1 AND posted_at > 0
+                 AND NOT EXISTS(SELECT 1 FROM radar_event_evidence ee JOIN radar_events ev ON ev.id=ee.event_id WHERE ee.post_id=tibo_posts.id AND ev.closed_at IS NOT NULL)
+                 ORDER BY posted_at ASC,id ASC LIMIT ?2",
+            )
+            .map_err(|err| format!("准备待分析动态查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![since_ms, limit as i64], map_tibo_post)
+            .map_err(|err| format!("查询待分析动态失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取待分析动态失败: {err}"))
+    }
+
+    /// Posts in the monitor window that were consumed or flagged but never attached to an event.
+    pub fn unapplied_tibo_post_ids_since(
+        &self,
+        since_ms: i64,
+        known_missed_id: &str,
+    ) -> Result<Vec<String>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id FROM tibo_posts
+                 WHERE posted_at >= ?1 AND posted_at > 0
+                   AND NOT EXISTS (SELECT 1 FROM radar_event_evidence e WHERE e.post_id = tibo_posts.id)
+                   AND (lifecycle_consumed_at IS NOT NULL OR id = ?2)
+                 ORDER BY posted_at ASC, id ASC",
+            )
+            .map_err(|err| format!("准备未应用动态查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![since_ms, known_missed_id], |row| row.get(0))
+            .map_err(|err| format!("查询未应用动态失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取未应用动态失败: {err}"))
+    }
+
+    pub fn list_tibo_posts_page(
+        &self,
+        from_ms: Option<i64>,
+        to_ms: Option<i64>,
+        after_posted_at: Option<i64>,
+        after_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<TiboPostRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source, lifecycle_consumed_at
+                 FROM tibo_posts
+                 WHERE (?1 IS NULL OR posted_at >= ?1)
+                   AND (?2 IS NULL OR posted_at <= ?2)
+                   AND (?3 IS NULL OR posted_at < ?3 OR (posted_at = ?3 AND id < ?4))
+                 ORDER BY posted_at DESC, id DESC LIMIT ?5",
+            )
+            .map_err(|err| format!("准备雷达动态分页失败: {err}"))?;
+        let rows = statement
+            .query_map(
+                params![from_ms, to_ms, after_posted_at, after_id.unwrap_or(""), limit as i64],
+                map_tibo_post,
+            )
+            .map_err(|err| format!("查询雷达动态分页失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取雷达动态分页失败: {err}"))
+    }
+
+    /// 按 ID 集合取帖（事件上下文 / 历史上下文），与浏览分页独立。
+    pub fn tibo_posts_by_ids(&self, ids: &[String]) -> Result<Vec<TiboPostRecord>, String> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source, lifecycle_consumed_at
+                 FROM tibo_posts WHERE id = ?1",
+            )
+            .map_err(|err| format!("准备动态批量查询失败: {err}"))?;
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            let rows = statement
+                .query_map(params![id], map_tibo_post)
+                .map_err(|err| format!("查询动态失败: {err}"))?;
+            out.extend(
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(|err| format!("读取动态失败: {err}"))?,
+            );
+        }
+        out.sort_by(|a, b| b.posted_at.cmp(&a.posted_at));
+        Ok(out)
+    }
+
     /// 保存一条动态的中文翻译（由 translate_radar_post 命令调用）。
     pub fn update_tibo_translation(
         &self,
@@ -1123,7 +1241,98 @@ impl Database {
         Ok(())
     }
 
+    /// 更新动态的中文翻译及 AI 归类。
+    pub fn update_tibo_enrichment(
+        &self,
+        post_id: &str,
+        translated_text: Option<&str>,
+        translated_at: i64,
+        translation_source: &str,
+        kind: Option<&str>,
+        explicit_reset: Option<bool>,
+        tibo_lane: Option<&str>,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        let changed = connection
+            .execute(
+                "UPDATE tibo_posts
+                 SET translated_text = COALESCE(?2, translated_text),
+                     translated_at = CASE WHEN ?2 IS NOT NULL THEN ?3 ELSE translated_at END,
+                     translation_source = CASE WHEN ?2 IS NOT NULL THEN ?4 ELSE translation_source END,
+                     kind = COALESCE(?5, kind),
+                     explicit_reset = COALESCE(?6, explicit_reset),
+                     tibo_lane = COALESCE(?7, tibo_lane)
+                 WHERE id = ?1",
+                params![
+                    post_id,
+                    translated_text,
+                    translated_at,
+                    translation_source,
+                    kind,
+                    explicit_reset.map(|b| if b { 1i64 } else { 0i64 }),
+                    tibo_lane,
+                ],
+            )
+            .map_err(|err| format!("更新动态富化失败: {err}"))?;
+        if changed == 0 {
+            return Err(format!("雷达动态 {post_id} 不存在"));
+        }
+        Ok(())
+    }
+
+    /// 查询指定时间后未翻译的动态（用于后台 AI 自动丰富翻译）。
+    pub fn untranslated_tibo_posts_since(
+        &self,
+        since_ms: i64,
+        limit: usize,
+    ) -> Result<Vec<TiboPostRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source, lifecycle_consumed_at
+                 FROM tibo_posts
+                 WHERE posted_at >= ?1 AND (translated_text IS NULL OR translated_text = '')
+                 ORDER BY posted_at DESC
+                 LIMIT ?2",
+            )
+            .map_err(|err| format!("准备未翻译动态查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![since_ms, limit as i64], map_tibo_post)
+            .map_err(|err| format!("读取未翻译动态失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("收集未翻译动态失败: {err}"))
+    }
+
+    /// 查询指定时间后待丰富（未翻译或分类为 unknown / 未分类）的动态。
+    pub fn unenriched_tibo_posts_since(
+        &self,
+        since_ms: i64,
+        limit: usize,
+    ) -> Result<Vec<TiboPostRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, url, text, posted_at, kind, tibo_lane, explicit_reset, verification_status, is_reply, replies, reposts, likes, extra_json, synced_at, translated_text, translated_at, translation_source, lifecycle_consumed_at
+                 FROM tibo_posts
+                 WHERE posted_at >= ?1 AND (
+                     translated_text IS NULL OR translated_text = ''
+                     OR kind = 'unknown'
+                     OR tibo_lane IS NULL OR tibo_lane = '未分类'
+                 )
+                 ORDER BY posted_at DESC
+                 LIMIT ?2",
+            )
+            .map_err(|err| format!("准备待丰富动态查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![since_ms, limit as i64], map_tibo_post)
+            .map_err(|err| format!("读取待丰富动态失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("收集待丰富动态失败: {err}"))
+    }
+
     /// 成功完成实时分析后标记本批新增帖子；已消费的帖子保持原时间。
+    /// 生产路径由 insert_radar_analysis_and_consume 事务替代；保留给测试直接构造消费状态。
+    #[allow(dead_code)]
     pub fn mark_tibo_posts_consumed(
         &self,
         post_ids: &[String],
@@ -1362,6 +1571,18 @@ impl Database {
             .map_err(|err| format!("读取雷达检查失败: {err}"))
     }
 
+    pub fn radar_analysis_by_id(&self, id: &str) -> Result<Option<RadarAnalysisRecord>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                &radar_analysis_select("WHERE id = ?1"),
+                [id],
+                map_radar_analysis,
+            )
+            .optional()
+            .map_err(|err| format!("读取雷达分析失败: {err}"))
+    }
+
     pub fn latest_radar_analysis(&self) -> Result<Option<RadarAnalysisRecord>, String> {
         let connection = self.connect()?;
         connection
@@ -1385,7 +1606,7 @@ impl Database {
         connection
             .query_row(
                 &radar_analysis_select(
-                    "WHERE error_message IS NULL AND event_id = ?1 ORDER BY created_at DESC LIMIT 1",
+                    "WHERE error_message IS NULL AND (event_id = ?1 OR id IN (SELECT analysis_id FROM radar_analysis_events WHERE event_id=?1)) ORDER BY created_at DESC LIMIT 1",
                 ),
                 params![event_id],
                 map_radar_analysis,
@@ -1410,6 +1631,8 @@ impl Database {
     }
 
     /// 最近一次被本机观察或用户确认的重置事件；“最近一次重置”唯一来源。
+    /// 不要求事件已关闭：仍处于观察期（landed_observed/user_confirmed 未到期关闭）的事件
+    /// 同样是有效事实，仅查已关闭事件会漏掉最新观察。
     /// invalid_historical_replay、timeout、claimed_unverified 等普通关闭事件不参与，
     /// 时间只取 observed_reset_at / user_confirmed_reset_at，禁止回退 claimed_landed_at 或 closed_at。
     pub fn latest_confirmed_reset_event(&self) -> Result<Option<RadarEventRecord>, String> {
@@ -1417,8 +1640,7 @@ impl Database {
         connection
             .query_row(
                 &radar_event_select(
-                    "WHERE closed_at IS NOT NULL
-                       AND event_type = 'quota_reset'
+                    "WHERE event_type = 'quota_reset'
                        AND (observed_reset_at IS NOT NULL OR user_confirmed_reset_at IS NOT NULL)
                      ORDER BY COALESCE(observed_reset_at, user_confirmed_reset_at) DESC
                      LIMIT 1",
@@ -1489,6 +1711,56 @@ impl Database {
             .map_err(|err| format!("保存雷达分析失败: {err}"))
     }
 
+    /// 分析落库与材料消费在同一事务：分析记录、事件推进结果与 lifecycle_consumed_at
+    /// 保持一致，失败时一起回滚，不出现「材料被消耗但没有分析记录」的中间态。
+    pub fn insert_radar_analysis_and_consume(
+        &self,
+        analysis: &RadarAnalysisRecord,
+        consumed_post_ids: &[String],
+        consumed_at: i64,
+    ) -> Result<(), String> {
+        if self.in_transaction() {
+            self.insert_radar_analysis(analysis)?;
+            return self.mark_tibo_posts_consumed(consumed_post_ids, consumed_at);
+        }
+        let mut connection = self.connect()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|err| format!("开始分析落库事务失败: {err}"))?;
+        transaction
+            .execute(
+                "INSERT INTO radar_analyses(id, created_at, range_key, cut_post_id, from_posted_at, to_posted_at, source_id, model, prompt_version, input_hash, conclusion, analysis_basis, confidence, citations_json, support_json, against_json, uncertainty_json, new_post_ids_json, event_context_post_ids_json, historical_post_ids_json, error_message, event_id, analysis_mode, context_hash, prompt_hash, event_relation, event_phase, delta_effect, signal_level, context_status, temporal_phase, valid_until, state_revision, timezone_policy_version, signal_type)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35)",
+                params![
+                    analysis.id, analysis.created_at, analysis.range_key, analysis.cut_post_id,
+                    analysis.from_posted_at, analysis.to_posted_at, analysis.source_id, analysis.model,
+                    analysis.prompt_version, analysis.input_hash, analysis.conclusion, analysis.analysis_basis, analysis.confidence,
+                    analysis.citations_json, analysis.support_json, analysis.against_json,
+                    analysis.uncertainty_json, analysis.new_post_ids_json,
+                    analysis.event_context_post_ids_json, analysis.historical_post_ids_json,
+                    analysis.error_message,
+                    analysis.event_id, analysis.analysis_mode, analysis.context_hash, analysis.prompt_hash,
+                    analysis.event_relation, analysis.event_phase, analysis.delta_effect,
+                    analysis.signal_level, analysis.context_status,
+                    analysis.temporal_phase, analysis.valid_until, analysis.state_revision,
+                    analysis.timezone_policy_version, analysis.signal_type,
+                ],
+            )
+            .map_err(|err| format!("保存雷达分析失败: {err}"))?;
+        for post_id in consumed_post_ids {
+            transaction
+                .execute(
+                    "UPDATE tibo_posts SET lifecycle_consumed_at = ?2
+                     WHERE id = ?1 AND lifecycle_consumed_at IS NULL",
+                    params![post_id, consumed_at],
+                )
+                .map_err(|err| format!("标记雷达帖子已消费失败: {err}"))?;
+        }
+        transaction
+            .commit()
+            .map_err(|err| format!("提交分析落库事务失败: {err}"))
+    }
+
     pub fn active_radar_event(&self) -> Result<Option<RadarEventRecord>, String> {
         Ok(self.active_radar_events()?.into_iter().next())
     }
@@ -1534,6 +1806,130 @@ impl Database {
             )
             .optional()
             .map_err(|err| format!("读取重置事件失败: {err}"))
+    }
+
+    pub fn radar_events_page(
+        &self,
+        after_sort_at: Option<i64>,
+        after_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<RadarEventRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(&radar_event_select(
+                "WHERE (?1 IS NULL OR COALESCE(closed_at, latest_evidence_at) < ?1
+                    OR (COALESCE(closed_at, latest_evidence_at) = ?1 AND id < ?2))
+                 ORDER BY (closed_at IS NULL) DESC, COALESCE(closed_at, latest_evidence_at) DESC, id DESC
+                 LIMIT ?3",
+            ))
+            .map_err(|err| format!("准备重置事件分页失败: {err}"))?;
+        let rows = statement
+            .query_map(
+                params![after_sort_at, after_id.unwrap_or(""), limit as i64],
+                map_radar_event,
+            )
+            .map_err(|err| format!("读取重置事件分页失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取重置事件分页失败: {err}"))
+    }
+
+    pub fn recently_closed_radar_events(&self, since_ms: i64) -> Result<Vec<RadarEventRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(&radar_event_select(
+                "WHERE closed_at IS NOT NULL AND closed_at >= ?1 ORDER BY closed_at DESC",
+            ))
+            .map_err(|err| format!("准备近期关闭事件查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![since_ms], map_radar_event)
+            .map_err(|err| format!("读取近期关闭事件失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取近期关闭事件失败: {err}"))
+    }
+
+    pub fn radar_event_transitions(
+        &self,
+        event_id: &str,
+    ) -> Result<Vec<(i64, String, String, String)>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT at, before_json, after_json, reason FROM radar_transitions
+                 WHERE event_id = ?1 ORDER BY at ASC, id ASC",
+            )
+            .map_err(|err| format!("准备事件状态转换查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![event_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .map_err(|err| format!("读取事件状态转换失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取事件状态转换失败: {err}"))
+    }
+
+    pub fn radar_event_time_basis(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<(Option<String>, Option<String>, String, Option<String>, bool)>, String> {
+        let connection = self.connect()?;
+        connection
+            .query_row(
+                "SELECT post_id, raw_text, precision, timezone_kind, timezone_assumed
+                 FROM radar_event_time_basis WHERE event_id = ?1",
+                [event_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get::<_, i64>(4)? != 0,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|err| format!("读取事件时间依据失败: {err}"))
+    }
+
+    /// 历史记录页事件列表：活动事件在前，其余按关闭/最新证据时间倒序。
+    pub fn radar_events_recent(&self, limit: usize) -> Result<Vec<RadarEventRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(&radar_event_select(
+                "ORDER BY (closed_at IS NULL) DESC, COALESCE(closed_at, latest_evidence_at) DESC LIMIT ?1",
+            ))
+            .map_err(|err| format!("准备重置事件历史查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![limit as i64], map_radar_event)
+            .map_err(|err| format!("读取重置事件历史失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取重置事件历史失败: {err}"))
+    }
+
+    /// 事件关联的全部成功分析（历史页「当时的 AI 解释」按时间正序展示）。
+    pub fn event_radar_analyses_page(&self,event_id:&str,at:Option<i64>,id:Option<&str>,limit:usize) -> Result<Vec<RadarAnalysisRecord>,String> {
+        let connection=self.connect()?;
+        let mut stmt=connection.prepare(&radar_analysis_select("WHERE error_message IS NULL AND (event_id=?1 OR id IN(SELECT analysis_id FROM radar_analysis_events WHERE event_id=?1)) AND (?2 IS NULL OR created_at<?2 OR (created_at=?2 AND id<?3)) ORDER BY created_at DESC,id DESC LIMIT ?4")).map_err(|e|e.to_string())?;
+        let rows=stmt.query_map(params![event_id,at,id,limit as i64],map_radar_analysis).map_err(|e|e.to_string())?;
+        rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
+    }
+
+    pub fn event_radar_analyses(
+        &self,
+        event_id: &str,
+        limit: usize,
+    ) -> Result<Vec<RadarAnalysisRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(&radar_analysis_select(
+                "WHERE error_message IS NULL AND (event_id = ?1 OR id IN (SELECT analysis_id FROM radar_analysis_events WHERE event_id=?1)) ORDER BY created_at ASC LIMIT ?2",
+            ))
+            .map_err(|err| format!("准备事件分析历史查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![event_id, limit as i64], map_radar_analysis)
+            .map_err(|err| format!("读取事件分析历史失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取事件分析历史失败: {err}"))
     }
 
     pub fn insert_radar_event(&self, event: &RadarEventRecord) -> Result<(), String> {
@@ -1640,17 +2036,18 @@ impl Database {
             .map_err(|err| format!("清理时间声明失败: {err}"))?;
         let now = epoch_ms();
         for claim in claims {
-            transaction
-                .execute(
-                    "INSERT INTO radar_time_claims(post_id, raw_text, clock_hour, clock_minute, date_relation,
-                     timezone_kind, timezone_assumed, parse_status, resolved_at, precision, parser_version, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
-                    params![
-                        claim.post_id, claim.raw_text, claim.clock_hour, claim.clock_minute,
-                        claim.date_relation, claim.timezone_kind, i64::from(claim.timezone_assumed),
-                        claim.parse_status, claim.resolved_at, claim.precision, claim.parser_version, now,
-                    ],
-                )
+        transaction
+            .execute(
+                "INSERT INTO radar_time_claims(post_id, raw_text, clock_hour, clock_minute, date_relation,
+                 timezone_kind, timezone_assumed, parse_status, resolved_at, precision, parser_version,
+                 claim_kind, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
+                params![post_id, claim.raw_text, claim.clock_hour, claim.clock_minute,
+                    claim.date_relation, claim.timezone_kind, i64::from(claim.timezone_assumed),
+                    claim.parse_status, claim.resolved_at, claim.precision, claim.parser_version,
+                    claim.claim_kind, now,
+                ],
+            )
                 .map_err(|err| format!("写入时间声明失败: {err}"))?;
         }
         transaction
@@ -1670,7 +2067,7 @@ impl Database {
         let mut statement = connection
             .prepare(
                 "SELECT post_id, raw_text, clock_hour, clock_minute, date_relation, timezone_kind,
-                        timezone_assumed, parse_status, resolved_at, precision, parser_version
+                        timezone_assumed, parse_status, resolved_at, precision, parser_version, claim_kind
                  FROM radar_time_claims WHERE post_id = ?1 ORDER BY id",
             )
             .map_err(|err| format!("准备时间声明查询失败: {err}"))?;
@@ -1689,6 +2086,10 @@ impl Database {
                         resolved_at: row.get(8)?,
                         precision: row.get(9)?,
                         parser_version: row.get(10)?,
+                        claim_kind: row
+                            .get::<_, Option<String>>(11)?
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or_else(|| "unknown".into()),
                     })
                 })
                 .map_err(|err| format!("读取时间声明失败: {err}"))?;
@@ -1826,6 +2227,119 @@ impl Database {
         }
     }
 
+    /// 幂等关联：把「事件发生前已独立保存、尚未关联」的额度观察补挂到事件上。
+    /// 只更新 event_id IS NULL 的行，重复执行不产生重复记录；相关等级由调用方逐条重算。
+    pub fn quota_reset_observations_pending_link(
+        &self,
+        since_ms: i64,
+    ) -> Result<Vec<QuotaResetObservationRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, account_id, source_id, capability_id, previous_snapshot_id, current_snapshot_id,
+                        classification, observed_at, event_id, temporal_correlation, user_confirmed_at
+                 FROM quota_reset_observations
+                 WHERE event_id IS NULL AND observed_at >= ?1
+                 ORDER BY observed_at ASC",
+            )
+            .map_err(|err| format!("准备待关联观察查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![since_ms], map_quota_reset_observation)
+            .map_err(|err| format!("读取待关联观察失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取待关联观察失败: {err}"))
+    }
+
+    pub fn set_quota_reset_observation_event(
+        &self,
+        observation_id: i64,
+        event_id: &str,
+        correlation: &str,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "UPDATE quota_reset_observations SET event_id = ?2, temporal_correlation = ?3
+                 WHERE id = ?1 AND event_id IS NULL",
+                params![observation_id, event_id, correlation],
+            )
+            .map(|_| ())
+            .map_err(|err| format!("关联额度观察失败: {err}"))
+    }
+
+    /// 幂等关联：把事件窗口内尚未关联的重置卡到账观察（数量增加）补挂到事件。
+    pub fn observation_pair_is_contiguous(&self, previous: i64, current: i64) -> Result<bool,String> {
+        self.connect()?.query_row("SELECT EXISTS(SELECT 1 FROM capability_snapshots p JOIN capability_snapshots c ON c.id=?2
+            WHERE p.id=?1 AND p.source_id=c.source_id AND p.account_id=c.account_id AND p.capability_id=c.capability_id
+            AND p.window_seconds IS c.window_seconds AND c.captured_at>p.captured_at AND c.captured_at-p.captured_at<=7200000
+            AND NOT EXISTS(SELECT 1 FROM capability_snapshots gap WHERE gap.source_id=p.source_id AND gap.capability_id=p.capability_id AND gap.captured_at>p.captured_at AND gap.captured_at<c.captured_at))",params![previous,current],|r|r.get(0)).map_err(|e|e.to_string())
+    }
+
+    pub fn link_banked_grant_observations(
+        &self,
+        event_id: &str,
+        since_ms: i64,
+    ) -> Result<usize, String> {
+        let connection = self.connect()?;
+        let changed = connection
+            .execute(
+                "UPDATE banked_reset_observations SET event_id = ?1
+                 WHERE event_id IS NULL AND current_count > previous_count AND observed_at >= ?2",
+                params![event_id, since_ms],
+            )
+            .map_err(|err| format!("关联重置卡观察失败: {err}"))?;
+        Ok(changed)
+    }
+
+    /// 雷达来源（codexradar / willcodex）各自的同步结果；失败与成功分别记录。
+    pub fn upsert_radar_source_status(
+        &self,
+        source_id: &str,
+        success: bool,
+        error: Option<&str>,
+        post_count: Option<i64>,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        let now = epoch_ms();
+        connection
+            .execute(
+                "INSERT INTO radar_source_status(source_id, last_check_at, last_success_at, last_error, last_post_count, updated_at)
+                 VALUES (?1, ?2, CASE WHEN ?3 THEN ?2 ELSE NULL END, ?4, ?5, ?2)
+                 ON CONFLICT(source_id) DO UPDATE SET
+                    last_check_at = excluded.last_check_at,
+                    last_success_at = CASE WHEN ?3 THEN excluded.last_check_at ELSE radar_source_status.last_success_at END,
+                    last_error = excluded.last_error,
+                    last_post_count = CASE WHEN ?3 THEN excluded.last_post_count ELSE radar_source_status.last_post_count END,
+                    updated_at = excluded.updated_at",
+                params![source_id, now, i64::from(success), error, post_count],
+            )
+            .map(|_| ())
+            .map_err(|err| format!("保存雷达来源状态失败: {err}"))
+    }
+
+    pub fn radar_source_statuses(&self) -> Result<Vec<RadarSourceStatusRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT source_id, last_check_at, last_success_at, last_error, last_post_count
+                 FROM radar_source_status ORDER BY source_id",
+            )
+            .map_err(|err| format!("准备雷达来源状态查询失败: {err}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(RadarSourceStatusRecord {
+                    source_id: row.get(0)?,
+                    last_check_at: row.get(1)?,
+                    last_success_at: row.get(2)?,
+                    last_error: row.get(3)?,
+                    last_post_count: row.get(4)?,
+                })
+            })
+            .map_err(|err| format!("查询雷达来源状态失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取雷达来源状态失败: {err}"))
+    }
+
     /// 指定能力的历史快照（含 id），按捕获时间升序；观察器在代码里取相邻可解析对。
     pub fn capability_value_samples(
         &self,
@@ -1911,6 +2425,28 @@ impl Database {
             .map_err(|err| format!("读取重置卡发放观察失败: {err}"))?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|err| format!("读取重置卡发放观察失败: {err}"))
+    }
+
+    /// 事件关联的重置卡数量观察（历史记录页）。
+    pub fn banked_reset_observations_for_event(
+        &self,
+        event_id: &str,
+    ) -> Result<Vec<BankedResetObservationRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, account_id, source_id, previous_snapshot_id, current_snapshot_id,
+                        previous_count, current_count, observed_at, event_id
+                 FROM banked_reset_observations
+                 WHERE event_id = ?1
+                 ORDER BY observed_at ASC, id ASC",
+            )
+            .map_err(|err| format!("准备事件重置卡观察查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![event_id], map_banked_reset_observation)
+            .map_err(|err| format!("读取事件重置卡观察失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取事件重置卡观察失败: {err}"))
     }
 }
 

@@ -79,7 +79,7 @@ pub fn materialize_observations(
             ) {
                 continue;
             }
-            let linked = event.filter(|value| value.first_signal_at <= current.captured_at);
+            let linked = event.filter(|value| classification == "unscheduled_reset" && confirms_landing(value,current.captured_at));
             let correlation = linked
                 .map(|value| correlation(value, current.captured_at))
                 .unwrap_or("none");
@@ -114,7 +114,8 @@ pub fn materialize_banked_grants(
                 continue;
             }
             let linked = event.filter(|value| {
-                current.1 > previous.1 && value.first_signal_at <= current.0.captured_at
+                current.1 > previous.1 && confirms_landing(value,current.0.captured_at)
+                    && current.0.captured_at > previous.0.captured_at && current.0.captured_at - previous.0.captured_at <= 2 * 3_600_000
             });
             database.insert_banked_reset_observation(&BankedResetObservationRecord {
                 id: 0,
@@ -153,21 +154,24 @@ pub fn assess_quota_verifications(
         }
         let samples = database.recent_window_samples(&source.id)?;
         let pairs = latest_pairs(&samples);
-        if let Some((previous, current)) = pairs
-            .iter()
-            .max_by_key(|(_, current)| current.window_seconds.unwrap_or(0))
-        {
+        let mut window_changes = Vec::new();
+        for (previous, current) in &pairs {
+            let status = if event.is_some_and(|value| value.first_signal_at > current.captured_at) {
+                "pending"
+            } else {
+                classify(previous, current)
+            };
+            window_changes.push((status, *previous, *current));
+        }
+        if let Some((status, previous, current)) = window_changes.iter().max_by_key(|(status, _, current)| {
+            (status_rank(status), current.window_seconds.unwrap_or(0))
+        }) {
             view.window_id = Some(current.capability_id.clone());
             view.window_label = Some(current.display_name.clone());
             view.window_seconds = current.window_seconds;
             view.previous = Some(point(previous));
             view.current = Some(point(current));
-            view.status = if event.is_some_and(|value| value.first_signal_at > current.captured_at)
-            {
-                "pending".into()
-            } else {
-                classify(previous, current).into()
-            };
+            view.status = (*status).into();
             view.note = Some(status_note(&view.status).into());
             if view.status == "scheduled" {
                 view.attribution = "scheduled".into();
@@ -178,10 +182,10 @@ pub fn assess_quota_verifications(
         }
         let observations = database
             .quota_reset_observations(Some(&source.id), event.map(|value| value.id.as_str()))?;
-        // “已重置”事实只来自计划外重置观察或用户人工确认；单纯 possible_reset
-        // （如 5h 窗口正常轮换因 reset_at 顺延被误判）不得冒充重置时间。
+        // Confirmed reset facts come only from unscheduled window recovery, never from
+        // "I used a reset card" on a possible_reset, and never from scheduled cycle recovery.
         let reset_fact = observations.iter().find(|value| {
-            value.classification.as_str() == "unscheduled_reset" || value.user_confirmed_at.is_some()
+            value.classification.as_str() == "unscheduled_reset"
         });
         if let Some(observation) = observations.iter().find(|value| {
             matches!(
@@ -271,9 +275,45 @@ pub fn banked_reset_observed_at(
     Ok(database
         .banked_reset_observations(None)?
         .into_iter()
-        .filter(|item| item.current_count > item.previous_count && item.observed_at >= event.first_signal_at)
+        .filter(|item| {
+            item.current_count > item.previous_count
+                && item.event_id.as_deref() == Some(event.id.as_str())
+                && confirms_landing(event,item.observed_at)
+                && database.observation_pair_is_contiguous(item.previous_snapshot_id,item.current_snapshot_id).unwrap_or(false)
+        })
         .map(|item| item.observed_at)
         .min())
+}
+
+pub fn confirming_quota_reset_at(
+    database: &Database,
+    event: &RadarEventRecord,
+) -> Result<Option<i64>, String> {
+    Ok(database
+        .quota_reset_observations(None, Some(&event.id))?
+        .into_iter()
+        .filter(|item| {
+            item.classification == "unscheduled_reset" && confirms_landing(event, item.observed_at)
+                && database.observation_pair_is_contiguous(item.previous_snapshot_id,item.current_snapshot_id).unwrap_or(false)
+        })
+        .map(|item| item.observed_at)
+        .min())
+}
+
+pub(super) fn confirms_landing(event: &RadarEventRecord, observed_at: i64) -> bool {
+    if observed_at < event.first_signal_at - 2 * 3_600_000 || event.expires_at.is_some_and(|at|observed_at>at) { return false; }
+    matches!(correlation(event, observed_at), "high")
+        || (event.claimed_landed_at.is_some() && correlation(event, observed_at) == "medium")
+}
+
+fn status_rank(status: &str) -> u8 {
+    match status {
+        "unscheduled_reset" => 4,
+        "possible_reset" => 3,
+        "scheduled" => 2,
+        "pending" => 1,
+        _ => 0,
+    }
 }
 
 pub fn latest_banked_grant(database: &Database) -> Result<Option<BankedGrantView>, String> {
@@ -438,6 +478,10 @@ fn classify(previous: &WindowSampleRecord, current: &WindowSampleRecord) -> &'st
     if curr_remaining - prev_remaining < RECOVER_MIN {
         return "no_change";
     }
+    if previous.capability_id != current.capability_id || previous.window_seconds != current.window_seconds
+        || current.captured_at <= previous.captured_at || current.captured_at - previous.captured_at > 2 * 3_600_000 {
+        return "possible_reset";
+    }
     let window_ms = current.window_seconds.unwrap_or(0) * 1000;
     let tolerance = SCHEDULE_TOLERANCE_MS.max(window_ms / 10);
     let shift = curr_reset - prev_reset;
@@ -466,10 +510,15 @@ fn correlation(event: &RadarEventRecord, observed_at: i64) -> &'static str {
     } else if observed_at >= event.first_signal_at
         && observed_at - event.first_signal_at <= 24 * 3_600_000
     {
-        "medium"
-    } else {
         "low"
+    } else {
+        "none"
     }
+}
+
+/// 观察与事件的时间相关等级（供幂等关联复用；语义与 materialize 时一致）。
+pub(crate) fn correlation_for(event: &RadarEventRecord, observed_at: i64) -> &'static str {
+    correlation(event, observed_at)
 }
 
 fn status_note(status: &str) -> &'static str {
@@ -514,7 +563,10 @@ mod tests {
         let path = std::env::temp_dir().join(format!(
             "ai-quota-banked-{}-{}.db",
             std::process::id(),
-            epoch_ms()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         let database = Database::initialize_at(path.clone()).expect("db");
         (database, path)
@@ -543,7 +595,7 @@ mod tests {
             observed_reset_at: None,
             closed_at: None,
             close_reason: None,
-            expected_at: None,
+            expected_at: Some(first_signal_at + 60_000),
             expires_at: None,
             state_revision: 0,
             user_confirmed_reset_at: None,
@@ -577,11 +629,28 @@ mod tests {
         assert_eq!(drop.kind, "drop");
         assert_eq!((drop.previous_count, drop.current_count), (2, 1));
         let event = watching_banked_event(t0 - 60_000);
+        database.insert_radar_event(&event).unwrap();
+        database.link_banked_grant_observations(&event.id, t0 - 60_000).unwrap();
         assert_eq!(
             banked_reset_observed_at(&database, &event).unwrap(),
             Some(t0 + 3_000)
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn unrelated_grant_and_long_snapshot_gap_do_not_confirm() {
+        let (db,path)=temp_db();let now=epoch_ms();
+        insert_count(&db,now-5*3600000,Some("1"));insert_count(&db,now,Some("2"));
+        let mut event=watching_banked_event(now-3600000);event.expected_at=Some(now);
+        db.insert_radar_event(&event).unwrap();materialize_banked_grants(&db,Some(&event)).unwrap();
+        assert_eq!(banked_reset_observed_at(&db,&event).unwrap(),None);
+        event.expected_at=None;
+        assert!(!confirms_landing(&event,now));
+        let previous=WindowSampleRecord{id:1,capability_id:"quota_window_7d".into(),display_name:"7 天".into(),progress:Some(0.1),captured_at:now-4*3600000,window_seconds:Some(604800),reset_at:Some(now+86400000)};
+        let current=WindowSampleRecord{id:2,progress:Some(0.9),captured_at:now,reset_at:Some(now+604800000),..previous.clone()};
+        assert_eq!(classify(&previous,&current),"possible_reset");
+        drop(db);let _=std::fs::remove_file(path);
     }
 
     #[test]
@@ -593,6 +662,8 @@ mod tests {
         insert_count(&database, t0 + 2_000, Some("2"));
         materialize_banked_grants(&database, None).unwrap();
         let event = watching_banked_event(t0 - 60_000);
+        database.insert_radar_event(&event).unwrap();
+        database.link_banked_grant_observations(&event.id, t0 - 60_000).unwrap();
         assert_eq!(
             banked_reset_observed_at(&database, &event).unwrap(),
             Some(t0 + 1_000)
@@ -601,7 +672,8 @@ mod tests {
         assert_eq!(grant.previous_count, 1);
         assert_eq!(grant.current_count, 2);
         assert_eq!(grant.live_count, Some(2));
-        let later_event = watching_banked_event(t0 + 1_500);
+        let mut later_event = watching_banked_event(t0 + 1_500);
+        later_event.id="another-event".into();
         assert_eq!(banked_reset_observed_at(&database, &later_event).unwrap(), None);
         let _ = std::fs::remove_file(path);
     }

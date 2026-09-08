@@ -9,7 +9,7 @@ use chrono_tz::America::Los_Angeles;
 use regex::Regex;
 use std::sync::OnceLock;
 
-pub const TIMEZONE_POLICY_VERSION: &str = "time-v1";
+pub const TIMEZONE_POLICY_VERSION: &str = "time-v2";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedTimeClaim {
@@ -25,6 +25,9 @@ pub struct ParsedTimeClaim {
     pub resolved_at: Option<i64>,
     /// exact | assumed | ambiguous
     pub precision: String,
+    /// grant | deadline | historical | unknown：时间语义归属。
+    /// 预计重置时间只允许 grant/unknown；截止时间与历史时间不得冒充预告。
+    pub claim_kind: String,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -48,6 +51,7 @@ struct Candidate {
 }
 
 pub fn parse_post_time_claims(post_id: &str, text: &str, posted_at: i64) -> Vec<ParsedTimeClaim> {
+    if posted_at <= 0 { return Vec::new(); }
     let mut candidates = Vec::new();
     let explicit_date = find_explicit_date(text);
 
@@ -159,7 +163,17 @@ pub fn parse_post_time_claims(post_id: &str, text: &str, posted_at: i64) -> Vec<
 
     let mut claims = candidates
         .into_iter()
-        .map(|candidate| resolve_candidate(post_id, candidate, posted_at))
+        .map(|mut candidate| {
+            if candidate.relation.is_none() {
+                if let Some(pos) = text.find(&candidate.raw) {
+                    let after = text[pos + candidate.raw.len()..].trim_start().to_ascii_lowercase();
+                    for relation in ["today", "tomorrow", "tonight"] {
+                        if after.starts_with(relation) { candidate.relation = Some(relation.into()); break; }
+                    }
+                }
+            }
+            resolve_candidate(post_id, candidate, posted_at)
+        })
         .collect::<Vec<_>>();
     if text.to_ascii_lowercase().contains(" or ") {
         let resolved = claims
@@ -174,7 +188,67 @@ pub fn parse_post_time_claims(post_id: &str, text: &str, posted_at: i64) -> Vec<
             }
         }
     }
+    let lowered = text.to_ascii_lowercase();
+    for claim in &mut claims {
+        if let Some(pos) = lowered.find(&claim.raw_text.to_ascii_lowercase()) {
+            let prefix: String = lowered[..pos].chars().rev().take(20).collect::<String>().chars().rev().collect();
+            let after: String = lowered[pos + claim.raw_text.len()..].chars().take(12).collect();
+            if claim.resolved_at.is_some()
+                && ["around", "about", "approximately", "左右", "大约", "大概", "约"]
+                    .iter()
+                    .any(|marker| prefix.contains(marker) || after.contains(marker))
+            {
+                claim.precision = "approximate".into();
+            }
+        }
+        claim.claim_kind = classify_claim_kind(&lowered, &claim.raw_text.to_ascii_lowercase()).into();
+    }
     claims
+}
+
+/// 时间声明语义分类：只在时间表达所在的句子内做保守关键词匹配，
+/// 相邻句子的截止/历史措辞不污染本句预告时间；识别不了保持 unknown。
+fn classify_claim_kind(lowered_text: &str, raw_lower: &str) -> &'static str {
+    let Some(position) = lowered_text.find(raw_lower) else {
+        return "unknown";
+    };
+    // 句子边界（. ! ? ; 换行）内的局部窗口，两侧再各限 80 字符防止超长句误伤。
+    const BREAKS: [char; 5] = ['.', '!', '?', ';', '\n'];
+    let sentence_start = lowered_text[..position]
+        .rfind(|ch: char| BREAKS.contains(&ch))
+        .map(|index| index + 1)
+        .unwrap_or(0)
+        .max(position.saturating_sub(80));
+    let sentence_end = lowered_text[position..]
+        .find(|ch: char| BREAKS.contains(&ch))
+        .map(|offset| position + offset)
+        .unwrap_or(lowered_text.len())
+        .min(position + raw_lower.chars().count() + 80);
+    let mut safe_start = sentence_start;
+    let mut safe_end = sentence_end;
+    while !lowered_text.is_char_boundary(safe_start) {
+        safe_start += 1;
+    }
+    while !lowered_text.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let window = &lowered_text[safe_start..safe_end];
+    const DEADLINE_MARKERS: &[&str] = &[
+        "deadline", "last chance", "ends at", "ends on", "ends today", "ends tonight",
+        "cutoff", "cut off", "expires", "last day", "final day", "last call",
+    ];
+    const HISTORICAL_MARKERS: &[&str] = &[
+        "already", "yesterday", "was reset", "has been reset", "has reset",
+        "last reset", "earlier today", "last week", "last month",
+    ];
+    if DEADLINE_MARKERS.iter().any(|marker| window.contains(marker)) {
+        return "deadline";
+    }
+    if HISTORICAL_MARKERS.iter().any(|marker| window.contains(marker)) {
+        return "historical";
+    }
+    if ["reset", "lands", "landing", "will receive", "grant", "roll out", "rollout", "available"].iter().any(|m|window.contains(m)) { return "grant"; }
+    "unknown"
 }
 
 fn resolve_candidate(post_id: &str, candidate: Candidate, posted_at: i64) -> ParsedTimeClaim {
@@ -194,6 +268,7 @@ fn resolve_candidate(post_id: &str, candidate: Candidate, posted_at: i64) -> Par
         parse_status: "ambiguous".into(),
         resolved_at: None,
         precision: "ambiguous".into(),
+        claim_kind: "unknown".into(),
     };
     if candidate.ambiguous_clock {
         return ambiguous();
@@ -259,6 +334,7 @@ fn resolve_candidate(post_id: &str, candidate: Candidate, posted_at: i64) -> Par
         } else {
             "exact".into()
         },
+        claim_kind: "unknown".into(),
     }
 }
 
@@ -380,6 +456,16 @@ fn month_date_regex() -> &'static Regex {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unicode_context_boundaries_do_not_panic() {
+        for prefix in ["🔥", "中文", "We’re"] {
+            for padding in 0..100 {
+                let text = format!("{}{} reset lands at 8pm PT {}{}", prefix, "a".repeat(padding), "b".repeat(padding), prefix);
+                let claims = super::parse_post_time_claims("unicode", &text, 1788809097000);
+                assert!(!claims.is_empty());
+            }
+        }
+    }
     use super::*;
 
     fn ts(value: &str) -> i64 {
@@ -423,5 +509,22 @@ mod tests {
         let posted = ts("2026-01-10T00:00:00-08:00");
         let claims = parse_post_time_claims("p", "today at 6am PST", posted);
         assert_eq!(claims[0].resolved_at, Some(ts("2026-01-10T22:00:00+08:00")));
+    }
+}
+
+#[cfg(test)]
+mod regression {
+    use super::*;
+    #[test]
+    fn actual_announcement_pst_today_and_approximate() {
+        let claims=parse_post_time_claims("2097043464538264003","Lands around 6pm PST today.",1788809097000);
+        assert_eq!(claims[0].resolved_at,Some(1788832800000));
+        assert_eq!(claims[0].precision,"approximate");
+        assert_eq!(claims[0].claim_kind,"grant");
+        let tomorrow=parse_post_time_claims("id","Lands around 6pm PST tomorrow.",1788809097000);
+        assert_eq!(tomorrow[0].resolved_at,Some(1788832800000+86400000));
+        assert!(parse_post_time_claims("id","6pm PST today",0).is_empty());
+        let zh = parse_post_time_claims("id", "重置大约 6pm PST 左右", 1788809097000);
+        assert_eq!(zh[0].precision, "approximate");
     }
 }

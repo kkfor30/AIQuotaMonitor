@@ -1,6 +1,6 @@
 [package]
 name = "ai-quota-monitor"
-version = "0.1.0"
+version = "1.0.0"
 description = "多模型平台统一额度监控中心"
 authors = ["AIQuotaMonitor contributors"]
 license = "MIT"
@@ -22,11 +22,11 @@ tauri = { version = "2.11", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls", "system-proxy", "socks"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls", "system-proxy", "socks", "gzip", "brotli"] }
 rust_decimal = "1"
 tokio = { version = "1", features = ["io-util", "macros", "process", "sync", "time"] }
 

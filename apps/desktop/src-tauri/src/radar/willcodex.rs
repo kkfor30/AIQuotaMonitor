@@ -81,7 +81,7 @@ fn convert_item(item: WillCodexPostItem, synced_at: i64) -> Option<TiboPostRecor
         .as_deref()
         .or(item.published_at.as_deref())
         .and_then(parse_datetime)
-        .unwrap_or(synced_at);
+        .unwrap_or(0);
 
     let is_reply = item
         .activity_type
@@ -89,36 +89,22 @@ fn convert_item(item: WillCodexPostItem, synced_at: i64) -> Option<TiboPostRecor
         .map(|t| t.eq_ignore_ascii_case("reply"))
         .unwrap_or(false);
 
-    let category = item
+    let raw_category = item
         .tweet_assessment
         .as_ref()
         .and_then(|a| a.category.as_deref())
-        .unwrap_or("none");
+        .unwrap_or("unknown");
 
-    let explicit_reset = matches!(
-        category,
-        "reset_announced" | "reset_completed" | "banked_reset"
-    );
-
-    let kind = match category {
-        "reset_announced" | "reset_completed" => "reset".to_string(),
-        "banked_reset" => "signal".to_string(),
-        "indirect" | "event_hint" | "release_hint" => "indirect".to_string(),
-        other if other != "none" => other.to_string(),
+    let (kind, explicit_reset, label) = match raw_category {
+        "reset_announced" | "reset_completed" => ("reset".to_string(), true, "可能重置"),
+        "banked_reset" => ("signal".to_string(), true, "重置卡"),
+        "indirect" | "event_hint" | "release_hint" => ("indirect".to_string(), false, "间接相关"),
+        other if other != "none" && other != "unknown" => (other.to_string(), false, "间接相关"),
         _ => {
-            if explicit_reset {
-                "reset".to_string()
-            } else {
-                "none".to_string()
-            }
+            let (h_kind, h_explicit, h_label) =
+                classify_text_heuristically(&text, item.context.as_deref());
+            (h_kind.to_string(), h_explicit, h_label)
         }
-    };
-
-    let label = match kind.as_str() {
-        "reset" => "可能重置",
-        "signal" => "重置卡",
-        "indirect" => "间接相关",
-        _ => "无重置信号",
     };
 
     let mut extra = serde_json::Map::new();
@@ -160,6 +146,69 @@ fn convert_item(item: WillCodexPostItem, synced_at: i64) -> Option<TiboPostRecor
     })
 }
 
+pub fn classify_text_heuristically(
+    text: &str,
+    context: Option<&str>,
+) -> (&'static str, bool, &'static str) {
+    let lower_text = text.to_ascii_lowercase();
+    let lower_ctx = context.map(|c| c.to_ascii_lowercase()).unwrap_or_default();
+
+    // 1. Banked reset (重置卡到账/发放)
+    if lower_text.contains("banked reset")
+        || lower_text.contains("reset card")
+        || lower_text.contains("banked usage")
+        || lower_text.contains("full banked reset")
+        || lower_text.contains("extra reset")
+        || lower_ctx.contains("banked reset")
+        || lower_ctx.contains("reset card")
+    {
+        return ("signal", true, "重置卡");
+    }
+
+    // 2. Direct Quota Reset (明确表示正在/将要全局或全员重置额度)
+    if lower_text.contains("all reset for everyone")
+        || lower_text.contains("resets are live")
+        || lower_text.contains("reset all paid")
+        || lower_text.contains("resetting usage for all")
+        || lower_text.contains("quota reset is live")
+        || lower_text.contains("quotas have been reset")
+        || lower_text.contains("limits have been reset")
+        || lower_text.contains("just reset everyone")
+        || lower_text.contains("full reset for all")
+    {
+        return ("reset", true, "可能重置");
+    }
+
+    // 3. Indirect / Hint (提及额度重置、使用量重置、排期、讨论等间接相关)
+    if lower_text.contains("only resets")
+        || lower_text.contains("reset usage")
+        || lower_text.contains("quota reset")
+        || lower_text.contains("quotas reset")
+        || lower_text.contains("limit reset")
+        || lower_text.contains("limits reset")
+        || lower_text.contains("just reset")
+        || lower_text.contains("usage has reset")
+        || lower_text.contains("full reset")
+        || lower_text.contains("schedule")
+        || lower_text.contains("devday")
+        || lower_text.contains("rate limit")
+        || lower_text.contains("weekly limit")
+        || lower_text.contains("monthly limit")
+        || lower_text.contains("cooldown")
+        || lower_text.contains("cool down")
+        || lower_text.contains("rolling out")
+        || lower_text.contains("rollout")
+        || lower_text.contains("hold on to your codex")
+        || lower_text.contains("milestone")
+        || lower_ctx.contains("quota reset")
+        || lower_ctx.contains("weekly limit")
+    {
+        return ("indirect", false, "间接相关");
+    }
+
+    ("none", false, "无重置信号")
+}
+
 fn parse_datetime(value: &str) -> Option<i64> {
     DateTime::parse_from_rfc3339(value)
         .ok()
@@ -190,6 +239,30 @@ mod tests {
                 "pubDate": "2026-09-07T06:27:12.000Z",
                 "replyToAuthor": "someone",
                 "title": "Reply content here"
+            },
+            {
+                "activityType": "post",
+                "context": "",
+                "guid": "2097174560412246215",
+                "link": "https://x.com/thsottiaux/status/2097174560412246215",
+                "pubDate": "2026-09-08T04:05:00.000Z",
+                "title": "All reset for everyone. Enjoy the week with Astra."
+            },
+            {
+                "activityType": "post",
+                "context": "",
+                "guid": "2097175062566846501",
+                "link": "https://x.com/thsottiaux/status/2097175062566846501",
+                "pubDate": "2026-09-08T04:07:00.000Z",
+                "title": "There is no schedule, only resets"
+            },
+            {
+                "activityType": "reply",
+                "context": "Can we get more allowance?",
+                "guid": "2096035748130795560",
+                "link": "https://x.com/thsottiaux/status/2096035748130795560",
+                "pubDate": "2026-09-05T01:23:00.000Z",
+                "title": "we will do the full banked reset today too for all Plus, Pro and Business users."
             }
         ]
     }"#;
@@ -197,7 +270,7 @@ mod tests {
     #[test]
     fn parses_sample_willcodex_posts() {
         let posts = parse_posts(SAMPLE_JSON, 1000).expect("should parse");
-        assert_eq!(posts.len(), 2);
+        assert_eq!(posts.len(), 5);
         assert_eq!(posts[0].id, "2096717905614524491");
         assert!(!posts[0].is_reply);
         assert!(posts[0].text.contains("improvements"));
@@ -205,5 +278,51 @@ mod tests {
         assert_eq!(posts[1].id, "2096847737153012204");
         assert!(posts[1].is_reply);
         assert!(posts[1].extra_json.contains("Previous context"));
+
+        // Post 2: All reset for everyone -> reset & explicit_reset
+        assert_eq!(posts[2].id, "2097174560412246215");
+        assert_eq!(posts[2].kind, "reset");
+        assert!(posts[2].explicit_reset);
+        assert_eq!(posts[2].tibo_lane.as_deref(), Some("可能重置"));
+
+        // Post 3: only resets -> indirect & not explicit_reset
+        assert_eq!(posts[3].id, "2097175062566846501");
+        assert_eq!(posts[3].kind, "indirect");
+        assert!(!posts[3].explicit_reset);
+        assert_eq!(posts[3].tibo_lane.as_deref(), Some("间接相关"));
+
+        // Post 4: full banked reset -> signal & explicit_reset
+        assert_eq!(posts[4].id, "2096035748130795560");
+        assert_eq!(posts[4].kind, "signal");
+        assert!(posts[4].explicit_reset);
+        assert_eq!(posts[4].tibo_lane.as_deref(), Some("重置卡"));
+    }
+
+    #[test]
+    fn heuristic_classification_matches_known_phrases() {
+        assert_eq!(
+            classify_text_heuristically("All reset for everyone. Enjoy the week with Astra.", None),
+            ("reset", true, "可能重置")
+        );
+        assert_eq!(
+            classify_text_heuristically("There is no schedule, only resets", None),
+            ("indirect", false, "间接相关")
+        );
+        assert_eq!(
+            classify_text_heuristically("You forgot the part where I reset usage twice in the middle", None),
+            ("indirect", false, "间接相关")
+        );
+        assert_eq!(
+            classify_text_heuristically("we will do the full banked reset today", None),
+            ("signal", true, "重置卡")
+        );
+        assert_eq!(
+            classify_text_heuristically("See you at DevDay tomorrow", None),
+            ("indirect", false, "间接相关")
+        );
+        assert_eq!(
+            classify_text_heuristically("Let the potato rest a little", None),
+            ("none", false, "无重置信号")
+        );
     }
 }
