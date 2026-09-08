@@ -41,11 +41,15 @@
 
 **平台中心** —— 单平台深度视图：账户窗口额度、资金余额、模型用量与缓存效率。
 
-![平台中心](docs/screenshots/platform-center.png)
+![平台中心 · DeepSeek](docs/screenshots/platform-center.png)
+
+![平台中心 · Codex](docs/screenshots/platform-center-codex.png)
 
 **GPT 重置雷达** —— 重置判断中心：Codex Radar 来源、本机额度观察与可选 AI 分析三路证据。
 
-![GPT 重置雷达](docs/screenshots/radar-signal.png)
+![雷达 · 当前信号](docs/screenshots/radar-signal.png)
+
+![雷达 · 全部动态](docs/screenshots/radar-posts.png)
 
 **悬浮球** —— 常驻屏幕边缘的即时额度速览，悬停展开详情：
 
@@ -55,7 +59,7 @@
     <td align="center"><img src="docs/screenshots/hoverbar-glm.png" alt="悬浮球 GLM 卡" width="48%"><br><sub>多平台卡片：额度与雷达状态速览</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/hoverbar-radar.png" alt="悬浮球雷达详情" width="48%"><br><sub>雷达详情：来源动态、最近一次重置</sub></td>
+    <td align="center"><img src="docs/screenshots/hoverbar-radar.png" alt="悬浮球雷达详情" width="48%"><br><sub>雷达详情：核心判断与本机验证</sub></td>
     <td align="center"><img src="docs/screenshots/hoverbar-radar-ai.png" alt="悬浮球雷达 AI 分析" width="48%"><br><sub>AI 分析：结论、依据与原帖引用</sub></td>
   </tr>
 </table>
