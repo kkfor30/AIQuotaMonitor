@@ -63,7 +63,7 @@ fn parse_one_post(chunk: &str, synced_at: i64) -> Option<TiboPostRecord> {
     let url = attr(chunk, "href")
         .filter(|value| value.contains("status/"))
         .unwrap_or_else(|| format!("https://x.com/thsottiaux/status/{id}"));
-    let relevance = attr(chunk, "data-reset-relevance").unwrap_or_else(|| "none".into());
+    let relevance = attr(chunk, "data-reset-relevance").unwrap_or_else(|| "unknown".into());
     let label = class_text(chunk, "reset-tibo-post-relevance")
         .map(|value| super::display_signal_label(&value))
         .unwrap_or_else(|| super::display_signal_label(&relevance));
@@ -76,7 +76,7 @@ fn parse_one_post(chunk: &str, synced_at: i64) -> Option<TiboPostRecord> {
     let analysis = labeled_paragraph(chunk, "reset-tibo-post-analysis");
     let posted_at = class_attr(chunk, "time", "datetime")
         .and_then(|value| parse_datetime(&value))
-        .unwrap_or(synced_at);
+        .unwrap_or(0);
     let extra_json = json!({
         "summary": summary,
         "analysis": analysis,

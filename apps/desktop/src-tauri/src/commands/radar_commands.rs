@@ -1,13 +1,14 @@
 use crate::commands::require_label;
-use crate::radar::{self, RadarControl, RadarSnapshot};
+use crate::radar::{self, RadarControl, RadarHistoryView, RadarSnapshot, TiboPostView};
 use crate::refresh::RefreshCoordinator;
 use crate::storage::database::Database;
-use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
 #[tauri::command]
-pub fn get_radar_snapshot(database: State<'_, Database>) -> Result<RadarSnapshot, String> {
-    radar::snapshot(&database)
+pub fn get_radar_snapshot(database: State<'_, Database>, control: State<'_, RadarControl>) -> Result<RadarSnapshot, String> {
+    let mut snapshot = radar::snapshot(&database)?;
+    snapshot.check_running = control.is_running();
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -24,31 +25,9 @@ pub async fn run_radar_check(
     control: State<'_, RadarControl>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
-    if !control.try_begin() {
-        return Err("已有检查正在进行".into());
-    }
-    let my_generation = control.generation.load(Ordering::Relaxed);
-    // select 在 await 点（CodexRadar 抓取 / 模型请求）打断；被丢弃的检查不落任何记录。
-    let _ = app.emit("radar-check-started", ());
-    let run = radar::run_check(
-        &database,
-        &coordinator,
-        analyze,
-        range_key.as_deref().unwrap_or("3d"),
-        source_id.as_deref(),
-        model.as_deref(),
-        user_prompt.as_deref(),
-    );
-    let result = tokio::select! {
-        snapshot = run => {
-            let _ = app.emit("radar-data-changed", ());
-            snapshot
-        }
-        _ = control.wait_cancelled(my_generation) => Err("已终止本次检查".into()),
-    };
-    control.finish();
-    let _ = app.emit("radar-check-finished", ());
-    result
+    let _ = (range_key, user_prompt);
+    radar::run_controlled_check(&app, &database, &coordinator, &control,
+        analyze, source_id.as_deref(), model.as_deref()).await
 }
 
 /// 终止当前进行中的雷达检查：使代号 +1，运行中的检查在下一个 await 点被打断。
@@ -82,22 +61,25 @@ pub async fn translate_radar_post(
 #[tauri::command]
 pub fn save_radar_analysis_prefs(
     analyze: bool,
-    range_key: String,
+    range_key: Option<String>,
     source_id: Option<String>,
     model: Option<String>,
     user_prompt: Option<String>,
+    background_check: Option<bool>,
     window: WebviewWindow,
     app: AppHandle,
     database: State<'_, Database>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main"])?;
+    // range_key 已废弃（浏览/监控拆分）：浏览筛选为前端本地状态，监控窗口固定 72h。
+    let _ = range_key;
     radar::save_analysis_prefs(
         &database,
         analyze,
-        &range_key,
         source_id.as_deref(),
         model.as_deref(),
         user_prompt.as_deref(),
+        background_check,
     )?;
     let snapshot = radar::snapshot(&database)?;
     let _ = app.emit("radar-data-changed", ());
@@ -163,28 +145,32 @@ pub fn confirm_radar_quota_change(
     Ok(snapshot)
 }
 
-/// 用户确认额度已重置：写入事件观察期，不判断官方重置或重置卡。
+/// 用户确认额度已重置：写入事件观察期，不判断官方重置或重置卡；绑定具体事件。
 #[tauri::command]
 pub fn confirm_radar_user_reset(
+    event_id: Option<String>,
+    expected_revision: Option<i64>,
     window: WebviewWindow,
     app: AppHandle,
     database: State<'_, Database>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
-    let snapshot = radar::confirm_user_reset(&database)?;
+    let snapshot = radar::confirm_user_reset(&database, event_id.as_deref(), expected_revision)?;
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
 }
 
-/// 撤销人工确认额度已重置。
+/// 撤销人工确认额度已重置；绑定具体事件。
 #[tauri::command]
 pub fn undo_radar_user_reset(
+    event_id: Option<String>,
+    expected_revision: Option<i64>,
     window: WebviewWindow,
     app: AppHandle,
     database: State<'_, Database>,
 ) -> Result<RadarSnapshot, String> {
     require_label(&window, &["main", "hoverbar-detail"])?;
-    let snapshot = radar::undo_user_reset(&database)?;
+    let snapshot = radar::undo_user_reset(&database, event_id.as_deref(), expected_revision)?;
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
 }
@@ -253,4 +239,50 @@ pub fn set_radar_notice_hidden(
     let snapshot = radar::set_notice_hidden(&database, hidden)?;
     let _ = app.emit("radar-data-changed", ());
     Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn list_radar_history(
+    cursor: Option<String>,
+    limit: Option<i64>,
+    window: WebviewWindow,
+    database: State<'_, Database>,
+) -> Result<RadarHistoryView, String> {
+    require_label(&window, &["main", "hoverbar-detail"])?;
+    radar::list_history(&database, cursor.as_deref(), limit.unwrap_or(20) as usize)
+}
+
+#[tauri::command]
+pub fn list_radar_posts(
+    from_ms: Option<i64>,
+    to_ms: Option<i64>,
+    cursor: Option<String>,
+    limit: Option<i64>,
+    window: WebviewWindow,
+    database: State<'_, Database>,
+) -> Result<Vec<TiboPostView>, String> {
+    require_label(&window, &["main", "hoverbar-detail"])?;
+    radar::list_posts(
+        &database,
+        from_ms,
+        to_ms,
+        cursor.as_deref(),
+        limit.unwrap_or(80) as usize,
+    )
+}
+
+#[tauri::command]
+pub fn get_radar_post(
+    post_id: String,
+    window: WebviewWindow,
+    database: State<'_, Database>,
+) -> Result<TiboPostView, String> {
+    require_label(&window, &["main", "hoverbar-detail"])?;
+    radar::get_post(&database, &post_id)
+}
+
+#[tauri::command]
+pub fn list_radar_event_analyses(event_id:String,cursor:Option<String>,window:WebviewWindow,database:State<'_,Database>) -> Result<radar::RadarAnalysisPage,String> {
+    require_label(&window,&["main","hoverbar-detail"])?;
+    radar::list_event_analyses(&database,&event_id,cursor.as_deref(),20)
 }

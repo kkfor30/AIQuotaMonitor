@@ -23,6 +23,10 @@ use tauri::{
 pub struct HoverbarRuntime {
     /// 详情面板当前是否可见（全屏隐藏、收起动画均会置回 false）
     pub detail_visible: AtomicBool,
+    /// 悬浮球当前是否正处于原生拖拽过程中（拖拽中屏蔽详情展开与位置争抢）
+    pub is_dragging: AtomicBool,
+    /// 拖拽起点坐标，用于判定是否有真实位移
+    pub drag_start_pos: Mutex<Option<(i32, i32)>>,
     /// 顶底停靠详情面板逻辑高度（宽度固定为 420.0）
     pub top_detail_height: Mutex<f64>,
     /// 侧边停靠详情面板逻辑高度（宽度固定为 300.0）
@@ -39,6 +43,8 @@ impl HoverbarRuntime {
         };
         Self {
             detail_visible: AtomicBool::new(false),
+            is_dragging: AtomicBool::new(false),
+            drag_start_pos: Mutex::new(None),
             top_detail_height: Mutex::new(top_h),
             side_detail_height: Mutex::new(side_h),
         }
@@ -88,7 +94,7 @@ pub enum HoverbarWindowState {
 /// 悬浮窗口逻辑尺寸规则（与前端 measureHoverbar 严格镜像）：
 /// - 锚点小球恒为 40x40
 /// - 侧边停靠（left/right）：宽严格固定为 300，高度按内容在 160..480 clamp
-/// - 顶底停靠（top/bottom）：宽严格固定为 420，高度按内容在 160..420 clamp
+/// - 顶底停靠（top/bottom）：宽严格固定为 420，高度按内容在 160..480 clamp
 pub fn logical_size(
     position: &str,
     state: HoverbarWindowState,
@@ -103,7 +109,7 @@ pub fn logical_size(
         ),
         (_, HoverbarWindowState::Detail) => (
             420.0,
-            requested_height.unwrap_or(360.0).clamp(160.0, 420.0),
+            requested_height.unwrap_or(360.0).clamp(160.0, 480.0),
         ),
     }
 }
@@ -379,6 +385,11 @@ fn create_detail_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     detail.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Focused(true)) {
             if let Some(anchor_window) = app_for_focus.get_webview_window("hoverbar") {
+                if let Some(runtime) = app_for_focus.try_state::<HoverbarRuntime>() {
+                    if runtime.is_dragging.load(Ordering::SeqCst) {
+                        return;
+                    }
+                }
                 let _ = keep_anchor_above_detail(&anchor_window);
             }
         }
@@ -566,7 +577,7 @@ mod tests {
     fn detail_size_is_clamped() {
         assert_eq!(
             logical_size("top", HoverbarWindowState::Detail, Some(900.0), Some(900.0)),
-            (420.0, 420.0)
+            (420.0, 480.0)
         );
         assert_eq!(
             logical_size(

@@ -26,22 +26,29 @@ import {
 } from "./hoverbar-state";
 import { preventNativeAssetDrag } from "./hoverbar-interaction";
 
+/** 悬浮小球动态语义光效类型。 */
+export type OrbGlowType = "normal" | "warning" | "active" | "danger" | "stale" | "verifying";
+
 export function HoverbarAnchorApp() {
   const [anchor, setAnchor] = useState<HoverbarAnchor>({ edge: "right", ratio: 0.4 });
   const [detailVisible, setDetailVisible] = useState(false);
+  const showDetailSeqRef = useRef(0);
   const enterTimer = useRef<number | undefined>(undefined);
   const collapseTimer = useRef<number | undefined>(undefined);
   const dragging = useRef(false);
   const dragMoved = useRef(false);
   const dragFinishedAt = useRef(0);
+  const detailPointerInsideRef = useRef(false);
 
-  // 监听平台聚合状态，驱动小球被动呼吸微光晕
+  // 监听平台聚合状态与重置雷达
   const { data: platforms = [] } = useQuery({
     queryKey: PLATFORM_SUMMARIES_QUERY_KEY,
     queryFn: fetchPlatformSummaries,
     staleTime: 10000,
   });
 
+
+  // 小球告警状态：红圈严格只在 API Key 失效或 401 等异常阻断性故障（aggregateStatus === "error"）时出现，不参与额度情况；额度消耗与告罄由 warning 承接
   const alertTone: "error" | "warning" | null = (() => {
     let hasDanger = false;
     let hasWarning = false;
@@ -50,13 +57,20 @@ export function HoverbarAnchorApp() {
       if (p.aggregateStatus === "partial") hasWarning = true;
       for (const c of p.capabilities) {
         const rem = capabilityRemainingPercent(c);
-        if (rem !== null && rem <= 5) hasDanger = true;
-        else if (rem !== null && rem <= 15) hasWarning = true;
+        if (rem !== null && rem <= 15) hasWarning = true;
       }
     }
     if (hasDanger) return "error";
     if (hasWarning) return "warning";
     return null;
+  })();
+
+  const orbGlow: OrbGlowType = (() => {
+    if (alertTone === "error") return "danger";
+    if (alertTone === "warning") return "warning";
+    const allCapabilities = platforms.flatMap((p) => p.capabilities);
+    if (allCapabilities.length > 0 && allCapabilities.every((c) => c.freshness === "stale")) return "stale";
+    return "normal";
   })();
 
   const isPointerOver = useRef(false);
@@ -79,14 +93,23 @@ export function HoverbarAnchorApp() {
 
   const showDetail = useCallback(() => {
     if (dragging.current) return;
+    const reqSeq = ++showDetailSeqRef.current;
     clearEnterTimer();
     clearCollapseTimer();
     void invoke<HoverbarAnchor>("show_hoverbar_detail")
       .then((next) => {
+        if (reqSeq !== showDetailSeqRef.current || dragging.current) {
+          void invoke("hide_hoverbar_detail_immediately").catch(() => {});
+          return;
+        }
         setAnchor(normalizeHoverbarAnchor(next));
         setDetailVisible(true);
       })
-      .catch((error) => console.error("无法展开悬浮详情", error));
+      .catch((error) => {
+        if (!String(error).includes("正在拖拽")) {
+          console.error("无法展开悬浮详情", error);
+        }
+      });
   }, [clearCollapseTimer, clearEnterTimer]);
 
   const scheduleOpen = useCallback(
@@ -123,9 +146,16 @@ export function HoverbarAnchorApp() {
   }, [clearCollapseTimer, clearEnterTimer]);
 
   const scheduleHide = useCallback(() => {
+    if (dragging.current) return;
     clearEnterTimer();
     clearCollapseTimer();
-    collapseTimer.current = window.setTimeout(requestHide, HOVERBAR_LEAVE_DELAY_MS);
+    collapseTimer.current = window.setTimeout(() => {
+      // 收起前二次确认：若光标仍在详情卡片内、悬浮球上或正在拖拽，放弃收起
+      if (detailPointerInsideRef.current || isPointerOver.current || dragging.current) {
+        return;
+      }
+      requestHide();
+    }, HOVERBAR_LEAVE_DELAY_MS);
   }, [clearCollapseTimer, clearEnterTimer, requestHide]);
 
   // 初始锚点来自持久化偏好
@@ -156,10 +186,14 @@ export function HoverbarAnchorApp() {
     void listen<boolean>("hoverbar-detail-visibility", (event) => {
       if (disposed) return;
       setDetailVisible(event.payload);
-      if (!event.payload) clearCollapseTimer();
+      if (!event.payload) {
+        detailPointerInsideRef.current = false;
+        clearCollapseTimer();
+      }
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen<boolean>("hoverbar-detail-pointer", (event) => {
       if (disposed) return;
+      detailPointerInsideRef.current = event.payload;
       if (event.payload) clearCollapseTimer();
       else scheduleHide();
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
@@ -211,10 +245,19 @@ export function HoverbarAnchorApp() {
   const startDragging = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       if (event.button !== 0 || dragging.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+
       const detailWasVisible = detailVisible;
+      showDetailSeqRef.current++;
       clearEnterTimer();
       clearCollapseTimer();
-      if (detailVisible) requestHide();
+
+      // 拖拽最高优先：立即标记收起状态并通知 Rust 瞬间隐藏详情窗口，绝不等待动画，避免干扰 Win32 消息循环
+      setDetailVisible(false);
+      detailPointerInsideRef.current = false;
+      void invoke("set_hoverbar_dragging", { dragging: true }).catch(() => {});
+
       dragging.current = true;
       dragMoved.current = false;
       void getCurrentWindow()
@@ -227,19 +270,18 @@ export function HoverbarAnchorApp() {
               const moved = dragMoved.current;
               dragging.current = false;
               dragMoved.current = false;
+              void invoke("set_hoverbar_dragging", { dragging: false }).catch(() => {});
               if (moved) {
                 dragFinishedAt.current = Date.now();
-                // 拖拽完成时，若用户光标仍停留在小球上，直接唤醒悬停展开倒计时
-                if (isPointerOver.current) {
-                  scheduleOpen(HOVERBAR_ENTER_DELAY_MS);
-                }
+                // 拖拽完成松手后，保持停靠吸附状态，不自动弹出详情卡片，避免遮挡
+                clearEnterTimer();
               } else if (!detailWasVisible) {
                 showDetail();
               }
             });
         });
     },
-    [clearCollapseTimer, clearEnterTimer, detailVisible, requestHide, scheduleOpen, showDetail, snapToEdge],
+    [clearCollapseTimer, clearEnterTimer, detailVisible, showDetail, snapToEdge],
   );
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
@@ -261,26 +303,39 @@ export function HoverbarAnchorApp() {
       data-edge={anchor.edge}
       data-state={detailVisible ? "expanded" : "anchor"}
       onPointerEnter={(e) => {
+        if (dragging.current) return;
         if (e.pointerType === "mouse" || e.isPrimary) {
           isPointerOver.current = true;
           clearCollapseTimer();
-          if (!detailVisible && !dragging.current) {
+          if (!detailVisible) {
             scheduleOpen(HOVERBAR_ENTER_DELAY_MS);
           }
         }
       }}
       onPointerMove={(e) => {
+        if (dragging.current) return;
         if (e.pointerType === "mouse" || e.isPrimary) {
           isPointerOver.current = true;
-          if (!detailVisible && !dragging.current && !enterTimer.current) {
+          if (!detailVisible && !enterTimer.current) {
             scheduleOpen(HOVERBAR_ENTER_DELAY_MS);
           }
         }
       }}
       onPointerLeave={() => {
         isPointerOver.current = false;
-        if (detailVisible) scheduleHide();
-        else clearEnterTimer();
+        if (dragging.current) {
+          clearEnterTimer();
+          clearCollapseTimer();
+          return;
+        }
+        if (detailVisible) {
+          // 若鼠标已在详情卡片内，绝不误启动收起倒计时
+          if (!detailPointerInsideRef.current) {
+            scheduleHide();
+          }
+        } else {
+          clearEnterTimer();
+        }
       }}
       onContextMenu={handleContextMenu}
     >
@@ -288,6 +343,7 @@ export function HoverbarAnchorApp() {
         edge={anchor.edge}
         active={detailVisible}
         alertTone={alertTone}
+        glow={orbGlow}
         ariaLabel={detailVisible ? "收起额度详情并拖动" : "打开额度详情"}
         onActivate={activateOrb}
         onPointerDown={startDragging}
@@ -297,11 +353,12 @@ export function HoverbarAnchorApp() {
   );
 }
 
-/** 40x40 透明窗口内的 32px 动态玻璃小球。 */
+/** 40x40 透明窗口内的 32px 动态玻璃小球（方案 D：深空悬浮透底投影）。 */
 export function HoverbarOrb({
   edge,
   active,
   alertTone,
+  glow,
   ariaLabel,
   onActivate,
   onPointerDown,
@@ -312,6 +369,7 @@ export function HoverbarOrb({
   edge: string;
   active: boolean;
   alertTone?: "error" | "warning" | null;
+  glow?: OrbGlowType;
   ariaLabel: string;
   onActivate: () => void;
   onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
@@ -319,6 +377,14 @@ export function HoverbarOrb({
   disabled?: boolean;
   forceState?: "hover" | "focus" | "active";
 }) {
+  const effectiveGlow: OrbGlowType =
+    glow ??
+    (alertTone === "error"
+      ? "danger"
+      : alertTone === "warning"
+      ? "warning"
+      : "normal");
+
   return (
     <button
       type="button"
@@ -329,11 +395,13 @@ export function HoverbarOrb({
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
       className={`hb-orb${active ? " is-detail-open" : ""}${
-        alertTone && !active ? ` is-alert-${alertTone}` : ""
+        effectiveGlow ? ` is-glow-${effectiveGlow}` : ""
       }${forceState ? ` is-${forceState}` : ""}`}
       data-edge={edge}
+      data-glow={effectiveGlow}
       data-alert={alertTone && !active ? alertTone : undefined}
     >
+      <div className="hb-ambient-bloom" />
       <picture>
         <source media="(prefers-reduced-motion: reduce)" srcSet="/assets/hover-orb-poster.png" />
         <img src="/assets/hover-orb.webp" alt="" draggable={false} />

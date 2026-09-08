@@ -309,6 +309,7 @@ const previewEvent: RadarEvent = {
   claimedLandedAt: Date.now() - 20 * 60 * 60 * 1000,
   observedResetAt: null,
   closedAt: null,
+  closeReason: null,
   timeline: [
     { at: Date.now() - 26 * 60 * 60 * 1000, kind: "signal", label: "首次信号" },
     { at: Date.now() - 20 * 60 * 60 * 1000, kind: "claimed", label: "来源称已落地" },
@@ -322,7 +323,7 @@ const previewEvent: RadarEvent = {
   eventType: "quota_reset",
 };
 
-/** 按状态构建预览决策，保证与事件 mock 同源一致（仅布局验收用）。 */
+/** 按状态构建预览决策，保证与事件样例同源一致（仅布局验收用）。 */
 function previewDecision(overrides: Partial<RadarDecision> = {}): RadarDecision {
   const claimedAt = previewEvent.claimedLandedAt;
   return {
@@ -491,11 +492,12 @@ const previewRadar: RadarSnapshot = {
   chatEndpoints: [],
   analysisPrefs: {
     analyze: false,
-    rangeKey: "3d",
     sourceId: null,
     model: null,
     userPrompt: "",
     defaultUserPrompt: "",
+    backgroundCheck: true,
+    backgroundNextAt: null,
   },
   notice: {
     headline: "Tibo：明天可能迎来 Codex 新里程碑",
@@ -530,6 +532,25 @@ const previewRadar: RadarSnapshot = {
     historicalContextIds: ["preview-1"],
     pendingUnconsumedCount: 1,
   },
+  sources: [
+    {
+      sourceId: "codexradar",
+      displayName: "CodexRadar",
+      lastCheckAt: Date.now() - 42 * 60 * 1000,
+      lastSuccessAt: Date.now() - 42 * 60 * 1000,
+      lastError: null,
+      freshness: "fresh",
+    },
+    {
+      sourceId: "willcodex",
+      displayName: "WillCodex",
+      lastCheckAt: Date.now() - 42 * 60 * 1000,
+      lastSuccessAt: Date.now() - 42 * 60 * 1000,
+      lastError: null,
+      freshness: "fresh",
+    },
+  ],
+  history: { events: [] },
 };
 previewRadar.latest = previewRadar.posts[0];
 
@@ -958,7 +979,7 @@ function PreviewPanel({
           </div>
           {/* 预览页脚：全部为示例文案，仅供四边/主题人工检查 */}
           <footer className="hb-foot">
-            <span>数据仅供参考 · v0.1.1</span>
+            <span>数据仅供参考 · v1.0.0</span>
             <span>共 {platforms.length} 个平台</span>
             <span className="hb-foot-time">最后更新：11:51</span>
           </footer>

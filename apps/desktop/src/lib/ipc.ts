@@ -3,6 +3,7 @@
  * 事件名与 src-tauri/src/commands/window_commands.rs 保持一致。
  */
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import type {
   HoverbarPreferencesDto,
   LegacyConfigInspection,
@@ -158,8 +159,17 @@ export async function openMainWindow(): Promise<void> {
   return invoke<void>("open_main_window");
 }
 
+/** 低强调「完整雷达」入口：打开主窗口并跳转到 GPT 重置雷达页。 */
+export async function openRadarPage(): Promise<void> {
+  await openMainWindow();
+  await emit("navigate-radar");
+}
+
 export type RadarSnapshot = {
+  checkRunning?: boolean;
   sourceStatus: string;
+  /** 分来源同步状态：一个来源失败不清除另一来源的成功数据。 */
+  sources: RadarSourceStatus[];
   lastSyncedAt: number | null;
   posts: RadarPost[];
   latest: RadarPost | null;
@@ -177,15 +187,67 @@ export type RadarSnapshot = {
   decision: RadarDecision;
   quotaVerifications: QuotaVerification[];
   analysisGroups: RadarAnalysisGroups;
+  /** 事件维度的历史记录（含落地观察与当时的分析）。 */
+  history: RadarHistory;
+  /** 当前全部活动事件；decision.activeEventId 是主展示。 */
+  activeEvents?: RadarEvent[];
+};
+
+export type RadarSourceStatus = {
+  sourceId: string;
+  displayName: string;
+  lastCheckAt: number | null;
+  lastSuccessAt: number | null;
+  lastError: string | null;
+  /** fresh | stale | missing */
+  freshness: string;
+};
+
+export type QuotaObservationHistory = {
+  id: number;
+  accountId: string;
+  accountName: string;
+  classification: string;
+  observedAt: number;
+  temporalCorrelation: string;
+  userConfirmedAt: number | null;
+};
+
+export type BankedObservationHistory = {
+  accountId: string;
+  accountName: string;
+  previousCount: number;
+  currentCount: number;
+  observedAt: number;
+  /** grant = 到账；drop = 数量减少 */
+  kind: string;
+};
+
+export type RadarHistoryEvent = {
+  event: RadarEvent;
+  evidencePosts: RadarPost[];
+  analyses: RadarAnalysis[];
+  analysesNextCursor?: string | null;
+  quotaObservations: QuotaObservationHistory[];
+  bankedObservations: BankedObservationHistory[];
+};
+
+export type RadarHistory = {
+  events: RadarHistoryEvent[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
 };
 
 export type RadarAnalysisPrefs = {
   analyze: boolean;
-  rangeKey: string;
   sourceId: string | null;
   model: string | null;
   userPrompt: string;
   defaultUserPrompt: string;
+  /** 后台自动检查（固定 15 分钟间隔），默认开启。 */
+  backgroundCheck: boolean;
+  /** 下次后台检查到期时间（epoch 毫秒），仅展示用。 */
+  backgroundNextAt: number | null;
 };
 
 export type RadarNotice = {
@@ -310,6 +372,8 @@ export type RadarEvent = {
   claimedLandedAt: number | null;
   observedResetAt: number | null;
   closedAt: number | null;
+  /** 关闭原因（timeout_unverified/completed 等），历史页结果标签用。 */
+  closeReason: string | null;
   expectedAt: number | null;
   expiresAt: number | null;
   stateRevision: number;
@@ -407,6 +471,8 @@ export type RadarDecision = {
   deltaImpactText: string;
   /** banked_reset | quota_reset；无当前事件时为 null。 */
   eventType: string | null;
+  /** 其他仍需关注的活动事件入口。 */
+  otherActiveEventIds?: string[];
 };
 
 export type RadarAnalysisGroups = {
@@ -491,12 +557,52 @@ export async function confirmRadarQuotaChange(input: {
   });
 }
 
-export async function confirmRadarUserReset(): Promise<RadarSnapshot> {
-  return invoke<RadarSnapshot>("confirm_radar_user_reset");
+export async function confirmRadarUserReset(input?: {
+  eventId?: string | null;
+  expectedRevision?: number | null;
+}): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("confirm_radar_user_reset", {
+    eventId: input?.eventId ?? null,
+    expectedRevision: input?.expectedRevision ?? null,
+  });
 }
 
-export async function undoRadarUserReset(): Promise<RadarSnapshot> {
-  return invoke<RadarSnapshot>("undo_radar_user_reset");
+export async function undoRadarUserReset(input?: {
+  eventId?: string | null;
+  expectedRevision?: number | null;
+}): Promise<RadarSnapshot> {
+  return invoke<RadarSnapshot>("undo_radar_user_reset", {
+    eventId: input?.eventId ?? null,
+    expectedRevision: input?.expectedRevision ?? null,
+  });
+}
+
+export async function listRadarHistory(input?: {
+  cursor?: string | null;
+  limit?: number;
+}): Promise<RadarHistory> {
+  return invoke<RadarHistory>("list_radar_history", {
+    cursor: input?.cursor ?? null,
+    limit: input?.limit ?? 20,
+  });
+}
+
+export async function listRadarPosts(input?: {
+  fromMs?: number | null;
+  toMs?: number | null;
+  cursor?: string | null;
+  limit?: number;
+}): Promise<RadarPost[]> {
+  return invoke<RadarPost[]>("list_radar_posts", {
+    fromMs: input?.fromMs ?? null,
+    toMs: input?.toMs ?? null,
+    cursor: input?.cursor ?? null,
+    limit: input?.limit ?? 80,
+  });
+}
+
+export async function fetchRadarPost(postId: string): Promise<RadarPost> {
+  return invoke<RadarPost>("get_radar_post", { postId });
 }
 
 export async function setRadarNoticeHidden(hidden: boolean): Promise<RadarSnapshot> {
@@ -505,7 +611,6 @@ export async function setRadarNoticeHidden(hidden: boolean): Promise<RadarSnapsh
 
 export async function runRadarCheck(input: {
   analyze: boolean;
-  rangeKey?: string;
   sourceId?: string | null;
   model?: string | null;
   userPrompt?: string | null;
@@ -519,10 +624,10 @@ export async function translateRadarPost(postId: string, sourceId?: string | nul
 
 export async function saveRadarAnalysisPrefs(input: {
   analyze: boolean;
-  rangeKey: string;
   sourceId?: string | null;
   model?: string | null;
   userPrompt?: string | null;
+  backgroundCheck?: boolean | null;
 }): Promise<RadarSnapshot> {
   return invoke<RadarSnapshot>("save_radar_analysis_prefs", input);
 }
@@ -624,3 +729,7 @@ export const HOVERBAR_EVENTS = {
   detailVisibility: "hoverbar-detail-visibility",
   detailPointer: "hoverbar-detail-pointer",
 } as const;
+
+export async function listRadarEventAnalyses(eventId: string, cursor: string): Promise<{items: RadarAnalysis[];nextCursor: string|null}> {
+  return invoke("list_radar_event_analyses",{eventId,cursor});
+}

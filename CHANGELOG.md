@@ -2,33 +2,29 @@
 
 本文件记录值得注意的变更（Keep a Changelog 风格）。版本号遵循语义化版本。
 
-## [0.1.0] - 2026-09-07
+## [1.0.0] - 2026-09-08
 
-首个正式版本发布（Windows / Tauri 2 + React + Rust）。
+首个正式版本（Windows / Tauri 2 + React + Rust）。
 
-### 平台中心与额度监控
+### 功能
 
-- **全平台接入**：支持 GPT/Codex（本机 app-server/WHAM）、Claude Code（CLI OAuth）、Grok（CLI）、Google Antigravity（Prompt Credits & Storage）、DeepSeek、GLM、Kimi、MiMo、MiniMax、SiliconFlow、StepFun、OpenRouter、Novita。
-- **多账号与独立会话**：严格遵循 `Platform → Account → Source → Capability → Snapshot` 领域建模，支持多账号分组与独立凭据隔离。
-- **真实快照语义**：严格遵循 stale / missing 语义展示，故障隔离不污染，严禁生成虚假补零数据；金额与用量采用文本/定点数精确计算。
-- **本地安全优先**：敏感凭据安全存储至 Windows 凭据管理器；业务快照仅持久化于本机 SQLite；前端仅消费脱敏 ViewModel。
+- 平台中心：按注册表添加平台，多账号分组、独立会话；`Platform → Account → Source → Capability → Snapshot` 领域建模。
+- 额度监控：GPT/Codex（本机 app-server/WHAM）、Claude Code（CLI OAuth）、Grok（CLI）、DeepSeek、GLM、Kimi、MiMo、MiniMax、SiliconFlow、StepFun、OpenRouter、Novita、Google Antigravity。
+- 真实快照语义：stale / missing 展示，不补零、不伪造；金额 Decimal 定点计算。
+- 安全存储：凭据进 Windows Credential Manager；数据仅存本机 SQLite；第三方登录由官方 CLI 负责。
+- GPT 重置雷达：Codex Radar 公开源 + 本机额度观察 + 可选 AI 分析（默认关闭），仅提供推测。
+- 悬浮球：玻璃小球常驻、四级停靠、额度/雷达双级详情；深/浅色主题、自动刷新、开机自启、单实例。
+- 设置页：主题、平台排序、刷新计划、开机自启、本机数据目录查看。
 
-### GPT 重置雷达与智能研判
+### 体验与交互
 
-- **双源多渠道聚合**：集成 Codex Radar 官方公开源与 WillCodex 实时源（30分钟级快轮询），并发拉取与智能 ID 去重，时效与稳定性互补保障。
-- **全生命周期研判体系**：集成置信度仪表盘（RadarStatusGauge）、决策结论色调流转与参考记录对齐微卡（区分额度卡到账 grant 与额度消耗 drop）。
-- **动态回退与本地推测**：空时间窗自动回退至历史有效研判，杜绝误报失败；单条动态支持 AI 逐条快速翻译；明确告知推测属性，不冒充官方结论。
+- **重置雷达**：空时间窗平滑回退历史分析；主卡底部参考记录微卡片；重置卡到账（grant）与消耗（drop）归因区分；置信度仪表与结论胶囊。
+- **悬浮球与详情**：呼吸光晕与原生右键快捷菜单（全部刷新、切换详情、隐藏小球、打开主界面）；雷达卡三层流线型卡片；账号卡双栏指标网格；单卡快捷刷新与平台中心深链。
+- **主界面**：双向缩放控制角标与边缘拖拽；毛玻璃 Toast、骨架屏、空状态与微动效；平台目录检索与异常呼吸提示；ErrorBoundary 防白屏与滚动穿透优化。
 
-### 桌面常驻悬浮球与高质感交互
-
-- **柔和悬浮小球**：桌面任意边缘停靠吸附与拖拽吸边；搭载克制呼吸微光晕与正圆全息层（杜绝方形边缘裁切）；原生右键快捷菜单（全部刷新、切换详情、隐藏小球、唤起主窗口）。
-- **三层流线悬浮详情**：即时呈现核心研判结论、关键参考记录、各平台双栏指标卡片与额度变化趋势，支持单卡刷新与深链直达。
-- **主界面体验打磨**：毛玻璃原生视觉，双向缩放控制角标与边框拖拽支持，目录智能检索与编辑吸底布局，内建防白屏容错机制（ErrorBoundary）。
-
-### 合规与工程
+### 合规
 
 - 以 MIT License 发布。
-- 迁移代码（DeepSeekMonitorWindows 系列、cc-switch）严格在文件头保留来源仓库、审计提交与 MIT 许可声明。
+- 迁移代码（DeepSeekMonitorWindows 系列、cc-switch）的来源与许可保留在各迁移文件头注释中。
 
-[0.1.0]: https://github.com/kkfor30/AIQuotaMonitor/releases/tag/v0.1.0
-
+[1.0.0]: https://github.com/kkfor30/AIQuotaMonitor/releases/tag/v1.0.0

@@ -203,7 +203,7 @@ function GeneralSection() {
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-q-text-secondary">版本</span>
-          <span className="font-medium text-q-text-primary" data-selectable="true">0.1.1</span>
+          <span className="font-medium text-q-text-primary" data-selectable="true">1.0.0</span>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-q-text-secondary">第三方许可</span>

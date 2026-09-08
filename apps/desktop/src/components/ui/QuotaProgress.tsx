@@ -27,12 +27,23 @@ export function quotaTone(remainingPercent: number | null | undefined): QuotaTon
   return "low";
 }
 
-/** 从能力快照推导剩余百分比：优先后端 progress（0-1 换算为 0-100），若已是百分比数值直接使用，否则解析 "62.5%" 形态主值。 */
+/** 从能力快照推导剩余百分比：严格限定仅 quota_window_* 窗口或 percent 类型的指标，排除张数与Token消耗指标。 */
 export function capabilityRemainingPercent(capability: CapabilitySnapshotViewModel): number | null {
+  const isWindow = capability.capabilityId.startsWith("quota_window_");
+  const isPercentKind = capability.value.kind === "percent";
+  if (!isWindow && !isPercentKind) {
+    return null;
+  }
+  if (capability.capabilityId.includes("hit_rate")) {
+    return null;
+  }
   if (capability.value.progress !== null) {
     return capability.value.progress <= 1.0 ? capability.value.progress * 100 : capability.value.progress;
   }
   if (capability.value.primary === null) return null;
+  if (!capability.value.primary.includes("%")) {
+    return null;
+  }
   const parsed = Number.parseFloat(capability.value.primary.replace("%", "").trim());
   return Number.isFinite(parsed) ? parsed : null;
 }

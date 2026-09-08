@@ -110,8 +110,8 @@
   --q-hoverbar-card-border: rgba(125, 175, 205, 0.28);
   --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.9);
   --q-hoverbar-ink: #122a3d;
-  --q-hoverbar-muted: #2f4b64;
-  --q-hoverbar-muted-strong: #1e4157;
+  --q-hoverbar-muted: #223f56;
+  --q-hoverbar-muted-strong: #112d42;
   --q-hoverbar-money: #0a66ff;
   --q-hoverbar-money-secondary: #1467d6;
   --q-hoverbar-primary: #1467d6;
@@ -211,8 +211,8 @@
     --q-hoverbar-card-border: rgba(148, 163, 184, 0.22);
     --q-hoverbar-card-shadow: rgba(255, 255, 255, 0.07);
     --q-hoverbar-ink: #f6fafd;
-    --q-hoverbar-muted: #c4d4e0;
-    --q-hoverbar-muted-strong: #d5e5f0;
+    --q-hoverbar-muted: #cadce8;
+    --q-hoverbar-muted-strong: #e3eff7;
     --q-hoverbar-money: #d7e5ef;
     --q-hoverbar-money-secondary: #b8c9d6;
     --q-hoverbar-primary: #6ba4ff;

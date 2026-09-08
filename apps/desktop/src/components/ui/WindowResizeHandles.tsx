@@ -15,19 +15,36 @@ export function WindowResizeHandles() {
 
   useEffect(() => {
     let disposed = false;
-    const unlisten = appWindow.onResized(async () => {
-      const next = await appWindow.isMaximized().catch(() => false);
-      if (!disposed) setMaximized(next);
-    });
-    void appWindow
-      .isMaximized()
-      .then((next) => {
+
+    const checkMaximized = async () => {
+      try {
+        const next = await appWindow.isMaximized();
         if (!disposed) setMaximized(next);
-      })
-      .catch(() => undefined);
+      } catch {
+        if (!disposed && typeof window !== "undefined" && window.screen) {
+          const isNearFull =
+            Math.abs(window.innerWidth - window.screen.availWidth) < 24 &&
+            Math.abs(window.innerHeight - window.screen.availHeight) < 24;
+          setMaximized(isNearFull);
+        }
+      }
+    };
+
+    void checkMaximized();
+
+    const onDomResize = () => {
+      void checkMaximized();
+    };
+    window.addEventListener("resize", onDomResize);
+
+    const unlistenPromise = appWindow.onResized(() => {
+      void checkMaximized();
+    });
+
     return () => {
       disposed = true;
-      void unlisten.then((fn) => fn());
+      window.removeEventListener("resize", onDomResize);
+      void unlistenPromise.then((fn) => fn?.()).catch(() => {});
     };
   }, [appWindow]);
 

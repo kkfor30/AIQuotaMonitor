@@ -68,6 +68,8 @@ export function HoverbarDetailApp() {
   const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
   const motionPhaseRef = useRef<HoverbarMotionPhase>("anchor");
   const exitTimer = useRef<number | undefined>(undefined);
+  const pointerInsideTimer = useRef<number | undefined>(undefined);
+  const lastInsideReportAt = useRef<number>(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -135,7 +137,6 @@ export function HoverbarDetailApp() {
       const analyze = Boolean(radar?.analysisPrefs.analyze && readyModel);
       return runRadarCheck({
         analyze,
-        rangeKey: radar?.analysisPrefs.rangeKey || "3d",
         sourceId: readyModel?.sourceId ?? savedSource,
         model: readyModel?.model ?? null,
       });
@@ -170,7 +171,7 @@ export function HoverbarDetailApp() {
       unlisteners.forEach((unlisten) => unlisten());
     };
   }, []);
-  const radarChecking = radarCheck.isPending || externalChecking;
+  const radarChecking = radarCheck.isPending || externalChecking || Boolean(radar?.checkRunning);
   // 展开详情（详情窗口可见）时自动检查重置雷达：设置开关 + 距上次检查 ≥5 分钟节流。
   // 悬浮详情窗口常驻（隐藏/显示不重新挂载），必须由 motionPhase 驱动而非仅 mount。
   const AUTO_RADAR_CHECK_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -179,7 +180,7 @@ export function HoverbarDetailApp() {
   useEffect(() => {
     if (motionPhase !== "visible") return;
     if (!settings?.hoverbarAutoRadarCheck) return;
-    if (radarCheck.isPending || externalChecking) return;
+    if (radarCheck.isPending || externalChecking || Boolean(radar?.checkRunning)) return;
     const lastCheckAt = radar?.checks[0]?.startedAt ?? 0;
     if (Date.now() - lastCheckAt < AUTO_RADAR_CHECK_MIN_INTERVAL_MS) return;
     radarCheck.mutate();
@@ -198,6 +199,71 @@ export function HoverbarDetailApp() {
   const setMotion = useCallback((phase: HoverbarMotionPhase) => {
     motionPhaseRef.current = phase;
     setMotionPhase(phase);
+  }, []);
+
+  const isPointerInsideWindowRef = useRef(false);
+
+  const reportPointerInside = useCallback((inside: boolean) => {
+    if (inside) {
+      isPointerInsideWindowRef.current = true;
+      if (pointerInsideTimer.current) {
+        window.clearTimeout(pointerInsideTimer.current);
+        pointerInsideTimer.current = undefined;
+      }
+      const now = Date.now();
+      if (now - lastInsideReportAt.current > 120) {
+        lastInsideReportAt.current = now;
+        void invoke("set_hoverbar_detail_pointer_inside", { inside: true }).catch(() => {});
+      }
+    } else {
+      isPointerInsideWindowRef.current = false;
+      if (pointerInsideTimer.current) {
+        window.clearTimeout(pointerInsideTimer.current);
+      }
+      pointerInsideTimer.current = window.setTimeout(() => {
+        pointerInsideTimer.current = undefined;
+        // 若在防抖期间光标重新活动或仍在窗口内，放弃上报离开
+        if (isPointerInsideWindowRef.current) return;
+        lastInsideReportAt.current = 0;
+        void invoke("set_hoverbar_detail_pointer_inside", { inside: false }).catch(() => {});
+      }, 200);
+    }
+  }, []);
+
+  // 窗口级光标保活：即便在卡片内静止或跨越子组件边框，持续维持保活状态防误收起
+  useEffect(() => {
+    const handleGlobalPointerActivity = () => {
+      reportPointerInside(true);
+    };
+    const handleDocumentMouseLeave = (event: MouseEvent) => {
+      const { clientX, clientY } = event;
+      if (
+        clientX <= 0 ||
+        clientY <= 0 ||
+        clientX >= window.innerWidth ||
+        clientY >= window.innerHeight ||
+        !event.relatedTarget
+      ) {
+        reportPointerInside(false);
+      }
+    };
+
+    window.addEventListener("pointermove", handleGlobalPointerActivity, { passive: true });
+    window.addEventListener("pointerdown", handleGlobalPointerActivity, { passive: true });
+    document.documentElement.addEventListener("mouseleave", handleDocumentMouseLeave);
+    return () => {
+      window.removeEventListener("pointermove", handleGlobalPointerActivity);
+      window.removeEventListener("pointerdown", handleGlobalPointerActivity);
+      document.documentElement.removeEventListener("mouseleave", handleDocumentMouseLeave);
+    };
+  }, [reportPointerInside]);
+
+  useEffect(() => {
+    return () => {
+      if (pointerInsideTimer.current) {
+        window.clearTimeout(pointerInsideTimer.current);
+      }
+    };
   }, []);
 
   const finishClose = useCallback(() => {
@@ -234,7 +300,7 @@ export function HoverbarDetailApp() {
     };
     void listen<HoverbarAnchor>("hoverbar-detail-open", (event) => {
       if (disposed) return;
-      applyOpen(event.payload, "quota");
+      applyOpen(event.payload);
     }).then(async (unlisten) => {
       if (disposed) {
         unlisten();
@@ -245,7 +311,7 @@ export function HoverbarDetailApp() {
       try {
         if (await getCurrentWindow().isVisible()) {
           const prefs = await fetchHoverbarPreferences();
-          if (!disposed) applyOpen(normalizeHoverbarAnchor(prefs.anchor), "quota");
+          if (!disposed) applyOpen(normalizeHoverbarAnchor(prefs.anchor));
         }
       } catch {
         // 仍等待后续 hoverbar-detail-open。
@@ -257,6 +323,17 @@ export function HoverbarDetailApp() {
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     void listen("hoverbar-detail-close", () => {
       if (!disposed) finishClose();
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    void listen("hoverbar-detail-close-immediate", () => {
+      if (disposed) return;
+      window.clearTimeout(exitTimer.current);
+      if (pointerInsideTimer.current) {
+        window.clearTimeout(pointerInsideTimer.current);
+        pointerInsideTimer.current = undefined;
+      }
+      isPointerInsideWindowRef.current = false;
+      lastInsideReportAt.current = 0;
+      setMotion("anchor");
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     return () => {
       disposed = true;
@@ -325,8 +402,20 @@ export function HoverbarDetailApp() {
       data-edge={anchor.edge}
       data-motion={motionPhase}
       data-view={view}
-      onMouseEnter={() => void invoke("set_hoverbar_detail_pointer_inside", { inside: true })}
-      onMouseLeave={() => void invoke("set_hoverbar_detail_pointer_inside", { inside: false })}
+      onMouseEnter={() => reportPointerInside(true)}
+      onMouseMove={() => reportPointerInside(true)}
+      onMouseLeave={(event) => {
+        const { clientX, clientY } = event;
+        if (
+          clientX <= 0 ||
+          clientY <= 0 ||
+          clientX >= window.innerWidth ||
+          clientY >= window.innerHeight ||
+          !event.relatedTarget
+        ) {
+          reportPointerInside(false);
+        }
+      }}
     >
       <section ref={panelRef} className="hb-panel">
         <header ref={headerRef} className="hb-head">

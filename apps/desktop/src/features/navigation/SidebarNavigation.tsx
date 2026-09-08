@@ -44,7 +44,7 @@ export function SidebarNavigation({
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-1">
+      <div className="flex flex-col gap-1">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const selected = item.id === active;
@@ -58,7 +58,7 @@ export function SidebarNavigation({
               className={cn(
                 "group relative flex cursor-pointer items-center gap-3 rounded-q-control py-2.5 pl-4 pr-3 text-left transition-colors duration-150",
                 selected
-                  ? "bg-q-primary-soft text-q-primary"
+                  ? "bg-q-primary-soft text-q-primary font-medium"
                   : "text-q-text-secondary hover:bg-q-surface-hover hover:text-q-text-primary",
               )}
             >
@@ -78,6 +78,8 @@ export function SidebarNavigation({
           );
         })}
       </div>
+
+      <div className="flex-1" />
 
       {/* 监控状态卡：真实平台聚合推导；材质由 Token 驱动，深浅主题各自成调 */}
       <div className="sidebar-status-card mx-1 mb-2 overflow-hidden rounded-[14px] border border-q-border p-3">
@@ -114,7 +116,7 @@ export function SidebarNavigation({
       </div>
 
       <p className="px-2 pb-1 text-center text-[10px] leading-4 text-q-text-muted">
-        数据仅保存在本机 · v0.1.1
+        数据仅保存在本机 · v1.0.0
       </p>
     </nav>
   );

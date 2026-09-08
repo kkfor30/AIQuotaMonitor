@@ -95,6 +95,48 @@ fn start_auto_refresh(app: tauri::AppHandle, first_delay_secs: u64) {
     });
 }
 
+/// 雷达后台自动检查：应用内部调度，固定 15 分钟间隔，不依赖当前打开哪个页面。
+/// - 到期时间持久化：应用恢复运行时若已过期只补跑一次，不连续补跑错过的任务。
+/// - 与主窗口/悬浮窗手动检查共用 RadarControl（try_begin 拒绝并发），避免重复拉取与模型调用；
+///   手动检查进行中时本轮跳过，下个轮询再试。
+/// - AI 已开启且监控窗口内有待分析材料时才调用模型；无新材料不重复调用。
+const RADAR_BACKGROUND_POLL_SECS: u64 = 30;
+
+fn start_radar_background_check(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(RADAR_BACKGROUND_POLL_SECS)).await;
+            let (Some(database), Some(coordinator), Some(control)) = (
+                app.try_state::<storage::database::Database>(),
+                app.try_state::<refresh::RefreshCoordinator>(),
+                app.try_state::<radar::RadarControl>(),
+            ) else {
+                continue;
+            };
+            if !radar::background_check_enabled(&database).unwrap_or(true) {
+                continue;
+            }
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            let next_at = radar::background_next_check_at(&database).unwrap_or(0);
+            if now_ms < next_at {
+                continue;
+            }
+            if control.is_running() { continue; }
+            let prefs = radar::load_analysis_prefs_for_runtime(&database);
+            let result = radar::run_controlled_check(
+                &app, &database, &coordinator, &control,
+                prefs.analyze, prefs.source_id.as_deref(), prefs.model.as_deref(),
+            ).await;
+            if let Err(error) = result {
+                log::warn!("雷达后台检查失败：{error}");
+            }
+        }
+    });
+}
+
 pub fn run() {
     let mut builder = tauri::Builder::default();
     // 单实例插件必须最先注册：第二个进程在这里退出，并把参数交给已运行实例。
@@ -132,6 +174,8 @@ pub fn run() {
             commands::platform_commands::import_legacy_config,
             commands::window_commands::show_hoverbar_detail,
             commands::window_commands::request_hide_hoverbar_detail,
+            commands::window_commands::hide_hoverbar_detail_immediately,
+            commands::window_commands::set_hoverbar_dragging,
             commands::window_commands::finish_hide_hoverbar_detail,
             commands::window_commands::set_hoverbar_detail_size,
             commands::window_commands::set_hoverbar_detail_pointer_inside,
@@ -158,6 +202,10 @@ pub fn run() {
             commands::radar_commands::confirm_radar_user_reset,
             commands::radar_commands::undo_radar_user_reset,
             commands::radar_commands::set_radar_notice_hidden,
+            commands::radar_commands::list_radar_history,
+            commands::radar_commands::list_radar_event_analyses,
+            commands::radar_commands::list_radar_posts,
+            commands::radar_commands::get_radar_post,
             commands::settings_commands::get_app_settings,
             commands::settings_commands::set_app_theme,
             commands::settings_commands::set_refresh_interval,
@@ -238,6 +286,7 @@ pub fn run() {
                 MANUAL_FIRST_REFRESH_SECS
             };
             start_auto_refresh(app.handle().clone(), first_refresh_secs);
+            start_radar_background_check(app.handle().clone());
             if !launched_via_autostart() {
                 commands::window_commands::show_main_window(app.handle());
             }

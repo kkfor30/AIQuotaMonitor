@@ -31,7 +31,6 @@ import { compactPercentText } from "@/lib/format";
 import { capabilityRemainingPercent, quotaTone, quotaToneColor } from "@/components/ui/QuotaProgress";
 import {
   formatHoverbarClock,
-  radarAiStatusLabel,
   radarBankedChangeLine,
   radarLatestBankedChange,
   radarDecisionBadge,
@@ -614,9 +613,9 @@ function RadarStrip({
         : radarBankedChangeLine(latestBankedChange, formatHoverbarClock);
   const staleLine = radar.sourceStatus === "stale" ? radarSourceLine(radar) : null;
   return (
-    <footer className="hb-radar-strip">
+    <section className="hb-radar-strip" aria-label="重置雷达">
       <div className="hb-radar-strip-head">
-        <Radar size={14} aria-hidden />
+        <Radar size={13} aria-hidden />
         <span className="hb-radar-strip-title">重置雷达</span>
         <span className="radar-phase-badge" data-phase={decision.status}>
           {badge}
@@ -630,12 +629,12 @@ function RadarStrip({
               aria-label={radarRefreshing ? "终止检查" : "刷新重置信号"}
               title={radarRefreshing ? "终止检查" : "刷新重置信号"}
             >
-              <RefreshCw size={13} aria-hidden className={radarRefreshing ? "hb-spin" : ""} />
+              <RefreshCw size={12} aria-hidden className={radarRefreshing ? "hb-spin" : ""} />
             </button>
           ) : null}
           <button type="button" className="hb-radar-strip-link" onClick={onOpenRadar}>
             查看详情
-            <ChevronRight size={13} aria-hidden />
+            <ChevronRight size={12} aria-hidden />
           </button>
         </div>
       </div>
@@ -655,13 +654,13 @@ function RadarStrip({
             <div className="hb-radar-strip-ref-box">
               {recentResetLine ? (
                 <div className="hb-radar-strip-ref-row">
-                  <RotateCcw size={10} className="hb-radar-strip-ref-icon" aria-hidden />
+                  <RotateCcw size={11} className="hb-radar-strip-ref-icon" aria-hidden />
                   <span className="hb-radar-strip-ref-text">{recentResetLine}</span>
                 </div>
               ) : null}
               {recentGrantLine ? (
                 <div className="hb-radar-strip-ref-row">
-                  <CreditCard size={10} className="hb-radar-strip-ref-icon" aria-hidden />
+                  <CreditCard size={11} className="hb-radar-strip-ref-icon" aria-hidden />
                   <span className="hb-radar-strip-ref-text">{recentGrantLine}</span>
                 </div>
               ) : null}
@@ -671,18 +670,10 @@ function RadarStrip({
             <span className="hb-radar-strip-note">
               {staleLine ?? `更新 ${formatHoverbarClock(radar.lastSyncedAt ?? Date.now())}`}
             </span>
-            {radar.aiAssessment.enabled ? (
-              <span
-                className="hb-radar-ai-pill"
-                data-state={radar.aiAssessment.state}
-              >
-                {radarAiStatusLabel(radar.aiAssessment)}
-              </span>
-            ) : null}
           </div>
         </>
       )}
-    </footer>
+    </section>
   );
 }
 
@@ -829,6 +820,18 @@ function financeOf(
   };
 }
 
+function parseCapabilityPercent(capability: CapabilitySnapshotViewModel): number | null {
+  if (capability.value.progress !== null && Number.isFinite(capability.value.progress)) {
+    return capability.value.progress <= 1.0 ? capability.value.progress * 100 : capability.value.progress;
+  }
+  if (capability.value.primary) {
+    const raw = capability.value.primary.replace("%", "").trim();
+    const parsed = Number.parseFloat(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function cacheOf(
   capabilities: CapabilitySnapshotViewModel[],
   id: string,
@@ -836,7 +839,7 @@ function cacheOf(
   const capability = capabilities.find((item) => item.capabilityId === id);
   if (!capability) return null;
   const missing = capability.freshness === "missing" || !capability.value.primary;
-  const percent = capabilityRemainingPercent(capability);
+  const percent = parseCapabilityPercent(capability);
   return {
     percent: missing || percent === null ? null : percent,
     percentText: missing ? null : compactPercentText(capability.value.primary!),

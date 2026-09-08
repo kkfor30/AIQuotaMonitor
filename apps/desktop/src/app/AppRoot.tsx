@@ -38,6 +38,10 @@ export function AppRoot() {
       if (disposed || !event.payload) return;
       openPlatform(event.payload);
     }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
+    // 悬浮详情「完整雷达」入口：打开主窗口后跳转雷达页
+    void listen("navigate-radar", () => {
+      if (!disposed) setNav("gpt-radar");
+    }).then((unlisten) => (disposed ? unlisten() : unlisteners.push(unlisten)));
     return () => {
       disposed = true;
       unlisteners.forEach((unlisten) => unlisten());

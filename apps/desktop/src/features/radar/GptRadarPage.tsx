@@ -2,7 +2,6 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  BrainCircuit,
   Calendar,
   ChevronDown,
   ChevronRight,
@@ -10,12 +9,13 @@ import {
   ExternalLink,
   Heart,
   HelpCircle,
-  Link2,
+  History,
   MessageCircle,
   Radar,
   RefreshCw,
   Repeat2,
   RotateCcw,
+  Settings2,
   ShieldCheck,
   Sparkles,
   ThumbsDown,
@@ -36,6 +36,9 @@ import {
   deleteRadarCustomModel,
   fetchRadarSnapshot,
   ipcErrorMessage,
+  listRadarHistory,
+  listRadarEventAnalyses,
+  listRadarPosts,
   openExternalUrl,
   runRadarCheck,
   saveRadarAnalysisPrefs,
@@ -47,7 +50,14 @@ import {
   undoRadarUserReset,
 } from "@/lib/ipc";
 import { RADAR_SNAPSHOT_QUERY_KEY } from "@/lib/query-client";
-import type { RadarChatEndpoint, RadarModelOption, RadarPost, RadarSnapshot } from "@/lib/ipc";
+import type {
+  RadarChatEndpoint,
+  RadarHistory,
+  RadarHistoryEvent,
+  RadarModelOption,
+  RadarPost,
+  RadarSnapshot,
+} from "@/lib/ipc";
 import {
   formatRadarRangeLabel,
   humanizeRadarPostRefs,
@@ -74,22 +84,26 @@ import {
 import { useContainerWidth, TIBO_SPLIT_MIN_PX } from "@/lib/use-container-width";
 import { ArrowLeft } from "lucide-react";
 
+export type TiboFilter = "all" | "signal" | "related" | "unknown" | "none";
+
 export function GptRadarPage() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<RadarTabId>("signal");
-  const [filter, setFilter] = useState<"all" | "signal" | "related" | "none">("all");
+  const [filter, setFilter] = useState<TiboFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [rangeKey, setRangeKey] = useState("3d");
-  const [analyze, setAnalyze] = useState(false);
-  const [sourceId, setSourceId] = useState<string>("");
-  const [modelChoice, setModelChoice] = useState<string>("");
-  const [userPrompt, setUserPrompt] = useState("");
+  // 浏览筛选：只影响 Tibo 列表展示，不触发分析、不改变监控窗口与当前判断。
+  const [browseRange, setBrowseRange] = useState<string>("all");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const [extraPosts, setExtraPosts] = useState<RadarPost[]>([]);
+  const [postsLoadingMore, setPostsLoadingMore] = useState(false);
+  const [postsExhausted, setPostsExhausted] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: RADAR_SNAPSHOT_QUERY_KEY,
     queryFn: fetchRadarSnapshot,
   });
-  // 跨窗口检查状态：悬浮窗触发检查时主窗口按钮同步 loading。
+  // 跨窗口检查状态：悬浮窗/后台触发检查时主窗口按钮同步 loading。
   const [externalChecking, setExternalChecking] = useState(false);
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -105,49 +119,15 @@ export function GptRadarPage() {
       unlisteners.forEach((unlisten) => unlisten());
     };
   }, []);
-  const prefsReady = useRef(false);
 
-  useEffect(() => {
-    if (!data || prefsReady.current) return;
-    prefsReady.current = true;
-    setAnalyze(data.analysisPrefs.analyze);
-    setRangeKey(data.analysisPrefs.rangeKey || "3d");
-    const readyModels = (data.models ?? []).filter((item) => item.ready);
-    const saved = readyModels.find(
-      (item) =>
-        item.sourceId === data.analysisPrefs.sourceId && item.model === (data.analysisPrefs.model ?? ""),
-    );
-    const fallback = readyModels.find((item) => item.model) ?? readyModels[0];
-    const pick = saved ?? fallback;
-    if (pick) {
-      setSourceId(pick.sourceId);
-      setModelChoice(pick.model);
-    }
-    setUserPrompt(data.analysisPrefs.userPrompt ?? data.analysisPrefs.defaultUserPrompt ?? "");
-  }, [data]);
-
-  // 语义提示改为显式保存，不随开关/模型/范围的自动写入一起落库。
-  const userPromptRef = useRef(userPrompt);
-  userPromptRef.current = userPrompt;
-  useEffect(() => {
-    if (!prefsReady.current) return;
-    const timer = window.setTimeout(() => {
-      void saveRadarAnalysisPrefs({
-        analyze,
-        rangeKey,
-        sourceId: sourceId || null,
-        model: modelChoice || null,
-        userPrompt: userPromptRef.current,
-      });
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, [analyze, rangeKey, sourceId, modelChoice]);
-
-  // 下拉与检查只使用凭据可用的对话模型；失配时回退同来源或第一个就绪模型。
+  // 检查使用已保存的偏好设置；修改设置在「雷达设置」抽屉显式保存，刷新不偷偷保存。
   const modelOptions = (data?.models ?? []).filter((item) => item.ready);
   const chosenModel =
-    modelOptions.find((item) => item.sourceId === sourceId && item.model === modelChoice) ??
-    modelOptions.find((item) => item.sourceId === sourceId && item.model) ??
+    modelOptions.find(
+      (item) =>
+        item.sourceId === data?.analysisPrefs.sourceId && item.model === data?.analysisPrefs.model,
+    ) ??
+    modelOptions.find((item) => item.sourceId === data?.analysisPrefs.sourceId && item.model) ??
     modelOptions.find((item) => item.model) ??
     modelOptions[0] ??
     null;
@@ -155,11 +135,9 @@ export function GptRadarPage() {
   const checkMutation = useMutation({
     mutationFn: () =>
       runRadarCheck({
-        analyze,
-        rangeKey,
+        analyze: data?.analysisPrefs.analyze ?? false,
         sourceId: chosenModel?.sourceId ?? null,
         model: chosenModel?.model ?? null,
-        userPrompt,
       }),
     onSuccess: (snapshot) => {
       queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot);
@@ -173,12 +151,16 @@ export function GptRadarPage() {
     },
   });
 
-  const radarChecking = checkMutation.isPending || externalChecking;
+  const radarChecking = checkMutation.isPending || externalChecking || Boolean(data?.checkRunning);
   const checkCancelled = checkMutation.error
     ? ipcErrorMessage(checkMutation.error, "检查失败").includes("已终止")
     : false;
-  // Tibo 动态是浏览视图：展示同步到的全部帖子，基于全局唯一 ID 严格去重，不受动态范围过滤。
-  const rawPosts = data?.posts ?? [];
+  // Tibo 动态是浏览视图：展示同步到的全部帖子，基于全局唯一 ID 严格去重；时间筛选仅作用于展示。
+  useEffect(() => {
+    setExtraPosts([]);
+    setPostsExhausted(false);
+  }, [data?.lastSyncedAt]);
+  const rawPosts = [...(data?.posts ?? []), ...extraPosts];
   const seenIds = new Set<string>();
   const posts: RadarPost[] = [];
   for (const post of rawPosts) {
@@ -188,17 +170,26 @@ export function GptRadarPage() {
     }
   }
   posts.sort((a, b) => b.postedAt - a.postedAt);
-  const visible = posts.filter((post) => {
+  const browseBounds = browseRangeBounds(browseRange);
+  const browsed = posts.filter((post) =>
+    browseRange === "all"
+      ? true
+      : post.postedAt >= browseBounds.start && post.postedAt <= browseBounds.end,
+  );
+  const visible = browsed.filter((post) => {
     if (filter === "all") return true;
     if (filter === "signal") return post.explicitReset || post.filter === "signal";
     if (filter === "related") return post.filter === "related";
+    if (filter === "unknown") return post.filter === "unknown" && !post.explicitReset;
     return post.filter === "none" && !post.explicitReset;
   });
   const selected = visible.find((post) => post.id === selectedId) ?? visible[0] ?? null;
 
-  // 动态范围（复用 analysisPrefs.rangeKey）：同时控制 Tibo 列表与 AI 上下文，AI 关闭时仍可设置。
-  const customRange = customRangeOf(rangeKey);
-  const customActive = !QUICK_RANGES.some((range) => range.id === rangeKey) && customRange !== null;
+  const customRange = customRangeOf(browseRange);
+  const customActive =
+    browseRange !== "all" &&
+    !(["today", "3d", "7d"] as string[]).includes(browseRange) &&
+    customRange !== null;
   const todayIso = toIsoDate(new Date());
   const [customPickerOpen, setCustomPickerOpen] = useState(false);
   const customPickerRef = useRef<HTMLDivElement>(null);
@@ -222,10 +213,10 @@ export function GptRadarPage() {
     if (!start || !end || start.length !== 10 || end.length !== 10) return;
     const [from, to] = start <= end ? [start, end] : [end, start];
     lastCustomRangeRef.current = `range:${from}:${to}`;
-    setRangeKey(`range:${from}:${to}`);
+    setBrowseRange(`range:${from}:${to}`);
   };
   const switchToCustom = () => {
-    setRangeKey(lastCustomRangeRef.current ?? defaultCustomRangeKey());
+    setBrowseRange(lastCustomRangeRef.current ?? defaultCustomRangeKey());
   };
 
   return (
@@ -241,6 +232,7 @@ export function GptRadarPage() {
         <span className="shrink-0 whitespace-nowrap rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral">
           仅为推测，不代表官方结论
         </span>
+        <SourceStatusChips data={data} className="ml-auto hidden md:flex" />
       </header>
       {checkMutation.error && !checkCancelled && (
         <p className="rounded-q-control border border-q-danger/25 bg-q-danger-soft px-3 py-2 text-xs text-q-danger">
@@ -248,7 +240,7 @@ export function GptRadarPage() {
         </p>
       )}
 
-      {/* 分段 Tab + 立即检查 + 动态范围（同一行公开可见；范围同时控制 Tibo 列表与 AI 上下文） */}
+      {/* 分段 Tab + 立即检查 + 雷达设置（时间筛选只在「全部动态」页内且仅作用于浏览） */}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex shrink-0 items-center gap-3">
           <div
@@ -285,76 +277,16 @@ export function GptRadarPage() {
             </Button>
           )}
         </div>
-        {/* 动态范围：单行紧凑对齐，自定义使用浮动卡片 Popover，不撑大工具栏行高 */}
-        <div className="ml-auto mr-4 flex shrink-0 items-center justify-end gap-2">
-          <span className="shrink-0 whitespace-nowrap text-[13.5px] font-medium text-q-text-secondary">动态范围：</span>
-          {QUICK_RANGES.map((range) => (
-            <button
-              key={range.id}
-              type="button"
-              aria-pressed={rangeKey === range.id}
-              onClick={() => {
-                setRangeKey(range.id);
-                setCustomPickerOpen(false);
-              }}
-              className={rangeChipClass(rangeKey === range.id)}
-            >
-              {range.label}
-            </button>
-          ))}
-          <div className="relative inline-flex items-center" ref={customPickerRef}>
-            <button
-              type="button"
-              aria-pressed={customActive}
-              onClick={() => {
-                if (!customActive) switchToCustom();
-                setCustomPickerOpen((v) => !v);
-              }}
-              className={cn(rangeChipClass(customActive), "inline-flex items-center gap-1.5")}
-            >
-              <span>
-                {customActive && customRange
-                  ? `自定义 (${customRange.start.slice(5).replace("-", "/")}~${customRange.end.slice(5).replace("-", "/")})`
-                  : "自定义"}
-              </span>
-              <Calendar size={12} className="opacity-70" aria-hidden />
-            </button>
-            {customPickerOpen && customRange && (
-              <div className="absolute right-0 top-[calc(100%+8px)] z-50 flex flex-col gap-2.5 rounded-q-card border border-q-border bg-q-surface-strong p-3 shadow-q-xl backdrop-blur-xl animate-scale-in min-w-[280px]">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-q-text-secondary">自定义动态范围</span>
-                  <button
-                    type="button"
-                    onClick={() => setCustomPickerOpen(false)}
-                    className="rounded p-1 text-q-text-muted hover:bg-q-surface-hover hover:text-q-text-primary"
-                    aria-label="关闭日期选择"
-                  >
-                    <X size={13} aria-hidden />
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="date"
-                    value={customRange.start}
-                    max={todayIso}
-                    onChange={(event) => applyCustomRange(event.target.value, customRange.end)}
-                    aria-label="动态范围开始日期"
-                    className={dateInputClass}
-                  />
-                  <span className="text-xs text-q-text-muted shrink-0">至</span>
-                  <input
-                    type="date"
-                    value={customRange.end}
-                    max={todayIso}
-                    onChange={(event) => applyCustomRange(customRange.start, event.target.value)}
-                    aria-label="动态范围结束日期"
-                    className={dateInputClass}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <Button
+          ref={settingsButtonRef}
+          variant="secondary"
+          size="sm"
+          className="ml-auto mr-4 shrink-0"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings2 size={14} aria-hidden />
+          雷达设置
+        </Button>
       </div>
 
       {isLoading ? (
@@ -363,51 +295,156 @@ export function GptRadarPage() {
         <>
           {tab === "signal" && <SignalSummaryView data={data} />}
           {tab === "tibo" && (
-            <TiboFeedView
-              posts={visible}
-              rangeLabel="全部"
-              totalCount={posts.length}
-              signalCount={posts.filter((p) => p.explicitReset || p.filter === "signal").length}
-              relatedCount={posts.filter((p) => p.filter === "related").length}
-              noneCount={posts.filter((p) => p.filter === "none" && !p.explicitReset).length}
-              selected={selected}
-              filter={filter}
-              onFilter={setFilter}
-              onSelect={setSelectedId}
-              onTranslate={(postId) => translateMutation.mutate(postId)}
-              translatingPostId={translateMutation.isPending ? translateMutation.variables : null}
-            />
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+              {/* 浏览时间筛选：仅过滤本地已同步数据，不触发分析、不改变监控范围 */}
+              <div className="flex shrink-0 flex-wrap items-center gap-2 px-1">
+                <span className="shrink-0 whitespace-nowrap text-[12.5px] font-medium text-q-text-secondary">
+                  浏览范围：
+                </span>
+                <button
+                  type="button"
+                  aria-pressed={browseRange === "all"}
+                  onClick={() => setBrowseRange("all")}
+                  className={rangeChipClass(browseRange === "all")}
+                >
+                  全部
+                </button>
+                {(
+                  [
+                    { id: "today", label: "当天" },
+                    { id: "3d", label: "过去 3 天" },
+                    { id: "7d", label: "过去 7 天" },
+                  ] as const
+                ).map((range) => (
+                  <button
+                    key={range.id}
+                    type="button"
+                    aria-pressed={browseRange === range.id}
+                    onClick={() => {
+                      setBrowseRange(range.id);
+                      setCustomPickerOpen(false);
+                    }}
+                    className={rangeChipClass(browseRange === range.id)}
+                  >
+                    {range.label}
+                  </button>
+                ))}
+                <div className="relative inline-flex items-center" ref={customPickerRef}>
+                  <button
+                    type="button"
+                    aria-pressed={customActive}
+                    onClick={() => {
+                      if (!customActive) switchToCustom();
+                      setCustomPickerOpen((v) => !v);
+                    }}
+                    className={cn(rangeChipClass(customActive), "inline-flex items-center gap-1.5")}
+                  >
+                    <span>
+                      {customActive && customRange
+                        ? `自定义 (${customRange.start.slice(5).replace("-", "/")}~${customRange.end.slice(5).replace("-", "/")})`
+                        : "自定义"}
+                    </span>
+                    <Calendar size={12} className="opacity-70" aria-hidden />
+                  </button>
+                  {customPickerOpen && customRange && (
+                    <div className="absolute left-0 top-[calc(100%+8px)] z-50 flex flex-col gap-2.5 rounded-q-card border border-q-border bg-q-surface-strong p-3 shadow-q-xl backdrop-blur-xl animate-scale-in min-w-[280px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-q-text-secondary">自定义浏览范围</span>
+                        <button
+                          type="button"
+                          onClick={() => setCustomPickerOpen(false)}
+                          className="rounded p-1 text-q-text-muted hover:bg-q-surface-hover hover:text-q-text-primary"
+                          aria-label="关闭日期选择"
+                        >
+                          <X size={13} aria-hidden />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="date"
+                          value={customRange.start}
+                          max={todayIso}
+                          onChange={(event) => applyCustomRange(event.target.value, customRange.end)}
+                          aria-label="浏览范围开始日期"
+                          className={dateInputClass}
+                        />
+                        <span className="text-xs text-q-text-muted shrink-0">至</span>
+                        <input
+                          type="date"
+                          value={customRange.end}
+                          max={todayIso}
+                          onChange={(event) => applyCustomRange(customRange.start, event.target.value)}
+                          aria-label="浏览范围结束日期"
+                          className={dateInputClass}
+                        />
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-q-text-muted">
+                        浏览筛选只过滤已同步到本地的动态，不改变雷达监控范围，也不会触发 AI 分析。
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <TiboFeedView
+                posts={visible}
+                onLoadMore={
+                  postsExhausted
+                    ? undefined
+                    : async () => {
+                        const last = posts[posts.length - 1];
+                        if (!last || postsLoadingMore) return;
+                        setPostsLoadingMore(true);
+                        try {
+                          const more = await listRadarPosts({
+                            cursor: `${last.postedAt}:${last.id}`,
+                            limit: 80,
+                          });
+                          const known = new Set(posts.map((post) => post.id));
+                          const fresh = more.filter((post) => !known.has(post.id));
+                          if (fresh.length === 0) setPostsExhausted(true);
+                          else setExtraPosts((current) => [...current, ...fresh]);
+                        } finally {
+                          setPostsLoadingMore(false);
+                        }
+                      }
+                }
+                loadingMore={postsLoadingMore}
+                rangeLabel={browseRange === "all" ? "全部" : formatRadarRangeLabel(browseRange)}
+                totalCount={browsed.length}
+                signalCount={browsed.filter((p) => p.explicitReset || p.filter === "signal").length}
+                relatedCount={browsed.filter((p) => p.filter === "related").length}
+                unknownCount={browsed.filter((p) => p.filter === "unknown" && !p.explicitReset).length}
+                noneCount={browsed.filter((p) => p.filter === "none" && !p.explicitReset).length}
+                selected={selected}
+                filter={filter}
+                onFilter={setFilter}
+                onSelect={setSelectedId}
+                onTranslate={(postId) => translateMutation.mutate(postId)}
+                translatingPostId={translateMutation.isPending ? translateMutation.variables : null}
+              />
+            </div>
           )}
-          {tab === "ai" && (
-            <AiAnalysisView
-              data={data}
-              analyze={analyze}
-              sourceId={chosenModel?.sourceId || sourceId}
-              modelChoice={chosenModel ? chosenModel.model : modelChoice}
-              models={modelOptions}
-              onAnalyzeChange={setAnalyze}
-              onSourceChange={setSourceId}
-              onModelChange={setModelChoice}
-              userPrompt={userPrompt}
-              defaultUserPrompt={data?.analysisPrefs.defaultUserPrompt ?? ""}
-              rangeKey={rangeKey}
-              onUserPromptChange={setUserPrompt}
-            />
-          )}
+          {tab === "history" && <HistoryView data={data} />}
         </>
       )}
+      <RadarSettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        data={data}
+        returnFocusRef={settingsButtonRef}
+      />
     </div>
   );
 }
 
-type RadarTabId = "signal" | "tibo" | "ai";
-const RADAR_TABS: Array<{ id: RadarTabId; label: string }> = [
-  { id: "signal", label: "信号摘要" },
-  { id: "tibo", label: "Tibo 动态" },
-  { id: "ai", label: "AI 辅助分析" },
+export type RadarTabId = "signal" | "tibo" | "history";
+export const RADAR_TABS: Array<{ id: RadarTabId; label: string }> = [
+  { id: "signal", label: "当前信号" },
+  { id: "tibo", label: "全部动态" },
+  { id: "history", label: "历史记录" },
 ];
 
-/** 自定义日期输入样式（Tab 行动态范围控件用）；固定宽度避免默认 date 输入过宽把工具栏挤换行。 */
+/** 自定义日期输入样式；固定宽度避免默认 date 输入过宽把工具栏挤换行。 */
 const dateInputClass =
   "h-8 w-[116px] rounded-md border border-q-border bg-q-surface px-2 text-xs text-q-text-primary outline-none focus:border-q-primary";
 
@@ -431,8 +468,20 @@ function formatCompactTime(value: number) {
 }
 
 function AnimatedCollapse({ open, children, className = "" }: { open: boolean; children: ReactNode; className?: string }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (open) panel.removeAttribute("inert");
+    else panel.setAttribute("inert", "");
+  }, [open]);
   return (
-    <div className={`radar-collapse ${className}`} data-open={open || undefined} aria-hidden={!open}>
+    <div
+      ref={panelRef}
+      className={`radar-collapse ${className}`}
+      data-open={open || undefined}
+      aria-hidden={!open}
+    >
       <div className="radar-collapse-inner">{children}</div>
     </div>
   );
@@ -445,105 +494,67 @@ function quotaTone(status: string): "success" | "warning" | "neutral" | "primary
   return "neutral";
 }
 
-/** 帖子信号徽章色调：显式重置 → 红；信号/相关 → 橙；无信号 → 灰 */
+/** 帖子信号徽章色调：显式重置 → 红；信号 → 橙；相关/未分类 → 蓝；无关 → 灰 */
 function postBadgeTone(post: RadarPost): "danger" | "warning" | "neutral" | "primary" {
   if (post.explicitReset) return "danger";
   if (post.filter === "signal") return "warning";
   if (post.filter === "related") return "primary";
+  if (post.filter === "unknown") return "primary";
   if (post.filter === "none") return "neutral";
   return "primary";
 }
 
-/* ————————————————— 信号摘要（设计稿 04） ————————————————— */
+/* ————————————————— 当前信号 ————————————————— */
 
-/**
- * 半环形雷达置信/状态刻度仪表盘（SVG Arc Gauge）：
- * 配合 Aurora Acrylic 午夜石墨蓝基底，直观呈现当前重置事件的确定性与信号强度。
- */
-export function RadarStatusGauge({
-  status,
-}: {
-  status: string;
-}) {
-  const { percent, color, label } = (() => {
-    switch (status) {
-      case "landed_observed":
-      case "user_confirmed":
-        return { percent: 100, color: "var(--q-success)", label: "已落地" };
-      case "landed_claimed":
-        return { percent: 85, color: "var(--q-warning)", label: "待验证" };
-      case "watching":
-      case "upcoming":
-        return { percent: 75, color: "var(--q-primary)", label: "观察中" };
-      case "expected_time_passed":
-        return { percent: 60, color: "var(--q-warning)", label: "已过预期" };
-      case "unscheduled_reset":
-      case "possible_reset":
-        return { percent: 85, color: "var(--q-warning)", label: "疑似刷新" };
-      case "claimed_unverified":
-        return { percent: 70, color: "var(--q-primary)", label: "预告中" };
-      case "expired":
-        return { percent: 35, color: "var(--q-neutral)", label: "已截止" };
-      case "no_signal":
-      default:
-        return { percent: 15, color: "var(--q-neutral)", label: "平稳" };
-    }
-  })();
-
-  const circumference = Math.PI * 22;
-  const strokeDashoffset = circumference - (percent / 100) * circumference;
-
-  return (
-    <div className="relative flex flex-col items-center justify-center shrink-0" title={`信号置信度: ${label} (${percent}%)`}>
-      <svg width="56" height="34" viewBox="0 0 56 34" className="overflow-visible" aria-hidden="true">
-        <path
-          d="M 6 30 A 22 22 0 0 1 50 30"
-          fill="none"
-          stroke="var(--q-border)"
-          strokeWidth="5"
-          strokeLinecap="round"
-        />
-        <path
-          d="M 6 30 A 22 22 0 0 1 50 30"
-          fill="none"
-          stroke={color}
-          strokeWidth="5"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          className="transition-all duration-700 ease-out"
-        />
-      </svg>
-      <span
-        className="text-[10.5px] font-bold tabular-nums -mt-2.5 tracking-tight"
-        style={{ color }}
-      >
-        {percent}%
-      </span>
-    </div>
-  );
+function primaryEventRevision(data: RadarSnapshot | undefined, eventId: string | null | undefined): number | null {
+  if (!eventId || !data) return null;
+  const fromList = data.activeEvents?.find((event) => event.id === eventId)?.stateRevision;
+  if (typeof fromList === "number") return fromList;
+  if (data.event?.id === eventId) return data.event.stateRevision;
+  return null;
 }
 
-/** 决策状态徽章色系映射：与状态/置信度保持一致的语义色调。 */
-function radarDecisionToneClass(status: string): string {
-  switch (status) {
-    case "landed_observed":
-    case "user_confirmed":
-      return "bg-q-success-soft text-q-success";
-    case "landed_claimed":
-    case "expected_time_passed":
-    case "unscheduled_reset":
-    case "possible_reset":
-      return "bg-q-warning-soft text-q-warning";
-    case "watching":
-    case "upcoming":
-    case "claimed_unverified":
-      return "bg-q-primary-soft text-q-primary";
-    case "no_signal":
-    case "expired":
-    default:
-      return "bg-q-neutral-soft text-q-text-secondary";
-  }
+/** 分来源同步状态：一个来源失败不清除另一来源成功数据。 */
+function SourceStatusChips({ data, className }: { data: RadarSnapshot | undefined; className?: string }) {
+  const sources = data?.sources ?? [];
+  if (sources.length === 0) return null;
+  return (
+    <div className={cn("flex shrink-0 items-center gap-1.5", className)}>
+      {sources.map((source) => (
+        <span
+          key={source.sourceId}
+          title={
+            source.lastError
+              ? `${source.displayName}：${source.lastError}`
+              : source.lastSuccessAt
+                ? `${source.displayName} 上次成功 ${formatCompactTime(source.lastSuccessAt)}`
+                : `${source.displayName} 尚未同步`
+          }
+          className={cn(
+            "inline-flex items-center gap-1 rounded-q-pill px-2 py-0.5 text-[11px] font-medium",
+            source.lastError
+              ? "bg-q-danger-soft text-q-danger"
+              : source.freshness === "fresh"
+                ? "bg-q-success-soft text-q-success"
+                : source.freshness === "stale"
+                  ? "bg-q-warning-soft text-q-warning"
+                  : "bg-q-neutral-soft text-q-text-secondary",
+          )}
+        >
+          {source.displayName}
+          {source.lastError
+            ? "失败"
+            : source.freshness === "fresh"
+              ? "正常"
+              : source.freshness === "stale"
+                ? "缓存"
+                : source.freshness === "unknown"
+                  ? "待确认"
+                  : "未同步"}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 export function SignalSummaryView({
@@ -565,19 +576,11 @@ export function SignalSummaryView({
   const citedIds = decision?.currentKeyCitationIds ?? [];
   const citedPosts = knownPosts.filter((post) => citedIds.includes(post.id));
   const notice = data?.notice ?? null;
-  const aiStatusLabel = radarAiStatusLabel(ai);
-  // AI 关闭/历史态/失败态：确定性判断与 Tibo 数据继续展示，旧结果只能作为历史结果折叠查看。
-  const showCurrentAnalysis = Boolean(
-    ai?.enabled &&
-      ai.state !== "historical" &&
-      ai.state !== "failed" &&
-      aiReasoning?.conclusion,
-  );
-  const historicalAnalysis = ai?.history ?? aiReasoning;
   const [recentOpen, setRecentOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [historyAnalysisOpen, setHistoryAnalysisOpen] = useState(false);
+  const [basisOpen, setBasisOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [quotaOpen, setQuotaOpen] = useState(false);
+  const [noticeOpen, setNoticeOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const recentResetAt = recentReset?.observedResetAt ?? recentReset?.userConfirmedResetAt ?? null;
   const recentMeta = recentResetAt
@@ -589,28 +592,29 @@ export function SignalSummaryView({
     !verifications.some(
       (item) => item.attribution === "user_confirmed" || Boolean(quotaCorrelationLabel(item.temporalCorrelation)),
     );
-  // 本机验证汇总徽章：表达整体可用性，不冒充判断结论。
-  const quotaOverall = (() => {
-    if (verifications.length === 0) return null;
-    if (verifications.every((item) => item.status === "unavailable")) {
-      return { tone: "neutral" as const, label: "暂无法验证" };
-    }
-    if (verifications.some((item) => ["unscheduled_reset", "possible_reset"].includes(item.status))) {
-      return { tone: "warning" as const, label: "有待确认" };
-    }
-    return { tone: "success" as const, label: "正常" };
-  })();
   const quotaSummary = radarQuotaSummaryLine(verifications);
+  // 关键依据：当前事件关联帖（来源直接信号优先）。
+  const relevantPosts = decision?.relevantPostIds
+    ? knownPosts.filter((post) => decision.relevantPostIds.includes(post.id))
+    : [];
   const confirmCard = useMutation({
     mutationFn: confirmRadarQuotaChange,
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
   });
   const confirmReset = useMutation({
-    mutationFn: confirmRadarUserReset,
+    mutationFn: () =>
+      confirmRadarUserReset({
+        eventId: decision?.activeEventId ?? null,
+        expectedRevision: primaryEventRevision(data, decision?.activeEventId),
+      }),
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
   });
   const undoReset = useMutation({
-    mutationFn: undoRadarUserReset,
+    mutationFn: () =>
+      undoRadarUserReset({
+        eventId: decision?.activeEventId ?? null,
+        expectedRevision: primaryEventRevision(data, decision?.activeEventId),
+      }),
     onSuccess: (snapshot) => queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot),
   });
   const setNoticeHidden = useMutation({
@@ -620,530 +624,427 @@ export function SignalSummaryView({
 
   return (
     <div className="radar-console flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
-      {/* 两张状态卡：研判（含微型雷达仪表盘与最近一次重置）+ 本机验证（宽屏等高，窄屏自动换行） */}
-      <div className="radar-status-grid shrink-0">
-        <section className="glass-panel flex flex-col gap-3 p-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">当前判断</h2>
-            {decision ? (
-              <span
-                className={cn(
-                  "rounded-q-pill px-2 py-0.5 text-[11px] font-medium",
-                  radarDecisionToneClass(decision.status),
-                )}
-              >
-                {radarDecisionBadge(decision)}
-              </span>
-            ) : null}
-            {decision?.observationPeriodText ? (
-              <span className="rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[10.5px] font-medium text-q-success">
-                {decision.observationPeriodText}
-              </span>
-            ) : null}
-            {data ? (
-              <span className="ml-auto shrink-0 tabular-nums text-[11px] text-q-text-muted">
-                更新 {formatCompactTime(data.lastSyncedAt ?? Date.now())}
-              </span>
-            ) : null}
-          </div>
+      {/* 当前判断：结论 + 可选时间 + 简短解释；不使用未经校准的置信度仪表 */}
+      <section className="glass-panel flex shrink-0 flex-col gap-3 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">当前判断</h2>
           {decision ? (
-            <>
-              <div className="flex items-start gap-3.5">
-                <RadarStatusGauge status={decision.status} />
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <p className="text-[16px] font-bold leading-snug text-q-text-primary" data-selectable="true">
-                    {decision.headline}
-                  </p>
-                  <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{radarDecisionTimeText(decision)}</p>
-                  {observedCauseUnknown ? <p className="text-[12px] text-q-text-muted">原因未知</p> : null}
-                </div>
-              </div>
-              {decision.verificationHint ? (
-                <p className="text-[13px] leading-relaxed text-q-text-secondary">{decision.verificationHint}</p>
-              ) : null}
-              {data ? <p className="text-[13px] leading-relaxed text-q-text-secondary">{radarDeltaImpactLine(data)}</p> : null}
-              {!recentCard && decision.status === "no_signal" && decision.recentSummaryText ? (
-                <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{decision.recentSummaryText}</p>
-              ) : null}
-              {decision.canConfirmReset || decision.canUndoConfirm ? (
-                <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                  {decision.canConfirmReset ? (
-                    <Button variant="secondary" size="sm" onClick={() => setConfirmOpen(true)}>
-                      {radarConfirmResetLabel(decision.eventType)}
-                    </Button>
-                  ) : null}
-                  {decision.canUndoConfirm ? (
-                    <Button variant="ghost" size="sm" disabled={undoReset.isPending} onClick={() => undoReset.mutate()}>
-                      撤销人工确认
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <p className="text-xs text-q-text-muted">正在加载重置判断…</p>
-          )}
-
-          {/* 历史参考记录：重置卡变动与历史重置并列 */}
-          {decision && (radarBankedChangeRows(decision).length > 0 || recentCard) ? (
-            <div className="mt-auto flex flex-col gap-1.5 rounded-q-control border border-q-border/60 bg-q-surface-strong/40 p-2.5">
-              {radarBankedChangeRows(decision).map((change) => (
-                <div
-                  key={`${change.kind}-${change.observedAt}-${change.sourceId}`}
-                  className="flex items-center gap-2 text-[12.5px]"
-                >
-                  <CreditCard size={14} className="shrink-0 text-q-primary/80" aria-hidden />
-                  <span className="font-medium text-q-text-secondary">
-                    {radarBankedChangeTitle(change)}
-                  </span>
-                  <span className="ml-auto min-w-0 shrink-0 truncate tabular-nums text-q-text-muted">
-                    {radarBankedChangeMeta(change, formatCompactTime)}
-                  </span>
-                </div>
-              ))}
-              {recentCard ? (
-                <div className={cn(radarBankedChangeRows(decision).length > 0 && "border-t border-q-border/40 pt-1.5")}>
-                  <button
-                    type="button"
-                    className="flex w-full cursor-pointer items-center gap-2 text-left text-[12.5px] group"
-                    onClick={() => setRecentOpen((value) => !value)}
-                    aria-expanded={recentOpen}
-                  >
-                    <RotateCcw size={14} className="shrink-0 text-q-primary/80" aria-hidden />
-                    <span className="font-medium text-q-text-secondary">
-                      {recentReset ? "最近一次重置" : "最近一次事件"}
-                    </span>
-                    <span className="ml-auto flex items-center gap-1.5 truncate tabular-nums text-[12px]">
-                      {recentResetAt ? (
-                        <>
-                          <span className="font-semibold text-q-text-primary">
-                            {formatCompactTime(recentResetAt)}
-                          </span>
-                          <span className="text-q-text-muted">
-                            {" "}
-                            · {radarConfirmationSourceLabel(recentReset?.confirmationSource)}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-q-text-muted">{recentMeta}</span>
-                      )}
-                      <ChevronRight
-                        size={13}
-                        aria-hidden
-                        className={cn(
-                          "shrink-0 text-q-text-muted transition-transform duration-200 group-hover:text-q-text-primary",
-                          recentOpen && "rotate-90",
-                        )}
-                      />
-                    </span>
-                  </button>
-                  <AnimatedCollapse open={recentOpen}>
-                    <div className="flex flex-col gap-1.5 pt-2 pl-5.5 text-[12px]">
-                      {recentResetAt ? (
-                        <p className="leading-relaxed text-q-text-secondary">
-                          <span className="font-medium text-q-text-primary">真实时间：</span>
-                          <span className="tabular-nums">{formatCompactTime(recentResetAt)}</span>
-                        </p>
-                      ) : null}
-                      <p className="leading-relaxed text-q-text-secondary">
-                        <span className="font-medium text-q-text-primary">确认方式：</span>
-                        {radarConfirmationSourceLabel(recentCard.confirmationSource)}
-                      </p>
-                      <p className="leading-relaxed text-q-text-secondary">
-                        <span className="font-medium text-q-text-primary">最终状态：</span>
-                        {radarCloseReasonLabel(recentCard.closeReason)}
-                      </p>
-                      {recentCard.analysis?.conclusion ? (
-                        <p className="leading-relaxed text-q-text-secondary" data-selectable="true">
-                          <span className="font-medium text-q-text-primary">当时结论：</span>
-                          {humanizeRadarPostRefs(recentCard.analysis.conclusion, knownPosts)}
-                        </p>
-                      ) : null}
-                      {recentCard.analysis?.analysisBasis ? (
-                        <p className="leading-relaxed text-q-text-secondary" data-selectable="true">
-                          <span className="font-medium text-q-text-primary">当时分析：</span>
-                          {humanizeRadarPostRefs(recentCard.analysis.analysisBasis, knownPosts)}
-                        </p>
-                      ) : null}
-                    </div>
-                  </AnimatedCollapse>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </section>
-
-        {/* 本机验证：汇总徽章 + 一句汇总；账号详情直接展开，多账号时卡内滚动防溢出 */}
-        <section className="glass-panel flex flex-col gap-2 p-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">本机验证</h2>
-            {quotaOverall ? <StatusBadge tone={quotaOverall.tone}>{quotaOverall.label}</StatusBadge> : null}
-          </div>
-          {verifications.length === 0 ? (
-            <p className="text-xs text-q-text-muted">未接入 GPT 额度来源。</p>
-          ) : (
-            <>
-              <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
-                {quotaSummary}
-              </p>
-              <div className="radar-verification-scroll flex flex-col">
-                {verifications.map((item, index) => (
-                  <div
-                    key={item.sourceId}
-                    className={cn("flex flex-col gap-1 py-2", index > 0 && "border-t border-q-border/60")}
-                  >
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <b className="whitespace-nowrap text-[13px] text-q-text-primary">{item.accountName}</b>
-                      <StatusBadge tone={quotaTone(item.status)}>
-                        {quotaBadgeLabel(item.status, item.attribution, item.lastResetObservedAt)}
-                      </StatusBadge>
-                      {item.attribution === "user_confirmed" ? (
-                        <span className="text-[11px] text-q-text-muted">用户已确认重置卡</span>
-                      ) : null}
-                      {quotaCorrelationLabel(item.temporalCorrelation) ? (
-                        <span className="text-[11px] text-q-text-muted">{quotaCorrelationLabel(item.temporalCorrelation)}</span>
-                      ) : null}
-                    </div>
-                    {item.status === "unavailable" && (
-                      <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
-                        当前网络无法获取 Codex 额度，不影响来源与 AI 判断。
-                      </p>
-                    )}
-                    {item.note && <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{item.note}</p>}
-                    <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
-                      {item.bankedResetLabel}
-                      {radarAccountBankedChangeNotes(item, formatCompactTime)
-                        ? ` · ${radarAccountBankedChangeNotes(item, formatCompactTime)}`
-                        : ""}
-                    </p>
-                    <p className="text-[11.5px] tabular-nums text-q-text-muted">
-                      {item.windowLabel ? `${item.windowLabel} · ` : ""}
-                      {item.lastSuccessAt ? `上次成功 ${formatCompactTime(item.lastSuccessAt)}` : "尚无成功快照"}
-                    </p>
-                    {["unscheduled_reset", "possible_reset"].includes(item.status) &&
-                      item.observationId != null &&
-                      item.attribution !== "user_confirmed" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="self-start"
-                          disabled={confirmCard.isPending}
-                          onClick={() =>
-                            confirmCard.mutate({
-                              observationId: item.observationId ?? 0,
-                              confirmedAt: Date.now(),
-                            })
-                          }
-                        >
-                          确认这是我手动使用的重置卡
-                        </Button>
-                      )}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </section>
-      </div>
-
-      {/* CodexRadar 公告：全宽细条；可隐藏，偏好与悬浮页同步；不进入本地 AI 输入 */}
-      {data?.noticeHidden ? (
-        <section className="glass-panel flex shrink-0 items-center gap-2 px-4 py-2">
-          <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-q-text-secondary">CodexRadar 公告已隐藏</p>
-          <button
-            type="button"
-            className="shrink-0 cursor-pointer text-[12px] font-medium text-q-primary hover:underline disabled:opacity-50"
-            disabled={setNoticeHidden.isPending}
-            aria-label="显示 CodexRadar 公告"
-            onClick={() => setNoticeHidden.mutate(false)}
-          >
-            显示
-          </button>
-        </section>
-      ) : (
-        <section className="glass-panel radar-notice-card flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
-          <h2 className="whitespace-nowrap text-[14px] font-semibold tracking-tight text-q-text-primary">
-            {notice ? (notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
-          </h2>
-          {notice ? (
-            <span className="rounded-q-pill bg-q-primary-soft px-2 py-0.5 text-[11px] font-medium text-q-primary">
-              {notice.isCurrent ? "当前公告" : "最近公告"}
+            <span
+              className={cn(
+                "rounded-q-pill px-2 py-0.5 text-[11px] font-medium",
+                radarDecisionToneClass(decision.status),
+              )}
+            >
+              {radarDecisionBadge(decision)}
             </span>
           ) : null}
-          <span
-            className={
-              data?.sourceStatus === "fresh"
-                ? "rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success"
-                : data?.sourceStatus === "stale"
-                  ? "rounded-q-pill bg-q-warning-soft px-2 py-0.5 text-[11px] font-medium text-q-warning"
-                  : "rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-neutral"
-            }
-          >
-            {data?.sourceStatus === "fresh" ? "同步正常" : data?.sourceStatus === "stale" ? "缓存可能过期" : "尚未同步"}
+          {decision?.observationPeriodText ? (
+            <span className="rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[10.5px] font-medium text-q-success">
+              {decision.observationPeriodText}
+            </span>
+          ) : null}
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            <SourceStatusChips data={data} className="hidden md:flex" />
+            {data?.lastSyncedAt ? (
+              <span className="tabular-nums text-[11px] text-q-text-muted">
+                更新 {formatCompactTime(data.lastSyncedAt)}
+              </span>
+            ) : null}
           </span>
-          {notice ? (
-            <>
-              <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
-                <span className="font-semibold text-q-text-primary">{notice.headline}</span>
-                {notice.lead ? <span> · {notice.lead}</span> : null}
+        </div>
+        {decision ? (
+          <>
+            <p className="text-[18px] font-bold leading-snug text-q-text-primary" data-selectable="true">
+              {decision.headline}
+            </p>
+            {decision.timeText ? (
+              <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                {radarDecisionTimeText(decision)}
               </p>
-              <span className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap text-[12px] text-q-text-muted">
-                {notice.isCurrent
-                  ? notice.updatedAt
-                    ? `更新 ${formatTime(notice.updatedAt)}`
-                    : "当前公告"
-                  : notice.updatedAt
-                    ? `上次出现于 ${formatTime(notice.updatedAt)}`
-                    : "历史公告"}
-                <a
-                  href="https://codexradar.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    void openExternalUrl("https://codexradar.com/").catch(() => {});
-                  }}
-                >
-                  <ExternalLink size={12} aria-hidden />
-                  打开 CodexRadar
-                </a>
+            ) : null}
+            {observedCauseUnknown ? <p className="text-[12px] text-q-text-muted">原因未知</p> : null}
+            {decision.verificationHint ? (
+              <p className="text-[13px] leading-relaxed text-q-text-secondary">{decision.verificationHint}</p>
+            ) : null}
+            {data ? (
+              <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{radarDeltaImpactLine(data)}</p>
+            ) : null}
+            {!recentCard && decision.status === "no_signal" && decision.recentSummaryText ? (
+              <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{decision.recentSummaryText}</p>
+            ) : null}
+            {decision.otherActiveEventIds && decision.otherActiveEventIds.length > 0 ? (
+              <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
+                另有 {decision.otherActiveEventIds.length} 个活动事件，可在历史记录中查看。
+              </p>
+            ) : null}
+            {decision.canConfirmReset || decision.canUndoConfirm ? (
+              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                {decision.canConfirmReset ? (
+                  <Button variant="secondary" size="sm" onClick={() => setConfirmOpen(true)}>
+                    {radarConfirmResetLabel(decision.eventType)}
+                  </Button>
+                ) : null}
+                {decision.canUndoConfirm ? (
+                  <Button variant="ghost" size="sm" disabled={undoReset.isPending} onClick={() => undoReset.mutate()}>
+                    撤销人工确认
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <p className="text-xs text-q-text-muted">正在加载重置判断…</p>
+        )}
+
+        {/* 两项历史信息：上次重置卡到账 + 最近一次重置 */}
+        {decision && (radarBankedChangeRows(decision).length > 0 || recentCard) ? (
+          <div className="flex flex-col gap-1.5 rounded-q-control border border-q-border/60 bg-q-surface-strong/40 p-2.5">
+            {radarBankedChangeRows(decision).map((change) => (
+              <div
+                key={`${change.kind}-${change.observedAt}-${change.sourceId}`}
+                className="flex items-center gap-2 text-[12.5px]"
+              >
+                <CreditCard size={14} className="shrink-0 text-q-primary/80" aria-hidden />
+                <span className="font-medium text-q-text-secondary">{radarBankedChangeTitle(change)}</span>
+                <span className="ml-auto min-w-0 shrink-0 truncate tabular-nums text-q-text-muted">
+                  {radarBankedChangeMeta(change, formatCompactTime)}
+                </span>
+              </div>
+            ))}
+            {recentCard ? (
+              <div className={cn(radarBankedChangeRows(decision).length > 0 && "border-t border-q-border/40 pt-1.5")}>
                 <button
                   type="button"
-                  className="cursor-pointer text-[12px] font-medium text-q-text-muted hover:text-q-primary hover:underline disabled:opacity-50"
+                  className="flex w-full cursor-pointer items-center gap-2 text-left text-[12.5px] group"
+                  onClick={() => setRecentOpen((value) => !value)}
+                  aria-expanded={recentOpen}
+                >
+                  <RotateCcw size={14} className="shrink-0 text-q-primary/80" aria-hidden />
+                  <span className="font-medium text-q-text-secondary">
+                    {recentReset ? "最近一次重置" : "最近一次事件"}
+                  </span>
+                  <span className="ml-auto flex items-center gap-1.5 truncate tabular-nums text-[12px]">
+                    {recentResetAt ? (
+                      <>
+                        <span className="font-semibold text-q-text-primary">{formatCompactTime(recentResetAt)}</span>
+                        <span className="text-q-text-muted"> · {radarConfirmationSourceLabel(recentReset?.confirmationSource)}</span>
+                      </>
+                    ) : (
+                      <span className="text-q-text-muted">{recentMeta}</span>
+                    )}
+                    <ChevronRight
+                      size={13}
+                      aria-hidden
+                      className={cn(
+                        "shrink-0 text-q-text-muted transition-transform duration-200 group-hover:text-q-text-primary",
+                        recentOpen && "rotate-90",
+                      )}
+                    />
+                  </span>
+                </button>
+                <AnimatedCollapse open={recentOpen}>
+                  <div className="flex flex-col gap-1.5 pt-2 pl-5.5 text-[12px]">
+                    {recentResetAt ? (
+                      <p className="leading-relaxed text-q-text-secondary">
+                        <span className="font-medium text-q-text-primary">真实时间：</span>
+                        <span className="tabular-nums">{formatCompactTime(recentResetAt)}</span>
+                      </p>
+                    ) : null}
+                    <p className="leading-relaxed text-q-text-secondary">
+                      <span className="font-medium text-q-text-primary">确认方式：</span>
+                      {radarConfirmationSourceLabel(recentCard.confirmationSource)}
+                    </p>
+                    <p className="leading-relaxed text-q-text-secondary">
+                      <span className="font-medium text-q-text-primary">最终状态：</span>
+                      {radarCloseReasonLabel(recentCard.closeReason)}
+                    </p>
+                    {recentCard.analysis?.conclusion ? (
+                      <p className="leading-relaxed text-q-text-secondary" data-selectable="true">
+                        <span className="font-medium text-q-text-primary">当时结论：</span>
+                        {humanizeRadarPostRefs(recentCard.analysis.conclusion, knownPosts)}
+                      </p>
+                    ) : null}
+                  </div>
+                </AnimatedCollapse>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      {/* 关键依据：来源信号帖直出；AI 解释默认折叠，按需展开 */}
+      <section className="radar-slim-panel">
+        <button
+          type="button"
+          className="radar-collapse-trigger"
+          onClick={() => setBasisOpen((value) => !value)}
+          aria-expanded={basisOpen}
+        >
+          <ChevronRight size={15} aria-hidden className={cn("radar-collapse-chevron", basisOpen && "is-open")} />
+          <h2 className="text-[13.5px] font-semibold tracking-tight text-q-text-primary">依据与原帖</h2>
+          <span className="min-w-0 flex-1 text-[12px] text-q-text-muted">
+            {relevantPosts.length > 0 ? `当前事件关联 ${relevantPosts.length} 条原帖` : "暂无关联原帖"}
+          </span>
+          {aiReasoning ? (
+            <span className="radar-inline-toggle shrink-0" data-open={aiOpen || undefined} aria-hidden>
+              AI {radarAiStatusLabel(ai)}
+            </span>
+          ) : null}
+        </button>
+        <AnimatedCollapse open={basisOpen}>
+          <div className="radar-slim-content flex flex-col gap-3 pt-2">
+            {relevantPosts.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {relevantPosts.slice(0, 5).map((post) => (
+                  <div key={post.id} className="rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <StatusBadge tone={postBadgeTone(post)}>{sourceRelationLabel(post)}</StatusBadge>
+                      <span className="ml-auto shrink-0 tabular-nums text-[12px] text-q-text-muted">
+                        {formatCompactTime(post.postedAt)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[13.5px] leading-relaxed text-q-text-primary" data-selectable="true">
+                      {post.summary ?? post.translatedText ?? post.text}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-3">
+                      <span className="text-[12px] tabular-nums text-q-text-muted">
+                        北京时间 {radarBeijingTimeLabel(post.postedAt)}
+                      </span>
+                      {post.url ? (
+                        <button
+                          type="button"
+                          className="inline-flex cursor-pointer items-center gap-1 text-[12px] text-q-primary hover:underline"
+                          onClick={() => void openExternalUrl(post.url).catch(() => {})}
+                        >
+                          <ExternalLink size={12} aria-hidden />
+                          查看原帖
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+                {relevantPosts.length > 5 ? (
+                  <p className="px-1 text-[11px] text-q-text-muted">…共 {relevantPosts.length} 条，完整列表见「全部动态」。</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-[13px] leading-relaxed text-q-text-secondary">当前没有活动事件关联的原帖。</p>
+            )}
+            {/* AI 解释：作为依据的一部分按需展开，不默认占用大卡片 */}
+            <div className="rounded-q-control border border-q-border/70 bg-q-primary-softer/50 px-3 py-2.5">
+              <button
+                type="button"
+                className="radar-inline-toggle"
+                data-open={aiOpen || undefined}
+                onClick={() => setAiOpen((value) => !value)}
+              >
+                {aiOpen ? "收起 AI 解释" : "展开 AI 解释"}
+                <ChevronDown size={13} aria-hidden />
+              </button>
+              <AnimatedCollapse open={aiOpen}>
+                <div className="flex flex-col gap-2 pt-2">
+                  {aiReasoning?.conclusion ? (
+                    <>
+                      <p className="text-[13px] font-semibold text-q-primary">结论</p>
+                      <p className="text-[14px] font-medium leading-relaxed text-q-text-primary" data-selectable="true">
+                        {humanizeRadarPostRefs(aiReasoning.conclusion, knownPosts)}
+                      </p>
+                      {aiReasoning.signalType ? (
+                        <p className="text-[12px] text-q-text-muted">信号类型 · {radarSignalTypeLabel(aiReasoning.signalType)}</p>
+                      ) : null}
+                      {aiReasoning.analysisBasis ? (
+                        <>
+                          <p className="text-[13px] font-semibold text-q-primary">分析</p>
+                          <p className="text-[13.5px] leading-[1.65] text-q-text-secondary" data-selectable="true">
+                            {humanizeRadarPostRefs(aiReasoning.analysisBasis, knownPosts)}
+                          </p>
+                        </>
+                      ) : null}
+                      <p className="text-[12px] text-q-text-muted">
+                        {aiReasoning.model ?? "未知模型"} · {formatTime(aiReasoning.createdAt)}
+                        {aiReasoning.rangeKey ? ` · ${formatRadarRangeLabel(aiReasoning.rangeKey)}` : ""}
+                      </p>
+                      {citedPosts.length > 0 ? (
+                        <div className="flex flex-col gap-1.5">
+                          <p className="text-[13px] font-semibold text-q-primary">引用原帖</p>
+                          {citedPosts.map((post) => (
+                            <div key={post.id} className="rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className={aiReasoning?.eventRelation === "none" ? "hb-signal-tag hb-signal-tag-none" : "hb-signal-tag hb-signal-tag-direct"}>
+                                  {aiReasoning?.eventRelation === "none" ? "无关信号" : "直接信号"}
+                                </span>
+                                <span className="ml-auto shrink-0 tabular-nums text-[12px] text-q-text-muted">
+                                  {formatCompactTime(post.postedAt)}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
+                                {post.summary ?? post.translatedText ?? post.text}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={aiReasoning.support.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
+                      <ListBlock title="反向依据" icon={<ThumbsDown size={13} aria-hidden />} items={aiReasoning.against.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
+                      <ListBlock title="不确定性" icon={<HelpCircle size={13} aria-hidden />} items={aiReasoning.uncertainty.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
+                    </>
+                  ) : (
+                    <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
+                      {!ai || ai.state === "disabled"
+                        ? "AI 未启用：可在「雷达设置」中开启；来源与本机验证不受影响。"
+                        : ai.state === "failed"
+                          ? (ai.latestError ? `AI 分析失败：${ai.latestError}` : "AI 分析失败，可在下次检查时重试。")
+                          : "尚无 AI 分析结果；有新动态并开启 AI 时自动生成。"}
+                    </p>
+                  )}
+                </div>
+              </AnimatedCollapse>
+            </div>
+          </div>
+        </AnimatedCollapse>
+      </section>
+
+      {/* 本机观察：按需展开 */}
+      <section className="radar-slim-panel">
+        <button type="button" className="radar-collapse-trigger" onClick={() => setQuotaOpen((value) => !value)} aria-expanded={quotaOpen}>
+          <ChevronRight size={15} aria-hidden className={cn("radar-collapse-chevron", quotaOpen && "is-open")} />
+          <h2 className="text-[13.5px] font-semibold tracking-tight text-q-text-primary">本机观察</h2>
+          <span className="min-w-0 flex-1 truncate text-[12px] text-q-text-muted">{quotaSummary}</span>
+        </button>
+        <AnimatedCollapse open={quotaOpen}>
+          <div className="radar-slim-content flex flex-col pt-1">
+            <div className="flex flex-col">
+            {verifications.length === 0 ? (
+              <p className="text-xs text-q-text-muted">未接入 GPT 额度来源。</p>
+            ) : (
+              verifications.map((item, index) => (
+                <div
+                  key={item.sourceId}
+                  className={cn("flex flex-col gap-1 py-2", index > 0 && "border-t border-q-border/60")}
+                >
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <b className="whitespace-nowrap text-[13px] text-q-text-primary">{item.accountName}</b>
+                    <StatusBadge tone={quotaTone(item.status)}>
+                      {quotaBadgeLabel(item.status, item.attribution, item.lastResetObservedAt)}
+                    </StatusBadge>
+                    {item.attribution === "user_confirmed" ? (
+                      <span className="text-[11px] text-q-text-muted">用户已确认重置卡</span>
+                    ) : null}
+                    {quotaCorrelationLabel(item.temporalCorrelation) ? (
+                      <span className="text-[11px] text-q-text-muted">{quotaCorrelationLabel(item.temporalCorrelation)}</span>
+                    ) : null}
+                  </div>
+                  {item.status === "unavailable" && (
+                    <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
+                      当前网络无法获取 Codex 额度，不影响来源与 AI 判断。
+                    </p>
+                  )}
+                  {item.note && <p className="text-[12.5px] leading-relaxed text-q-text-secondary">{item.note}</p>}
+                  <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
+                    {item.bankedResetLabel}
+                    {radarAccountBankedChangeNotes(item, formatCompactTime)
+                      ? ` · ${radarAccountBankedChangeNotes(item, formatCompactTime)}`
+                      : ""}
+                  </p>
+                  <p className="text-[11.5px] tabular-nums text-q-text-muted">
+                    {item.windowLabel ? `${item.windowLabel} · ` : ""}
+                    {item.lastSuccessAt ? `上次成功 ${formatCompactTime(item.lastSuccessAt)}` : "尚无成功快照"}
+                  </p>
+                  {["unscheduled_reset", "possible_reset"].includes(item.status) &&
+                    item.observationId != null &&
+                    item.attribution !== "user_confirmed" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="self-start"
+                        disabled={confirmCard.isPending}
+                        onClick={() =>
+                          confirmCard.mutate({
+                            observationId: item.observationId ?? 0,
+                            confirmedAt: Date.now(),
+                          })
+                        }
+                      >
+                        确认这是我手动使用的重置卡
+                      </Button>
+                    )}
+                </div>
+              ))
+            )}
+            </div>
+          </div>
+        </AnimatedCollapse>
+      </section>
+
+      {/* CodexRadar 公告：低强调折叠；隐藏后不再渲染占位条 */}
+      {!data?.noticeHidden && (
+        <section className="radar-slim-panel radar-notice-card">
+          <button type="button" className="radar-collapse-trigger" onClick={() => setNoticeOpen((value) => !value)} aria-expanded={noticeOpen}>
+            <ChevronRight size={15} aria-hidden className={cn("radar-collapse-chevron", noticeOpen && "is-open")} />
+            <h2 className="whitespace-nowrap text-[13px] font-medium tracking-tight text-q-text-secondary">
+              {notice ? (notice.isCurrent ? "CodexRadar 公告" : "CodexRadar 最近公告") : "CodexRadar 当前无公告"}
+            </h2>
+            <span className="ml-2 min-w-0 flex-1 truncate text-[12.5px] text-q-text-secondary">
+              {notice ? notice.headline : "帖子同步正常"}
+            </span>
+          </button>
+          <AnimatedCollapse open={noticeOpen}>
+            <div className="radar-slim-content flex flex-col gap-2 pt-2">
+              {notice ? (
+                <>
+                  <p className="text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                    <span className="font-semibold text-q-text-primary">{notice.headline}</span>
+                    {notice.lead ? <span> · {notice.lead}</span> : null}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3 text-[12px] text-q-text-muted">
+                    <span className="tabular-nums">
+                      {notice.isCurrent
+                        ? notice.updatedAt
+                          ? `更新 ${formatTime(notice.updatedAt)}`
+                          : "当前公告"
+                        : notice.updatedAt
+                          ? `上次出现于 ${formatTime(notice.updatedAt)}`
+                          : "历史公告"}
+                    </span>
+                    <a
+                      href="https://codexradar.com/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void openExternalUrl("https://codexradar.com/").catch(() => {});
+                      }}
+                    >
+                      <ExternalLink size={12} aria-hidden />
+                      打开 CodexRadar
+                    </a>
+                    <button
+                      type="button"
+                      className="cursor-pointer font-medium text-q-text-muted hover:text-q-primary hover:underline disabled:opacity-50"
+                      disabled={setNoticeHidden.isPending}
+                      aria-label="隐藏 CodexRadar 公告"
+                      onClick={() => setNoticeHidden.mutate(true)}
+                    >
+                      隐藏
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="w-fit cursor-pointer text-[12px] font-medium text-q-text-muted hover:text-q-primary hover:underline disabled:opacity-50"
                   disabled={setNoticeHidden.isPending}
                   aria-label="隐藏 CodexRadar 公告"
                   onClick={() => setNoticeHidden.mutate(true)}
                 >
                   隐藏
                 </button>
-              </span>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="ml-auto shrink-0 cursor-pointer text-[12px] font-medium text-q-text-muted hover:text-q-primary hover:underline disabled:opacity-50"
-              disabled={setNoticeHidden.isPending}
-              aria-label="隐藏 CodexRadar 公告"
-              onClick={() => setNoticeHidden.mutate(true)}
-            >
-              隐藏
-            </button>
-          )}
+              )}
+            </div>
+          </AnimatedCollapse>
         </section>
       )}
-
-      {/* AI 分析全宽主卡：结论/分析/正向依据；详情开关在正文底部 */}
-      <section className="glass-panel flex shrink-0 flex-col gap-3 p-4">
-        <div className="flex items-center gap-2.5">
-          <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">AI 分析</h2>
-          <span
-            className={
-              !ai || ai.state === "disabled"
-                ? "rounded-q-pill bg-q-neutral-soft px-2.5 py-1 text-[12px] font-medium text-q-neutral"
-                : ai.state === "covered"
-                  ? "rounded-q-pill bg-q-success-soft px-2.5 py-1 text-[12px] font-medium text-q-success"
-                  : ai.state === "failed"
-                    ? "rounded-q-pill bg-q-danger-soft px-2.5 py-1 text-[12px] font-medium text-q-danger"
-                    : "rounded-q-pill bg-q-warning-soft px-2.5 py-1 text-[12px] font-medium text-q-warning"
-            }
-          >
-            {aiStatusLabel}
-          </span>
-        </div>
-        {showCurrentAnalysis && aiReasoning ? (
-          <>
-            <div className="flex flex-col gap-1.5">
-              <p className="text-[13px] font-semibold text-q-primary">结论</p>
-              <p className="text-[17px] font-semibold leading-relaxed text-q-text-primary" data-selectable="true">
-                {humanizeRadarPostRefs(aiReasoning.conclusion, knownPosts)}
-              </p>
-              {aiReasoning.signalType ? (
-                <p className="text-[12px] text-q-text-muted">信号类型 · {radarSignalTypeLabel(aiReasoning.signalType)}</p>
-              ) : null}
-            </div>
-            {aiReasoning.analysisBasis ? (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-[13px] font-semibold text-q-primary">分析</p>
-                <p className="text-[14px] font-medium leading-[1.65] text-q-text-secondary" data-selectable="true">
-                  {humanizeRadarPostRefs(aiReasoning.analysisBasis, knownPosts)}
-                </p>
-              </div>
-            ) : null}
-            <div className="flex flex-col gap-1.5">
-              <p className="text-[13px] font-semibold text-q-primary">正向依据</p>
-              {citedPosts.length > 0 ? (
-                <div className="flex flex-col gap-2">
-                  {citedPosts.map((post) => (
-                    <div key={post.id} className="rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={
-                            aiReasoning.eventRelation === "none"
-                              ? "hb-signal-tag hb-signal-tag-none"
-                              : "hb-signal-tag hb-signal-tag-direct"
-                          }
-                        >
-                          {aiReasoning.eventRelation === "none" ? "无关信号" : "直接信号"}
-                        </span>
-                        <span className="ml-auto shrink-0 tabular-nums text-[12px] text-q-text-muted">
-                          {formatCompactTime(post.postedAt)}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[14px] leading-relaxed text-q-text-primary" data-selectable="true">
-                        {post.summary ?? post.translatedText ?? post.text}
-                      </p>
-                      <div className="mt-1 flex flex-wrap items-center gap-3">
-                        <span className="text-[12px] tabular-nums text-q-text-muted">
-                          北京时间 {radarBeijingTimeLabel(post.postedAt)}
-                        </span>
-                        {post.url ? (
-                          <button
-                            type="button"
-                            className="inline-flex cursor-pointer items-center gap-1 text-[12px] text-q-primary hover:underline"
-                            onClick={() => void openExternalUrl(post.url).catch(() => {})}
-                          >
-                            <ExternalLink size={12} aria-hidden />
-                            查看原帖
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[14px] leading-relaxed text-q-text-secondary">本轮没有引用重置相关帖子。</p>
-              )}
-            </div>
-            <p className="text-[12px] text-q-text-muted">
-              {aiReasoning.model ?? "未知模型"} · {formatTime(aiReasoning.createdAt)}
-              {data?.analysisPrefs.rangeKey ? ` · ${formatRadarRangeLabel(data.analysisPrefs.rangeKey)}` : ""}
-            </p>
-            <button
-              type="button"
-              className="radar-inline-toggle self-start"
-              data-open={analysisOpen || undefined}
-              onClick={() => setAnalysisOpen((value) => !value)}
-            >
-              {analysisOpen ? "收起分析详情" : "查看分析详情"}
-              <ChevronDown size={13} aria-hidden />
-            </button>
-            <AnimatedCollapse open={analysisOpen}>
-              <div className="radar-collapse-scroll flex flex-col gap-2">
-                <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={aiReasoning.support.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
-                <ListBlock title="反向依据" icon={<ThumbsDown size={13} aria-hidden />} items={aiReasoning.against.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
-                <ListBlock title="不确定性" icon={<HelpCircle size={13} aria-hidden />} items={aiReasoning.uncertainty.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
-                <CitationList citations={aiReasoning.citations} posts={knownPosts} />
-                <p className="text-[12px] text-q-text-muted">
-                  {data && data.analysisPrefs.userPrompt.trim() && data.analysisPrefs.userPrompt !== data.analysisPrefs.defaultUserPrompt
-                    ? "使用自定义语义提示"
-                    : "使用默认语义提示"}
-                </p>
-              </div>
-            </AnimatedCollapse>
-          </>
-        ) : (
-          <>
-            <p
-              className={cn(
-                "text-[14px] leading-relaxed",
-                ai?.state === "failed" ? "text-q-danger" : "text-q-text-secondary",
-              )}
-            >
-              {!ai || ai.state === "disabled"
-                ? "AI 未启用：来源公告与本机验证不受影响。"
-                : ai.state === "failed"
-                  ? (ai.latestError ? `AI 分析失败：${ai.latestError}` : "AI 分析失败。可在 AI 辅助分析 Tab 查看并重试。")
-                  : ai.state === "historical"
-                    ? "当前时间窗内没有 Tibo 新动态；以下为最近一次历史分析。有新增动态时，下次检查会重新分析。"
-                    : "尚未生成分析。可在 AI 辅助分析 Tab 开启后随立即检查运行。"}
-            </p>
-            {historicalAnalysis?.conclusion ? (
-              <>
-                <button
-                  type="button"
-                  className="radar-inline-toggle self-start"
-                  data-open={historyAnalysisOpen || undefined}
-                  onClick={() => setHistoryAnalysisOpen((value) => !value)}
-                >
-                  {historyAnalysisOpen ? "收起历史分析" : "查看历史分析"}
-                  <ChevronDown size={13} aria-hidden />
-                </button>
-                <AnimatedCollapse open={historyAnalysisOpen}>
-                  <div className="flex flex-col gap-1.5">
-                    <p className="text-[13px] font-semibold text-q-primary">历史结论</p>
-                    <p className="text-[14px] font-medium leading-relaxed text-q-text-secondary" data-selectable="true">
-                      {humanizeRadarPostRefs(historicalAnalysis.conclusion, knownPosts)}
-                    </p>
-                    {historicalAnalysis.analysisBasis ? (
-                      <>
-                        <p className="text-[13px] font-semibold text-q-primary">历史分析</p>
-                        <p className="text-[14px] leading-[1.65] text-q-text-secondary" data-selectable="true">
-                          {humanizeRadarPostRefs(historicalAnalysis.analysisBasis, knownPosts)}
-                        </p>
-                      </>
-                    ) : null}
-                    <p className="text-[12px] text-q-text-muted">
-                      {historicalAnalysis.model ?? "未知模型"} · {formatTime(historicalAnalysis.createdAt)}
-                      {historicalAnalysis.rangeKey ? ` · ${formatRadarRangeLabel(historicalAnalysis.rangeKey)}` : ""}
-                    </p>
-                  </div>
-                </AnimatedCollapse>
-              </>
-            ) : null}
-          </>
-        )}
-      </section>
-
-      <section className="glass-panel flex shrink-0 flex-col p-4">
-        <button type="button" className="radar-collapse-trigger" onClick={() => setHistoryOpen((value) => !value)} aria-expanded={historyOpen}>
-          <ChevronRight size={17} aria-hidden className={cn("radar-collapse-chevron", historyOpen && "is-open")} />
-          <h2 className="text-[16px] font-semibold tracking-tight text-q-text-primary">检查历史</h2>
-          <span className="min-w-0 flex-1 text-[12px] text-q-text-muted">共 {(data?.checks ?? []).length} 次检查</span>
-        </button>
-        <AnimatedCollapse open={historyOpen}>
-          <div className="radar-collapse-scroll radar-history-scroll pt-2">
-            {(data?.checks ?? []).length === 0 && <p className="text-xs text-q-text-muted">还没有检查记录</p>}
-            <div className="flex flex-col">
-              {(data?.checks ?? []).map((check) => (
-                <div
-                  key={check.id}
-                  className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-q-border/60 py-2 text-[13px] last:border-b-0"
-                >
-                  <span className="w-[104px] shrink-0 tabular-nums text-q-text-secondary">
-                    {formatCompactTime(check.startedAt)}
-                  </span>
-                  <StatusBadge
-                    tone={
-                      check.status === "success"
-                        ? "success"
-                        : check.status === "running"
-                          ? "primary"
-                          : check.status === "partial"
-                            ? "warning"
-                            : "danger"
-                    }
-                  >
-                    {check.status === "success"
-                      ? "成功"
-                      : check.status === "running"
-                        ? "进行中"
-                        : check.status === "partial"
-                          ? "部分完成"
-                          : "分析失败"}
-                  </StatusBadge>
-                  <span className="shrink-0 tabular-nums text-q-text-muted">同步 {check.postCount} 条</span>
-                  {check.errorMessage && (
-                    <span className="min-w-0 flex-1 truncate text-q-danger" title={check.errorMessage}>
-                      {check.errorMessage}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </AnimatedCollapse>
-      </section>
 
       <p className="flex shrink-0 items-center gap-1.5 px-1 text-[11px] text-q-text-muted">
         <ShieldCheck size={13} aria-hidden className="shrink-0" />
@@ -1192,14 +1093,695 @@ export function SignalSummaryView({
   );
 }
 
-/* ————————————————— Tibo 动态/* ————————————————— Tibo 动态（设计稿 05） ————————————————— */
+/** 决策状态徽章色系映射：与状态语义一致的色调。 */
+function radarDecisionToneClass(status: string): string {
+  switch (status) {
+    case "landed_observed":
+    case "user_confirmed":
+      return "bg-q-success-soft text-q-success";
+    case "landed_claimed":
+    case "expected_time_passed":
+    case "unscheduled_reset":
+    case "possible_reset":
+      return "bg-q-warning-soft text-q-warning";
+    case "watching":
+    case "upcoming":
+    case "claimed_unverified":
+      return "bg-q-primary-soft text-q-primary";
+    case "no_signal":
+    case "unchecked":
+    case "source_unavailable":
+    case "pending_analysis":
+    case "expired":
+    default:
+      return "bg-q-neutral-soft text-q-text-secondary";
+  }
+}
 
-function TiboFeedView({
+/* ————————————————— 历史记录 ————————————————— */
+
+/** 事件结果标签：区分已观察落地 / 用户确认 / 已撤回 / 超时未验证等。 */
+function eventOutcome(
+  event: RadarHistoryEvent["event"],
+): { tone: "success" | "warning" | "neutral" | "primary"; label: string } {
+  if (event.closedAt == null) {
+    if (event.observedResetAt != null) return { tone: "success", label: "已观察落地 · 观察期" };
+    if (event.userConfirmedResetAt != null) return { tone: "success", label: "用户确认 · 观察期" };
+    return { tone: "primary", label: "进行中" };
+  }
+  if (event.observedResetAt != null) return { tone: "success", label: "已观察落地" };
+  if (event.userConfirmedResetAt != null) return { tone: "success", label: "用户确认" };
+  switch (event.closeReason) {
+    case "信号取消或失效":
+      return { tone: "warning", label: "已撤回" };
+    case "timeout_no_signal":
+    case "timeout_unverified":
+    case "timeout":
+      return { tone: "neutral", label: "超时未验证" };
+    case "claimed_unverified":
+      return { tone: "warning", label: "声称未验证" };
+    case "invalid_historical_replay":
+      return { tone: "neutral", label: "历史重放" };
+    case "出现新一轮重置信号":
+      return { tone: "primary", label: "被新信号替代" };
+    default:
+      return { tone: "neutral", label: radarCloseReasonLabel(event.closeReason) };
+  }
+}
+
+export function HistoryView({ data }: { data: RadarSnapshot | undefined }) {
+  const [page, setPage] = useState<RadarHistory | null>(null);
+  const events = page?.events ?? data?.history.events ?? [];
+  const hasMore = page?.hasMore ?? data?.history.hasMore ?? false;
+  const nextCursor = page?.nextCursor ?? data?.history.nextCursor ?? null;
+  const checks = data?.checks ?? [];
+  const knownPosts = data?.posts ?? [];
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  useEffect(() => {
+    setPage(null);
+  }, [data?.history.events]);
+  const loadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const more = await listRadarHistory({ cursor: nextCursor, limit: 20 });
+      setPage({
+        events: [...events, ...more.events],
+        nextCursor: more.nextCursor ?? null,
+        hasMore: more.hasMore ?? false,
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+  const [analysisLoading, setAnalysisLoading] = useState<string | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const loadAnalyses = async (eventId: string, cursor: string) => {
+    setAnalysisLoading(eventId); setAnalysisError(null);
+    try {
+      const more = await listRadarEventAnalyses(eventId,cursor);
+      setPage({events:events.map(item => item.event.id === eventId ? {...item,analyses:[...item.analyses,...more.items],analysesNextCursor:more.nextCursor} : item),hasMore,nextCursor});
+    } catch (error) { setAnalysisError(String(error)); }
+    finally { setAnalysisLoading(null); }
+  };
+  if (events.length === 0) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-6">
+        <div className="glass-panel flex shrink-0 flex-col items-center justify-center gap-2 p-8">
+          <History size={28} aria-hidden className="text-q-text-muted" />
+          <p className="text-sm text-q-text-secondary">暂无历史事件</p>
+          <p className="text-xs text-q-text-muted">发现重置信号并完成研判后，事件会按时间归档在这里。</p>
+        </div>
+        <HistoryCheckLogs checks={checks} open={logsOpen} onToggle={() => setLogsOpen((value) => !value)} />
+      </div>
+    );
+  }
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-6">
+      <div className="radar-timeline-container shrink-0">
+        {events.map((item) => {
+          const open = expanded === item.event.id;
+          const outcome = eventOutcome(item.event);
+          return (
+            <div key={item.event.id} className="radar-timeline-item">
+              <button
+                type="button"
+                className="radar-timeline-item-trigger"
+                onClick={() => setExpanded(open ? null : item.event.id)}
+                aria-expanded={open}
+              >
+                <ChevronRight size={15} aria-hidden className={cn("radar-collapse-chevron", open && "is-open")} />
+                <StatusBadge tone={item.event.eventType === "banked_reset" ? "primary" : "warning"}>
+                  {item.event.eventType === "banked_reset" ? "重置卡" : "额度重置"}
+                </StatusBadge>
+                <span className="min-w-0 flex-1 truncate text-left text-[13.5px] font-semibold text-q-text-primary">
+                  {item.event.title}
+                </span>
+                <StatusBadge tone={outcome.tone}>{outcome.label}</StatusBadge>
+                <span className="shrink-0 tabular-nums text-[12px] text-q-text-muted">
+                  {formatCompactTime(item.event.firstSignalAt)}
+                </span>
+              </button>
+              <AnimatedCollapse open={open}>
+                <div className="radar-timeline-item-content flex flex-col gap-3.5 pt-2">
+                  {/* 时间线：时间变化与关键节点 */}
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-[12.5px] font-semibold text-q-text-primary">事件时间线</p>
+                    {item.event.timeline.map((node, index) => (
+                      <div key={`${node.at}-${index}`} className="flex items-baseline gap-2 text-[12.5px]">
+                        <span className="w-[92px] shrink-0 tabular-nums text-q-text-muted">{formatCompactTime(node.at)}</span>
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 shrink-0 rounded-full",
+                            node.kind === "observed" || node.kind === "confirmed"
+                              ? "bg-q-success"
+                              : node.kind === "closed"
+                                ? "bg-q-neutral"
+                                : "bg-q-primary",
+                          )}
+                        />
+                        <span className="text-q-text-secondary">{node.label}</span>
+                      </div>
+                    ))}
+                    {item.event.expectedAt ? (
+                      <p className="text-[12px] tabular-nums text-q-text-muted">
+                        预告重置时间 {formatCompactTime(item.event.expectedAt)}（北京时间）
+                      </p>
+                    ) : null}
+                  </div>
+                  {/* 原始信号帖 */}
+                  {item.evidencePosts.length > 0 ? (
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-[12.5px] font-semibold text-q-text-primary">原始信号（{item.evidencePosts.length} 条）</p>
+                      <div className="flex flex-col gap-1.5">
+                        {item.evidencePosts.slice(0, 6).map((post) => (
+                          <div key={post.id} className="rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <StatusBadge tone={postBadgeTone(post)}>{sourceRelationLabel(post)}</StatusBadge>
+                              <span className="ml-auto shrink-0 tabular-nums text-[12px] text-q-text-muted">
+                                {formatCompactTime(post.postedAt)}
+                              </span>
+                            </div>
+                            <p className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-q-text-primary" data-selectable="true">
+                              {post.summary ?? post.translatedText ?? post.text}
+                            </p>
+                            {post.url ? (
+                              <button
+                                type="button"
+                                className="mt-1 inline-flex cursor-pointer items-center gap-1 text-[12px] text-q-primary hover:underline"
+                                onClick={() => void openExternalUrl(post.url).catch(() => {})}
+                              >
+                                <ExternalLink size={12} aria-hidden />
+                                查看原帖
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                        {item.evidencePosts.length > 6 ? (
+                          <p className="px-1 text-[11px] text-q-text-muted">…共 {item.evidencePosts.length} 条</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                  {/* 本机观察 */}
+                  {item.quotaObservations.length > 0 || item.bankedObservations.length > 0 ? (
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-[12.5px] font-semibold text-q-text-primary">本机观察</p>
+                      {item.quotaObservations.map((observation) => (
+                        <p key={observation.id} className="text-[12.5px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                          <span className="tabular-nums">{formatCompactTime(observation.observedAt)}</span>
+                          {" · "}
+                          {observation.accountName}
+                          {" · "}
+                          {quotaBadgeLabel(
+                            observation.classification,
+                            observation.userConfirmedAt != null ? "user_confirmed" : "unknown",
+                            observation.observedAt,
+                          )}
+                          {quotaCorrelationLabel(observation.temporalCorrelation)
+                            ? ` · ${quotaCorrelationLabel(observation.temporalCorrelation)}`
+                            : ""}
+                        </p>
+                      ))}
+                      {item.bankedObservations.map((observation, index) => (
+                        <p key={`banked-${index}`} className="text-[12.5px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                          <span className="tabular-nums">{formatCompactTime(observation.observedAt)}</span>
+                          {" · "}
+                          {observation.accountName}
+                          {" · "}
+                          {observation.kind === "grant"
+                            ? `重置卡 ${observation.previousCount} → ${observation.currentCount}（到账）`
+                            : `重置卡 ${observation.previousCount} → ${observation.currentCount}（减少，不能单独断言已使用）`}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                  {analysisError ? <p role="alert" className="text-xs text-q-danger">{analysisError}</p> : null}
+                  {/* 当时的 AI 研判记录 */}
+                  {item.analyses.length > 0 ? (
+                    <div className="flex flex-col gap-2 pt-1">
+                      <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-q-text-primary">
+                        <Sparkles size={13} className="shrink-0 text-q-primary" aria-hidden />
+                        <span>当时的 AI 研判记录</span>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        {item.analyses.map((analysis) => (
+                          <div key={analysis.id} className="rounded-q-control border border-q-border/70 bg-q-primary-softer/35 px-3 py-2.5">
+                            <p className="text-[12.5px] font-medium leading-relaxed text-q-text-primary" data-selectable="true">
+                              {humanizeRadarPostRefs(analysis.conclusion, knownPosts)}
+                            </p>
+                            {analysis.analysisBasis ? (
+                              <p className="mt-1.5 text-[12px] leading-relaxed text-q-text-secondary" data-selectable="true">
+                                {humanizeRadarPostRefs(analysis.analysisBasis, knownPosts)}
+                              </p>
+                            ) : null}
+                            <p className="mt-1.5 text-[11px] tabular-nums text-q-text-muted">
+                              {analysis.model ?? "未知模型"} · {formatTime(analysis.createdAt)}
+                              {analysis.signalType && analysis.signalType !== "unknown"
+                                ? ` · ${radarSignalTypeLabel(analysis.signalType)}`
+                                : ""}
+                            </p>
+                      </div>
+                        ))}
+                            {item.analysesNextCursor ? <Button variant="secondary" size="sm" disabled={analysisLoading === item.event.id} onClick={() => void loadAnalyses(item.event.id,item.analysesNextCursor!)}>{analysisLoading === item.event.id ? "加载中…" : "加载更早的研判记录"}</Button> : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </AnimatedCollapse>
+            </div>
+          );
+        })}
+      </div>
+      {hasMore ? (
+        <Button variant="secondary" size="sm" className="self-center" disabled={loadingMore} onClick={() => void loadMore()}>
+          {loadingMore ? "加载中…" : "加载更多历史"}
+        </Button>
+      ) : null}
+      <HistoryCheckLogs checks={checks} open={logsOpen} onToggle={() => setLogsOpen((value) => !value)} />
+    </div>
+  );
+}
+
+function HistoryCheckLogs({
+  checks,
+  open,
+  onToggle,
+}: {
+  checks: NonNullable<RadarSnapshot["checks"]>;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <section className="radar-slim-panel shrink-0">
+      <button type="button" className="radar-collapse-trigger" onClick={onToggle} aria-expanded={open}>
+        <ChevronRight size={15} aria-hidden className={cn("radar-collapse-chevron", open && "is-open")} />
+        <h2 className="text-[13px] font-medium text-q-text-secondary">技术检查日志</h2>
+        <span className="min-w-0 flex-1 text-[12px] text-q-text-muted">共 {checks.length} 次</span>
+      </button>
+      <AnimatedCollapse open={open}>
+        <div className="radar-slim-content flex flex-col pt-1">
+          <div className="radar-history-scroll flex flex-col">
+            {checks.length === 0 && <p className="text-xs text-q-text-muted">还没有检查记录</p>}
+            {checks.map((check) => (
+              <div
+                key={check.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-q-border/60 py-2 text-[12.5px] last:border-b-0"
+              >
+                <span className="w-[104px] shrink-0 tabular-nums text-q-text-secondary">
+                  {formatCompactTime(check.startedAt)}
+                </span>
+                <StatusBadge
+                  tone={check.status === "success" ? "success" : check.status === "running" ? "primary" : "danger"}
+                >
+                  {check.status === "success" ? "成功" : check.status === "running" ? "进行中" : "失败"}
+                </StatusBadge>
+                <span className="shrink-0 tabular-nums text-q-text-muted">同步 {check.postCount} 条</span>
+                {check.errorMessage && (
+                  <span className="min-w-0 flex-1 truncate text-q-danger" title={check.errorMessage}>
+                    {check.errorMessage}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </AnimatedCollapse>
+    </section>
+  );
+}
+
+/* ————————————————— 雷达设置抽屉 ————————————————— */
+
+function RadarSettingsDrawer({
+  open,
+  onClose,
+  data,
+  returnFocusRef,
+}: {
+  open: boolean;
+  onClose: () => void;
+  data: RadarSnapshot | undefined;
+  returnFocusRef: { current: HTMLButtonElement | null };
+}) {
+  const queryClient = useQueryClient();
+  // 草稿模式：打开时从已保存偏好初始化；只有点「保存」才写入，刷新/关闭不偷偷保存。
+  const [analyze, setAnalyze] = useState(false);
+  const [sourceId, setSourceId] = useState("");
+  const [modelChoice, setModelChoice] = useState("");
+  const [userPrompt, setUserPrompt] = useState("");
+  const [backgroundCheck, setBackgroundCheck] = useState(true);
+  const initialized = useRef(false);
+  useEffect(() => {
+    if (!open || !data || initialized.current) return;
+    initialized.current = true;
+    setAnalyze(data.analysisPrefs.analyze);
+    const readyModels = (data.models ?? []).filter((item) => item.ready);
+    const saved = readyModels.find(
+      (item) => item.sourceId === data.analysisPrefs.sourceId && item.model === (data.analysisPrefs.model ?? ""),
+    );
+    const fallback = readyModels.find((item) => item.model) ?? readyModels[0];
+    const pick = saved ?? fallback;
+    setSourceId(pick ? pick.sourceId : "");
+    setModelChoice(pick ? pick.model : "");
+    setUserPrompt(data.analysisPrefs.userPrompt ?? data.analysisPrefs.defaultUserPrompt ?? "");
+    setBackgroundCheck(data.analysisPrefs.backgroundCheck);
+  }, [open, data]);
+  useEffect(() => {
+    if (!open) initialized.current = false;
+  }, [open]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    closeButtonRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((item) => item.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      (returnFocusRef.current ?? previous)?.focus();
+    };
+  }, [open, onClose, returnFocusRef]);
+
+  const modelOptions = (data?.models ?? []).filter((item) => item.ready);
+  const selectedModelOption =
+    modelOptions.find((item) => item.sourceId === sourceId && item.model === modelChoice) ??
+    modelOptions.find((item) => item.sourceId === sourceId && item.model) ??
+    modelOptions.find((item) => item.model) ??
+    modelOptions[0] ??
+    null;
+  const prefs = data?.analysisPrefs;
+  const dirty =
+    analyze !== (prefs?.analyze ?? false) ||
+    backgroundCheck !== (prefs?.backgroundCheck ?? true) ||
+    (selectedModelOption?.sourceId ?? "") !== (prefs?.sourceId ?? "") ||
+    (selectedModelOption?.model ?? "") !== (prefs?.model ?? "") ||
+    userPrompt !== (prefs?.userPrompt ?? "");
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      saveRadarAnalysisPrefs({
+        analyze,
+        sourceId: selectedModelOption?.sourceId ?? null,
+        model: selectedModelOption?.model ?? null,
+        userPrompt,
+        backgroundCheck,
+      }),
+    onSuccess: (snapshot) => {
+      queryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot);
+      onClose();
+    },
+  });
+
+  const byId = useMemo(() => new Map((data?.posts ?? []).map((post) => [post.id, post])), [data?.posts]);
+  const pickPosts = (ids: string[]) =>
+    ids.map((id) => byId.get(id)).filter((post): post is RadarPost => Boolean(post));
+  const analysisInput = pickPosts(data?.analysisGroups.newPostIds ?? []);
+  const contextInput = pickPosts(data?.analysisGroups.eventContextIds ?? []);
+  const historicalInput = pickPosts(data?.analysisGroups.historicalContextIds ?? []);
+
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/35 backdrop-blur-[2px]"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !saveMutation.isPending) onClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="雷达设置"
+        className="flex h-full w-full max-w-[460px] flex-col border-l border-q-border bg-q-surface-solid shadow-q-xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center gap-2 border-b border-q-border/70 px-4 py-3">
+          <Settings2 size={16} aria-hidden className="text-q-primary" />
+          <h2 className="text-[15px] font-semibold tracking-tight text-q-text-primary">雷达设置</h2>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            aria-label="关闭雷达设置"
+            className="ml-auto cursor-pointer rounded p-1.5 text-q-text-muted hover:bg-q-surface-hover hover:text-q-text-primary"
+            onClick={onClose}
+          >
+            <X size={15} aria-hidden />
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-4">
+          {/* 后台自动检查 */}
+          <section className="flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-q-text-primary">后台自动检查</p>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-q-text-secondary">
+                  应用运行期间每 15 分钟自动同步来源并按需分析；不依赖打开的页面。关闭后「立即检查」仍可手动使用。
+                </p>
+              </div>
+              <Switch
+                checked={backgroundCheck}
+                onCheckedChange={setBackgroundCheck}
+                label="后台自动检查（15 分钟）"
+              />
+            </div>
+            {data?.analysisPrefs.backgroundNextAt ? (
+              <p className="text-[11.5px] tabular-nums text-q-text-muted">
+                下次后台检查：{formatTime(data.analysisPrefs.backgroundNextAt)}
+              </p>
+            ) : null}
+          </section>
+
+          {/* AI 分析 */}
+          <section className="flex flex-col gap-3.5 border-t border-q-border/60 pt-4">
+            <h3 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">AI 辅助分析（可选）</h3>
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm font-medium text-q-text-primary">开启 AI 分析</p>
+              <Switch checked={analyze} onCheckedChange={setAnalyze} label="开启 AI 分析" />
+            </div>
+            <AiModelSettings
+              models={modelOptions}
+              selected={selectedModelOption}
+              endpoints={data?.chatEndpoints ?? []}
+              onSelected={(nextSource, nextModel) => {
+                setSourceId(nextSource);
+                setModelChoice(nextModel);
+              }}
+            />
+            <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
+              开启后只分析监控窗口（最近 72 小时）内尚未消费的新帖；关闭时仍同步来源，不调用模型，新帖保持待分析。
+            </p>
+          </section>
+
+          {/* 语义提示 */}
+          <section className="flex flex-col gap-2 border-t border-q-border/60 pt-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">语义提示</h3>
+              <span className="rounded-q-pill bg-q-neutral-soft px-2 py-0.5 text-[11px] text-q-text-secondary">
+                {userPrompt === (prefs?.defaultUserPrompt ?? "") ? "默认" : userPrompt.trim() ? "自定义" : "未设置"}
+              </span>
+            </div>
+            <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
+              会随每次分析发给模型，补充你认为算强重置信号的措辞；不改变只发送英文原文、时间和链接的限制。
+            </p>
+            <textarea
+              aria-label="语义提示"
+              value={userPrompt}
+              onChange={(event) => setUserPrompt(event.target.value.slice(0, 4000))}
+              rows={6}
+              maxLength={4000}
+              placeholder="例如：提到 dashboard、milestone、Hold on to your Codex 时视为即将重置的强信号。"
+              className="min-h-[120px] w-full resize-y rounded-q-control border border-q-border bg-q-surface-strong px-3 py-2.5 text-[13px] leading-relaxed text-q-text-primary outline-none focus:border-q-primary"
+            />
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-q-text-muted">{userPrompt.length}/4000</p>
+              <button
+                type="button"
+                className="cursor-pointer text-xs font-medium text-q-text-secondary hover:text-q-primary hover:underline"
+                onClick={() => setUserPrompt(prefs?.defaultUserPrompt ?? "")}
+              >
+                恢复默认
+              </button>
+            </div>
+          </section>
+
+          {/* 下次分析输入审计 */}
+          <section className="flex flex-col gap-2.5 border-t border-q-border/60 pt-4">
+            <h3 className="text-[13px] font-semibold tracking-tight text-q-text-secondary">下次分析输入（监控窗口）</h3>
+            <div className="flex items-start gap-2.5 rounded-q-control border border-q-border bg-q-primary-softer px-3 py-2.5">
+              <ShieldCheck size={15} aria-hidden className="mt-0.5 shrink-0 text-q-primary" />
+              <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
+                只发送英文原文、时间和原帖链接。不发送 CodexRadar 的中文翻译、信号标签或模型语境解读。
+              </p>
+            </div>
+            {analysisInput.length === 0 && contextInput.length === 0 && historicalInput.length === 0 ? (
+              <p className="text-[12.5px] leading-relaxed text-q-text-secondary">监控窗口内没有待分析的新材料。</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <PostGroupPreview title="待分析新帖" subtitle="真正未消费，才能创建或推进事件" posts={analysisInput} />
+                {contextInput.length > 0 && (
+                  <PostGroupPreview title="事件上下文" subtitle="已关联当前事件，不能单独作为新证据" posts={contextInput} />
+                )}
+                {historicalInput.length > 0 && (
+                  <PostGroupPreview title="历史上下文" subtitle="已关闭事件帖，只能生成历史解释" posts={historicalInput} />
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-q-border/70 px-4 py-3">
+          {saveMutation.error ? (
+            <p
+              className="mr-auto max-w-[55%] truncate text-xs text-q-danger"
+              title={ipcErrorMessage(saveMutation.error, "保存失败")}
+            >
+              {ipcErrorMessage(saveMutation.error, "保存失败")}
+            </p>
+          ) : dirty ? (
+            <p className="mr-auto text-xs text-q-warning">有未保存的修改</p>
+          ) : null}
+          <Button variant="ghost" size="sm" disabled={saveMutation.isPending} onClick={onClose}>
+            取消
+          </Button>
+          <Button size="sm" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
+            {saveMutation.isPending ? "保存中…" : "保存设置"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** AI 模型选择 + 测试连接 + 自定义模型 + 独立对话接入（设置抽屉内复用）。 */
+function AiModelSettings({
+  models,
+  selected,
+  endpoints,
+  onSelected,
+}: {
+  models: RadarModelOption[];
+  selected: RadarModelOption | null;
+  endpoints: RadarChatEndpoint[];
+  onSelected: (sourceId: string, model: string) => void;
+}) {
+  const [testFeedback, setTestFeedback] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  useEffect(() => {
+    setTestFeedback(null);
+  }, [selected?.sourceId, selected?.model]);
+  const testSelected = useMutation({
+    mutationFn: () => {
+      if (!selected?.sourceId || !selected.model) {
+        return Promise.reject(new Error("请先选择一个具体模型，或在下方添加自定义模型"));
+      }
+      return testRadarModel({ sourceId: selected.sourceId, model: selected.model });
+    },
+    onSuccess: () => setTestFeedback({ kind: "ok", text: "连接成功，当前模型可用。" }),
+    onError: (error) => setTestFeedback({ kind: "error", text: ipcErrorMessage(error, "测试失败") }),
+  });
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5 text-sm">
+        <span className="font-medium text-q-text-primary">分析模型</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label="分析模型"
+            value={selected ? `${selected.sourceId}|${selected.model}` : ""}
+            onChange={(event) => {
+              const [nextSource, ...rest] = event.target.value.split("|");
+              onSelected(nextSource, rest.join("|"));
+            }}
+            className="h-10 min-w-0 flex-1 cursor-pointer rounded-q-control border border-q-border bg-q-surface-strong px-3 text-sm text-q-text-primary outline-none focus:border-q-primary"
+          >
+            {models.length === 0 && (
+              <option value="">请先在平台中心接入对话 API Key，或添加其他对话接入</option>
+            )}
+            {models.some((item) => item.kind !== "endpoint") ? (
+              <optgroup label="已接入平台">
+                {models
+                  .filter((item) => item.kind !== "endpoint")
+                  .map((item) => (
+                    <option key={`${item.sourceId}|${item.model}`} value={`${item.sourceId}|${item.model}`}>
+                      {radarModelOptionLabel(item)}
+                    </option>
+                  ))}
+              </optgroup>
+            ) : null}
+            {models.some((item) => item.kind === "endpoint") ? (
+              <optgroup label="其他对话接入">
+                {models
+                  .filter((item) => item.kind === "endpoint")
+                  .map((item) => (
+                    <option key={`${item.sourceId}|${item.model}`} value={`${item.sourceId}|${item.model}`}>
+                      {radarModelOptionLabel(item)}
+                    </option>
+                  ))}
+              </optgroup>
+            ) : null}
+          </select>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="shrink-0"
+            disabled={!selected?.sourceId || !selected.model || testSelected.isPending}
+            onClick={() => testSelected.mutate()}
+          >
+            {testSelected.isPending ? "测试中…" : "测试连接"}
+          </Button>
+        </div>
+        {testFeedback ? (
+          <p className={cn("text-xs leading-relaxed", testFeedback.kind === "ok" ? "text-q-success" : "text-q-danger")}>
+            {testFeedback.text}
+          </p>
+        ) : (
+          <p className="text-[12px] leading-relaxed text-q-text-secondary">
+            只列出当前凭据可用的对话模型。测试连接会发送一次极小请求，可能消耗少量额度。
+          </p>
+        )}
+      </div>
+      <CustomModelPanel
+        models={models}
+        selected={selected}
+        onAdded={(model) => selected && onSelected(selected.sourceId, model)}
+      />
+      <ChatEndpointPanel endpoints={endpoints} onAdded={(nextSource, nextModel) => onSelected(nextSource, nextModel)} />
+    </div>
+  );
+}
+
+/* ————————————————— Tibo 动态（沿用原界面） ————————————————— */
+
+export function TiboFeedView({
   posts,
   rangeLabel,
   totalCount,
   signalCount,
   relatedCount,
+  unknownCount,
   noneCount,
   selected,
   filter,
@@ -1207,26 +1789,37 @@ function TiboFeedView({
   onSelect,
   onTranslate,
   translatingPostId,
+  onLoadMore,
+  loadingMore,
 }: {
   posts: RadarPost[];
   rangeLabel: string;
   totalCount: number;
   signalCount: number;
   relatedCount: number;
+  unknownCount: number;
   noneCount: number;
   selected: RadarPost | null;
-  filter: "all" | "signal" | "related" | "none";
-  onFilter: (value: "all" | "signal" | "related" | "none") => void;
+  filter: TiboFilter;
+  onFilter: (value: TiboFilter) => void;
   onSelect: (id: string) => void;
   onTranslate?: (id: string) => void;
   translatingPostId?: string | null;
+  onLoadMore?: () => void | Promise<void>;
+  loadingMore?: boolean;
 }) {
-  const chips: Array<{ id: "all" | "signal" | "related" | "none"; label: string; count: number }> = [
+  const chips: Array<{ id: TiboFilter; label: string; count: number }> = [
     { id: "all", label: "全部", count: totalCount },
     { id: "signal", label: "直接信号", count: signalCount },
     { id: "related", label: "间接信号", count: relatedCount },
+    ...(unknownCount > 0 ? [{ id: "unknown" as const, label: "未分类", count: unknownCount }] : []),
     { id: "none", label: "无关信号", count: noneCount },
   ];
+  useEffect(() => {
+    if (filter === "unknown" && unknownCount === 0) {
+      onFilter("all");
+    }
+  }, [filter, unknownCount, onFilter]);
   // 主从分栏由内容容器实际宽度决定（≥680 左右并排；不足时切列表/详情单面板，不上下堆叠）
   const container = useContainerWidth<HTMLDivElement>();
   const splitView = container.width >= TIBO_SPLIT_MIN_PX;
@@ -1255,7 +1848,7 @@ function TiboFeedView({
 
   return (
     <div ref={container.ref} className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-      {/* 筛选 chips：带计数（不随列表滚走） */}
+      {/* 筛选 chips：带计数（不随列表滚走）；缺少标签的帖子归入「未分类」，不当成无关 */}
       <p className="px-1 text-xs text-q-text-secondary">
         Tibo 动态 · {rangeLabel} · 共 {totalCount} 条
       </p>
@@ -1305,7 +1898,9 @@ function TiboFeedView({
         >
           <div ref={listScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5">
             {posts.length === 0 && (
-              <p className="px-1 py-6 text-center text-xs text-q-text-muted">点「立即检查」同步 CodexRadar。</p>
+              <p className="px-1 py-6 text-center text-xs text-q-text-muted">
+                {totalCount > 0 ? "该筛选分类下暂无动态" : "点「立即检查」同步 CodexRadar。"}
+              </p>
             )}
             {posts.map((post) => (
               <button
@@ -1347,6 +1942,16 @@ function TiboFeedView({
                 </div>
               </button>
             ))}
+            {onLoadMore ? (
+              <button
+                type="button"
+                className="w-full rounded-[14px] border border-q-border bg-q-surface-strong px-3 py-2 text-[12.5px] text-q-text-secondary hover:border-q-border-selected"
+                disabled={loadingMore}
+                onClick={() => void onLoadMore()}
+              >
+                {loadingMore ? "加载中…" : "加载更多动态"}
+              </button>
+            ) : null}
           </div>
         </section>
 
@@ -1459,388 +2064,7 @@ function TiboFeedView({
   );
 }
 
-/* ————————————————— AI 辅助分析（设计稿 06） ————————————————— */
-
-function AiAnalysisView({
-  data,
-  analyze,
-  sourceId,
-  modelChoice,
-  models,
-  userPrompt,
-  defaultUserPrompt,
-  rangeKey,
-  onAnalyzeChange,
-  onSourceChange,
-  onModelChange,
-  onUserPromptChange,
-}: {
-  data: Awaited<ReturnType<typeof fetchRadarSnapshot>> | undefined;
-  analyze: boolean;
-  sourceId: string;
-  modelChoice: string;
-  models: RadarModelOption[];
-  userPrompt: string;
-  defaultUserPrompt: string;
-  rangeKey: string;
-  onAnalyzeChange: (value: boolean) => void;
-  onSourceChange: (value: string) => void;
-  onModelChange: (value: string) => void;
-  onUserPromptChange: (value: string) => void;
-}) {
-  const analysis = data?.analysis;
-  const knownPosts = data?.posts ?? [];
-  const latestCheck = data?.checks[0];
-  const analyzeError = latestCheck?.analyzeStatus === "failed" ? latestCheck.errorMessage : null;
-  const byId = useMemo(() => new Map(knownPosts.map((post) => [post.id, post])), [knownPosts]);
-  const pickPosts = (ids: string[]) => ids.map((id) => byId.get(id)).filter((post): post is RadarPost => Boolean(post));
-  const analysisInput = pickPosts(data?.analysisGroups.newPostIds ?? []);
-  const contextInput = pickPosts(data?.analysisGroups.eventContextIds ?? []);
-  const historicalInput = pickPosts(data?.analysisGroups.historicalContextIds ?? []);
-  // 所选来源 + 模型的选项；modelChoice 失配（来源切换、旧偏好）时回退该来源默认模型。
-  const selectedModelOption =
-    models.find((item) => item.sourceId === sourceId && item.model === modelChoice) ??
-    models.find((item) => item.sourceId === sourceId && item.model) ??
-    models.find((item) => item.model) ??
-    models[0] ??
-    null;
-  const [testFeedback, setTestFeedback] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  useEffect(() => {
-    setTestFeedback(null);
-  }, [selectedModelOption?.sourceId, selectedModelOption?.model]);
-  const testSelected = useMutation({
-    mutationFn: () => {
-      if (!selectedModelOption?.sourceId || !selectedModelOption.model) {
-        return Promise.reject(new Error("请先选择一个具体模型，或在下方添加自定义模型"));
-      }
-      return testRadarModel({ sourceId: selectedModelOption.sourceId, model: selectedModelOption.model });
-    },
-    onSuccess: () => setTestFeedback({ kind: "ok", text: "连接成功，当前模型可用。" }),
-    onError: (error) => setTestFeedback({ kind: "error", text: ipcErrorMessage(error, "测试失败") }),
-  });
-  const canTestSelected = Boolean(selectedModelOption?.sourceId && selectedModelOption.model);
-  const selectClass =
-    "h-10 min-w-0 flex-1 cursor-pointer rounded-q-control border border-q-border bg-q-surface-strong px-3 text-sm text-q-text-primary outline-none focus:border-q-primary";
-  const promptQueryClient = useQueryClient();
-  const [promptEditing, setPromptEditing] = useState(false);
-  const [promptDraft, setPromptDraft] = useState(userPrompt);
-  const [promptFeedback, setPromptFeedback] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  useEffect(() => {
-    if (!promptEditing) setPromptDraft(userPrompt);
-  }, [userPrompt, promptEditing]);
-  const promptDirty = promptDraft !== userPrompt;
-  const promptIsDefault = userPrompt === defaultUserPrompt;
-  const saveUserPrompt = useMutation({
-    mutationFn: (prompt: string) =>
-      saveRadarAnalysisPrefs({
-        analyze,
-        rangeKey,
-        sourceId: sourceId || null,
-        model: modelChoice || null,
-        userPrompt: prompt,
-      }),
-    onSuccess: (snapshot, prompt) => {
-      promptQueryClient.setQueryData(RADAR_SNAPSHOT_QUERY_KEY, snapshot);
-      onUserPromptChange(prompt);
-      setPromptEditing(false);
-      setPromptFeedback({
-        kind: "ok",
-        text: "已保存。下次「立即检查」且实际调用模型时才会使用这份提示；没有新增动态时仍会跳过分析。",
-      });
-    },
-    onError: (error) =>
-      setPromptFeedback({ kind: "error", text: ipcErrorMessage(error, "保存语义提示失败") }),
-  });
-  const beginPromptEdit = () => {
-    setPromptDraft(userPrompt);
-    setPromptFeedback(null);
-    setPromptEditing(true);
-  };
-  const cancelPromptEdit = () => {
-    setPromptDraft(userPrompt);
-    setPromptEditing(false);
-    setPromptFeedback(null);
-  };
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-4">
-        {/* 分析配置 */}
-        <section className="glass-panel flex flex-col gap-4 p-4">
-          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">分析配置</h2>
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-sm font-medium text-q-text-primary">是否开启 AI 分析</p>
-            <Switch checked={analyze} onCheckedChange={onAnalyzeChange} label="是否开启 AI 分析" />
-          </div>
-          <div className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium text-q-text-primary">分析模型</span>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                aria-label="分析模型"
-                value={
-                  selectedModelOption ? `${selectedModelOption.sourceId}|${selectedModelOption.model}` : ""
-                }
-                onChange={(event) => {
-                  const [nextSource, ...rest] = event.target.value.split("|");
-                  onSourceChange(nextSource);
-                  onModelChange(rest.join("|"));
-                }}
-                className={selectClass}
-              >
-                {models.length === 0 && (
-                  <option value="">请先在平台中心接入对话 API Key，或添加其他对话接入</option>
-                )}
-                {models.some((item) => item.kind !== "endpoint") ? (
-                  <optgroup label="已接入平台">
-                    {models
-                      .filter((item) => item.kind !== "endpoint")
-                      .map((item) => (
-                        <option key={`${item.sourceId}|${item.model}`} value={`${item.sourceId}|${item.model}`}>
-                          {radarModelOptionLabel(item)}
-                        </option>
-                      ))}
-                  </optgroup>
-                ) : null}
-                {models.some((item) => item.kind === "endpoint") ? (
-                  <optgroup label="其他对话接入">
-                    {models
-                      .filter((item) => item.kind === "endpoint")
-                      .map((item) => (
-                        <option key={`${item.sourceId}|${item.model}`} value={`${item.sourceId}|${item.model}`}>
-                          {radarModelOptionLabel(item)}
-                        </option>
-                      ))}
-                  </optgroup>
-                ) : null}
-              </select>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="shrink-0"
-                disabled={!canTestSelected || testSelected.isPending}
-                onClick={() => testSelected.mutate()}
-              >
-                {testSelected.isPending ? "测试中…" : "测试连接"}
-              </Button>
-            </div>
-            {testFeedback ? (
-              <p className={cn("text-xs leading-relaxed", testFeedback.kind === "ok" ? "text-q-success" : "text-q-danger")}>
-                {testFeedback.text}
-              </p>
-            ) : (
-              <p className="text-[12.5px] leading-relaxed text-q-text-secondary">
-                只列出当前凭据可用的对话模型。测试连接会发送一次极小请求，可能消耗少量额度。
-              </p>
-            )}
-          </div>
-          <CustomModelPanel models={models} selected={selectedModelOption} onAdded={onModelChange} />
-          <ChatEndpointPanel endpoints={data?.chatEndpoints ?? []} onAdded={(sourceId, model) => {
-            onSourceChange(sourceId);
-            onModelChange(model);
-          }} />
-          <p className="text-[13px] leading-relaxed text-q-text-secondary">
-            开启 AI 时只分析所选范围内尚未消费的新帖；关闭时仍同步来源，不调用模型，未消费帖子保持待分析。
-          </p>
-        </section>
-
-        {/* 本次输入 */}
-        <section className="glass-panel flex flex-col gap-3 p-4">
-          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">本次输入</h2>
-          <div className="flex items-start gap-2.5 rounded-q-control border border-q-border bg-q-primary-softer px-3 py-2.5">
-            <ShieldCheck size={15} aria-hidden className="mt-0.5 shrink-0 text-q-primary" />
-            <p className="text-[13px] leading-relaxed text-q-text-secondary">
-              只发送英文原文、时间和原帖链接。不发送 CodexRadar 的中文翻译、信号标签或模型语境解读。
-            </p>
-          </div>
-          {analysisInput.length === 0 && contextInput.length === 0 && historicalInput.length === 0 ? (
-            <p className="text-[13px] leading-relaxed text-q-text-secondary">
-              当前时间窗内没有可分析的帖子。Tibo 近期没有新动态时，可切换「自定义」扩大时间范围后重试。
-            </p>
-          ) : (
-            <div className="flex min-h-0 flex-col gap-3">
-              <PostGroupPreview title="本次新增帖子" subtitle="真正未消费，才能创建或推进事件" posts={analysisInput} />
-              {contextInput.length > 0 && (
-                <PostGroupPreview title="事件上下文" subtitle="已关联当前事件，不能单独作为新证据" posts={contextInput} />
-              )}
-              {historicalInput.length > 0 && (
-                <PostGroupPreview title="历史上下文" subtitle="已消费或已关闭事件帖，只能生成历史解释" posts={historicalInput} />
-              )}
-            </div>
-          )}
-        </section>
-      </div>
-
-      {/* 语义提示：只读展示已保存文本；修改后需显式保存才写入偏好。 */}
-      <section className="glass-panel flex flex-col gap-2.5 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">语义提示</h2>
-            <span
-              className={
-                promptEditing && promptDirty
-                  ? "rounded-q-pill bg-q-warning-soft px-2 py-0.5 text-[11px] font-medium text-q-warning"
-                  : "rounded-q-pill bg-q-success-soft px-2 py-0.5 text-[11px] font-medium text-q-success"
-              }
-            >
-              {promptEditing && promptDirty
-                ? "未保存"
-                : promptIsDefault
-                  ? "已保存 · 默认"
-                  : userPrompt.trim()
-                    ? "已保存 · 自定义"
-                    : "已保存 · 未设置"}
-            </span>
-          </div>
-          {promptEditing ? (
-            <button
-              type="button"
-              className="cursor-pointer text-xs font-medium text-q-text-secondary hover:text-q-primary hover:underline disabled:opacity-50"
-              onClick={cancelPromptEdit}
-              disabled={saveUserPrompt.isPending}
-            >
-              取消
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="cursor-pointer text-xs font-medium text-q-primary hover:underline"
-              onClick={beginPromptEdit}
-            >
-              修改
-            </button>
-          )}
-        </div>
-        <p className="text-[13px] leading-relaxed text-q-text-secondary">
-          会随每次分析发给模型，用来补充你认为算强重置信号的措辞。不会改变只发送英文原文、时间和链接的限制。留空则不做额外语义引导。修改后需点保存才会生效。
-        </p>
-        <textarea
-          aria-label="语义提示"
-          value={promptEditing ? promptDraft : userPrompt}
-          onChange={(event) => {
-            if (!promptEditing) return;
-            setPromptDraft(event.target.value.slice(0, 4000));
-          }}
-          readOnly={!promptEditing}
-          rows={6}
-          maxLength={4000}
-          placeholder="例如：提到 dashboard、milestone、Hold on to your Codex 时视为即将重置的强信号。"
-          className={cn(
-            "min-h-[132px] w-full resize-y rounded-q-control border border-q-border px-3 py-2.5 text-[13px] leading-relaxed text-q-text-primary outline-none",
-            promptEditing
-              ? "bg-q-surface-strong focus:border-q-primary"
-              : "cursor-default bg-q-surface-muted text-q-text-secondary",
-          )}
-        />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] text-q-text-muted">{(promptEditing ? promptDraft : userPrompt).length}/4000</p>
-          {promptEditing ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={
-                  saveUserPrompt.isPending || !defaultUserPrompt || promptDraft === defaultUserPrompt
-                }
-                onClick={() => setPromptDraft(defaultUserPrompt)}
-              >
-                恢复默认
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={saveUserPrompt.isPending || !promptDirty}
-                onClick={() => saveUserPrompt.mutate(promptDraft)}
-              >
-                {saveUserPrompt.isPending ? "保存中…" : "保存"}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-        {promptEditing && promptDirty ? (
-          <p className="text-xs leading-relaxed text-q-warning">未保存的修改不会用于「立即检查」。点保存后才会写入偏好。</p>
-        ) : null}
-        {promptFeedback ? (
-          <p
-            className={cn(
-              "text-xs leading-relaxed",
-              promptFeedback.kind === "ok" ? "text-q-success" : "text-q-danger",
-            )}
-          >
-            {promptFeedback.text}
-          </p>
-        ) : null}
-      </section>
-
-      {/* 辅助结论 */}
-      <section className="glass-panel flex flex-col gap-3 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[14px] font-semibold tracking-tight text-q-text-primary">最近成功分析</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            {analysis?.model ? <span className="text-[11px] text-q-text-muted">{analysis.model}</span> : null}
-            {analysis ? (
-              <span className="text-[11px] text-q-text-muted">{formatTime(analysis.createdAt)} 分析</span>
-            ) : null}
-          </div>
-        </div>
-        {analyzeError ? <p className="text-xs leading-relaxed text-q-danger">{analyzeError}</p> : null}
-        {data?.aiAssessment.state === "pending" ? (
-          <p className="text-xs text-q-warning">有新动态待分析，下次「立即检查」时更新。</p>
-        ) : null}
-        {data?.aiAssessment.state === "historical" || (!data?.aiAssessment.enabled && analysis) ? (
-          <p className="text-xs text-q-text-muted">以下为历史分析，不冒充最新结论。</p>
-        ) : null}
-        {data?.analysisGroups.mode === "historical_replay" ? (
-          <p className="text-xs text-q-text-muted">当前范围为历史回放：可以生成解释，不会创建或推进事件。</p>
-        ) : null}
-        {analysis?.conclusion ? (
-          <>
-            <div className="flex flex-col gap-1.5">
-              <p className="text-[11px] font-semibold tracking-widest text-q-primary">结论</p>
-              <p className="text-[15px] font-medium leading-relaxed text-q-text-primary" data-selectable="true">
-                {humanizeRadarPostRefs(analysis.conclusion, knownPosts)}
-              </p>
-              {analysis.signalType ? (
-                <p className="text-[12px] text-q-text-muted">信号类型 · {radarSignalTypeLabel(analysis.signalType)}</p>
-              ) : null}
-            </div>
-            {analysis.analysisBasis ? (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-[11px] font-semibold tracking-widest text-q-primary">
-                  分析依据 · {humanizeRadarPostRefs(analysis.analysisBasis, knownPosts).length} 字
-                </p>
-                <div
-                  className="max-h-72 overflow-y-auto rounded-q-card border border-q-border bg-q-primary-softer px-3.5 py-3 text-[13px] leading-relaxed text-q-text-secondary"
-                  data-selectable="true"
-                >
-                  {humanizeRadarPostRefs(analysis.analysisBasis, knownPosts)}
-                </div>
-              </div>
-            ) : null}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-x-8 gap-y-3">
-              <CitationList citations={analysis.citations} posts={knownPosts} />
-              <ListBlock title="支持依据" icon={<ThumbsUp size={13} aria-hidden />} items={analysis.support.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
-              <ListBlock title="反向依据" icon={<ThumbsDown size={13} aria-hidden />} items={analysis.against.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
-              <ListBlock title="不确定性" icon={<HelpCircle size={13} aria-hidden />} items={analysis.uncertainty.map((item) => humanizeRadarPostRefs(item, knownPosts))} />
-            </div>
-          </>
-        ) : (
-          <p className="text-xs text-q-text-muted">
-            {analyzeError ? "分析未完成，请更换模型或稍后重试。" : "尚未生成分析。开启 AI 后点立即检查。"}
-          </p>
-        )}
-      </section>
-
-      <p className="flex items-center gap-1.5 px-1 text-[11px] text-q-text-muted">
-        <BrainCircuit size={13} aria-hidden className="shrink-0" />
-        AI 是解释器而不是证据来源：每个输出必须引用实际原文；没有真实原文或分析失败时不生成结论。
-      </p>
-    </div>
-  );
-}
-
-/* ——— 自定义分析模型：输入模型名 → 验证连接 → 保存入库 ——— */
+/* ————————————————— 自定义分析模型 / 独立对话接入 ————————————————— */
 
 function CustomModelPanel({
   models,
@@ -2261,96 +2485,7 @@ function ListBlock({
   );
 }
 
-/** 引用卡：别名映射回真实 post_id 后，展示帖子原文 + 时间 + 查看原帖，不暴露原始帖子编号。 */
-function CitationList({ citations, posts, compact = false }: { citations: string[]; posts: RadarPost[]; compact?: boolean }) {
-  const [linkError, setLinkError] = useState<string | null>(null);
-  if (citations.length === 0) return null;
-  const byId = new Map(posts.map((post) => [post.id, post]));
-  return (
-    <div className="flex flex-col gap-1.5">
-      <p className="flex items-center gap-1.5 text-xs font-medium text-q-text-secondary">
-        <span aria-hidden className="text-q-primary">
-          <Link2 size={13} aria-hidden />
-        </span>
-        引用
-        <span className="text-q-text-muted">· {citations.length}</span>
-      </p>
-      <ul className={cn("gap-1.5 pl-0.5", compact ? "flex flex-wrap" : "flex flex-col")}>
-        {citations.map((citation, index) => {
-          const post = byId.get(citation);
-          return (
-            <li
-              key={`${index}-${citation.slice(0, 12)}`}
-              className={cn(
-                "flex items-center gap-2 border border-q-border bg-q-surface-strong text-xs leading-relaxed text-q-text-primary",
-                compact ? "rounded-q-pill px-2.5 py-1" : "flex-col items-stretch rounded-q-control px-3 py-2",
-              )}
-            >
-              {!compact && post ? (
-                <>
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 tabular-nums font-medium text-q-primary">{index + 1}.</span>
-                    <span className="shrink-0 tabular-nums text-q-text-muted">{citationTimeLabel(post.postedAt)}</span>
-                    <button
-                      type="button"
-                      className="ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1 text-q-primary hover:underline"
-                      onClick={() => {
-                        setLinkError(null);
-                        void openExternalUrl(post.url).catch((error) => {
-                          setLinkError(ipcErrorMessage(error, "无法打开原帖"));
-                        });
-                      }}
-                    >
-                      <ExternalLink size={12} aria-hidden />
-                      查看原帖
-                    </button>
-                  </div>
-                  <p className="min-w-0 text-[13px] leading-relaxed text-q-text-secondary" data-selectable="true">
-                    {post.summary ?? post.translatedText ?? post.text}
-                  </p>
-                </>
-              ) : (
-                <>
-                  {!compact ? <span className="shrink-0 tabular-nums font-medium text-q-primary">{index + 1}.</span> : null}
-                  {post ? (
-                    <>
-                      <span className="min-w-0 shrink-0 tabular-nums text-q-text-muted">{citationTimeLabel(post.postedAt)}</span>
-                      <button
-                        type="button"
-                        className="inline-flex cursor-pointer items-center gap-1 text-q-primary hover:underline"
-                        onClick={() => {
-                          setLinkError(null);
-                          void openExternalUrl(post.url).catch((error) => {
-                            setLinkError(ipcErrorMessage(error, "无法打开原帖"));
-                          });
-                        }}
-                      >
-                        <ExternalLink size={12} aria-hidden />
-                        查看原帖
-                      </button>
-                    </>
-                  ) : (
-                    <span className="min-w-0 text-q-text-muted">引用帖（不在当前同步列表）</span>
-                  )}
-                </>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {linkError ? <p className="text-[11px] text-q-danger">{linkError}</p> : null}
-    </div>
-  );
-}
-
-/** 引用时间标签：固定 `MM-DD HH:mm`。 */
-function citationTimeLabel(epochMs: number): string {
-  const date = new Date(epochMs);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-/** 相对天数档：`Nd` 表示过去 N 天（与后端 parse_range_days 对齐）。 */
+/** 相对天数档：`Nd` 表示过去 N 天（浏览筛选）。 */
 function parseRangeDays(rangeKey: string): number | null {
   if (!rangeKey.endsWith("d")) return null;
   const days = Number(rangeKey.slice(0, -1));
@@ -2367,6 +2502,24 @@ function toIsoDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/** 浏览范围换算成 [起始毫秒, 结束毫秒]；`all` 不限。 */
+function browseRangeBounds(rangeKey: string): { start: number; end: number } {
+  const custom = parseCustomRange(rangeKey);
+  if (custom) {
+    return {
+      start: Date.parse(`${custom.start}T00:00:00`),
+      end: Date.parse(`${custom.end}T23:59:59.999`),
+    };
+  }
+  if (rangeKey === "today") {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return { start: start.getTime(), end: Number.MAX_SAFE_INTEGER };
+  }
+  const days = parseRangeDays(rangeKey) ?? 7;
+  return { start: Date.now() - days * 24 * 60 * 60 * 1000, end: Number.MAX_SAFE_INTEGER };
 }
 
 /** 默认自定义区间：最近 30 天。 */
@@ -2387,14 +2540,7 @@ function customRangeOf(rangeKey: string): { start: string; end: string } | null 
   return { start: toIsoDate(start), end: toIsoDate(today) };
 }
 
-/** 时间范围快捷档（与 Tibo 筛选 chips 同款视觉）。 */
-const QUICK_RANGES: Array<{ id: string; label: string }> = [
-  { id: "today", label: "当天" },
-  { id: "3d", label: "过去 3 天" },
-  { id: "7d", label: "过去 7 天" },
-];
-
-/** 时间范围快捷档与筛选 Chip 的统一样式：两主题各由 Chip Token 驱动，不再写死白底。 */
+/** 时间范围快捷档与筛选 Chip 的统一样式：两主题各由 Chip Token 驱动。 */
 function rangeChipClass(active: boolean): string {
   return cn(
     "inline-flex cursor-pointer items-center whitespace-nowrap rounded-q-pill border px-3 py-1.5 text-[12px] font-medium transition-colors duration-150",
