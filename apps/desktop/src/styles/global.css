@@ -144,6 +144,7 @@ button {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
@@ -384,6 +385,12 @@ html.hoverbar-window #root {
   box-shadow:
     inset 0 0 0 0.4px rgba(148, 163, 184, 0.28),
     inset 0 0 0.8px rgba(148, 163, 184, 0.16);
+}
+
+/* 空闲时保留状态色，停止常驻逐帧合成；交互与核验时恢复光效。 */
+.hb-orb[data-animate="false"] .hb-ambient-bloom {
+  animation: none;
+  opacity: 0.65;
 }
 
 @media (prefers-reduced-motion: reduce) {
