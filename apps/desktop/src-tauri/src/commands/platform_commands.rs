@@ -27,10 +27,13 @@ pub struct PlatformSetupInput {
 }
 
 #[tauri::command]
-pub fn get_platform_summaries(
+pub async fn get_platform_summaries(
     database: State<'_, Database>,
 ) -> Result<Vec<PlatformSummaryViewModel>, String> {
-    providers::platform_summaries(&database)
+    let database = database.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || providers::platform_summaries(&database))
+        .await
+        .map_err(|error| format!("读取平台快照任务失败: {error}"))?
 }
 
 #[tauri::command]

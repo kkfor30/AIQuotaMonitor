@@ -377,8 +377,6 @@ export function HoverbarOrb({
   disabled?: boolean;
   forceState?: "hover" | "focus" | "active";
 }) {
-  const [interacting, setInteracting] = useState(false);
-  const animate = interacting || active || Boolean(forceState) || glow === "verifying";
   const effectiveGlow: OrbGlowType =
     glow ??
     (alertTone === "error"
@@ -396,22 +394,17 @@ export function HoverbarOrb({
       onClick={onActivate}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
-      onPointerEnter={() => setInteracting(true)}
-      onPointerLeave={() => setInteracting(false)}
-      onFocus={() => setInteracting(true)}
-      onBlur={() => setInteracting(false)}
       className={`hb-orb${active ? " is-detail-open" : ""}${
         effectiveGlow ? ` is-glow-${effectiveGlow}` : ""
       }${forceState ? ` is-${forceState}` : ""}`}
       data-edge={edge}
       data-glow={effectiveGlow}
-      data-animate={animate}
       data-alert={alertTone && !active ? alertTone : undefined}
     >
       <div className="hb-ambient-bloom" />
       <picture>
         <source media="(prefers-reduced-motion: reduce)" srcSet="/assets/hover-orb-poster.png" />
-        <img src={animate ? "/assets/hover-orb.webp" : "/assets/hover-orb-poster.png"} alt="" draggable={false} />
+        <img src="/assets/hover-orb.webp" alt="" draggable={false} />
       </picture>
     </button>
   );

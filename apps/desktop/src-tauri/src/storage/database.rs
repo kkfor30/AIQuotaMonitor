@@ -62,6 +62,20 @@ impl Database {
 
     pub(crate) fn in_transaction(&self) -> bool { self.session.is_some() }
 
+    /// 一次 ViewModel 读取复用一个短生命周期连接；WAL 读快照不占用写事务锁。
+    /// query_only 防止聚合读取意外写库，结束后释放连接和页缓存。
+    pub(crate) fn read_snapshot<T>(&self, read: impl FnOnce(&Database) -> Result<T, String>) -> Result<T, String> {
+        if self.in_transaction() { return read(self); }
+        let connection = open_connection(&self.path)?;
+        connection.execute_batch("PRAGMA query_only = ON; BEGIN DEFERRED")
+            .map_err(|error| format!("开始数据库快照读取失败: {error}"))?;
+        let scoped = Self { path: self.path.clone(), session: Some(Arc::new(Mutex::new(connection))) };
+        let value = read(&scoped)?;
+        scoped.connect()?.execute_batch("COMMIT")
+            .map_err(|error| format!("结束数据库快照读取失败: {error}"))?;
+        Ok(value)
+    }
+
     /// A synchronous unit of work: every repository call uses the same connection.
     /// Dropping the scoped connection on an error/panic rolls back SQLite's transaction.
     pub(crate) fn atomic<T>(&self, work: impl FnOnce(&Database) -> Result<T, String>) -> Result<T, String> {
@@ -919,6 +933,47 @@ fn epoch_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_snapshot_is_consistent_without_blocking_writers() {
+        let path = std::env::temp_dir().join(format!(
+            "aqm-read-snapshot-{}-{}.db", std::process::id(), epoch_ms()
+        ));
+        let database = Database::initialize_at(path.clone()).unwrap();
+        database.set_setting_string("snapshot-test", "before").unwrap();
+        database.read_snapshot(|reader| {
+            assert_eq!(reader.setting_string("snapshot-test")?.as_deref(), Some("before"));
+            // 独立连接提交刷新结果，既有读快照仍完整保留原版本。
+            database.set_setting_string("snapshot-test", "after")?;
+            assert_eq!(reader.setting_string("snapshot-test")?.as_deref(), Some("before"));
+            assert_eq!(reader.read_snapshot(|nested| nested.setting_string("snapshot-test"))?.as_deref(), Some("before"));
+            assert!(reader.set_setting_string("snapshot-test", "unexpected").is_err());
+            Ok(())
+        }).unwrap();
+        assert_eq!(database.read_snapshot(|reader| reader.setting_string("snapshot-test")).unwrap().as_deref(), Some("after"));
+        drop(database);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn read_snapshot_error_releases_connection() {
+        let path = std::env::temp_dir().join(format!(
+            "aqm-read-error-{}-{}.db", std::process::id(), epoch_ms()
+        ));
+        let database = Database::initialize_at(path.clone()).unwrap();
+        let result: Result<(), String> = database.read_snapshot(|reader| {
+            reader.list_sources("openai")?;
+            Err("read failed".into())
+        });
+        assert_eq!(result.unwrap_err(), "read failed");
+        database.set_setting_string("after-error", "saved").unwrap();
+        let connection = database.connect().unwrap();
+        let busy: i64 = connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0)).unwrap();
+        assert_eq!(busy, 0, "failed reads must not retain the WAL snapshot");
+        drop(connection);
+        drop(database);
+        fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn creates_v1_schema_and_seed_sources() {
