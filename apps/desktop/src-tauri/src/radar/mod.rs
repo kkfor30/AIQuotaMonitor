@@ -1674,11 +1674,11 @@ fn delta_impact_line(ai: &RadarAiAssessmentView, enabled: bool, pending: i64) ->
             "尚未运行 AI 分析。".into()
         };
     };
-    if latest.event_relation.as_deref() == Some("none") {
-        return "最新动态已分析，与重置无关，不影响当前判断。".into();
-    }
     if pending > 0 {
         return "有更新动态待分析，当前判断可能变化。".into();
+    }
+    if latest.event_relation.as_deref() == Some("none") {
+        return "最新动态已分析，与重置无关，不影响当前判断。".into();
     }
     "最新动态已分析，未改变当前判断".into()
 }

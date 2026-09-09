@@ -1313,7 +1313,7 @@ export function HistoryView({ data }: { data: RadarSnapshot | undefined }) {
                           {" · "}
                           {observation.kind === "grant"
                             ? `重置卡 ${observation.previousCount} → ${observation.currentCount}（到账）`
-                            : `重置卡 ${observation.previousCount} → ${observation.currentCount}（减少，不能单独断言已使用）`}
+                            : `重置卡 ${observation.previousCount} → ${observation.currentCount}（消耗）`}
                         </p>
                       ))}
                     </div>

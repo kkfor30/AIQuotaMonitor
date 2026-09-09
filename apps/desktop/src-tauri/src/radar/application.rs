@@ -90,7 +90,14 @@ pub(super) fn commit(database: &Database, inputs: &DeltaInputs, parsed: &ModelJs
     record: &RadarAnalysisRecord, input_json: &str) -> Result<(), String> {
     database.atomic(|db| {
         let already: bool = db.connect()?.query_row("SELECT EXISTS(SELECT 1 FROM radar_analysis_inputs WHERE analysis_id=?1)", [&record.id], |r|r.get(0)).map_err(|e|e.to_string())?;
-        if already { return Ok(()); }
+        if already {
+            for outcome in &parsed.post_outcomes {
+                if outcome.outcome != "retry" {
+                    db.mark_tibo_posts_consumed(&[outcome.post_id.clone()], epoch_ms())?;
+                }
+            }
+            return Ok(());
+        }
         let current = db.active_radar_events()?;
         let expected: Vec<(String,i64)> = inputs.event_status.as_deref()
             .and_then(|s| serde_json::from_str::<Value>(s).ok())
@@ -307,5 +314,23 @@ mod tests {
         let record=RadarAnalysisRecord{id:"analysis-stale".into(),..record};
         assert!(commit(&db,&fresh,&parsed,&record,"input").is_err());
         assert_eq!(db.unconsumed_tibo_posts_since(0,100).unwrap().len(),1);
+    }
+
+    #[test]
+    fn replay_prepared_consumes_posts_when_analysis_record_already_exists() {
+        let (db, inputs, parsed, record) = fixture();
+        save_prepared(&db, "key", &record, &parsed, "actual input").unwrap();
+        // 首次提交：材料被消费
+        commit(&db, &inputs, &parsed, &record, "actual input").unwrap();
+        assert!(db.unconsumed_tibo_posts_since(0, 100).unwrap().is_empty());
+        // 模拟触发器将已消费状态重置为 NULL
+        db.connect()
+            .unwrap()
+            .execute("UPDATE tibo_posts SET lifecycle_consumed_at=NULL", [])
+            .unwrap();
+        assert_eq!(db.unconsumed_tibo_posts_since(0, 100).unwrap().len(), 1);
+        // 重放缓存：即使 analysis 记录已存在，也必须将帖子标记为已消费
+        assert!(replay_prepared(&db, &inputs, "key").unwrap());
+        assert!(db.unconsumed_tibo_posts_since(0, 100).unwrap().is_empty());
     }
 }

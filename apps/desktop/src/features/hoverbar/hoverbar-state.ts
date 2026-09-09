@@ -301,11 +301,17 @@ export function radarSignalTypeLabel(value: string | null | undefined): string {
   }
 }
 
-export function radarBankedChangeRows(decision: {
-  recentBankedGrant: RadarBankedGrant | null;
-  recentBankedDecrease: RadarBankedGrant | null;
-}): RadarBankedGrant[] {
-  return [decision.recentBankedDecrease, decision.recentBankedGrant]
+export function radarBankedChangeRows(
+  decision: {
+    recentBankedGrant: RadarBankedGrant | null;
+    recentBankedDecrease: RadarBankedGrant | null;
+  },
+  options?: { includeDecreases?: boolean },
+): RadarBankedGrant[] {
+  const list = options?.includeDecreases
+    ? [decision.recentBankedDecrease, decision.recentBankedGrant]
+    : [decision.recentBankedGrant];
+  return list
     .filter((item): item is RadarBankedGrant => Boolean(item))
     .sort((a, b) => b.observedAt - a.observedAt);
 }
@@ -321,7 +327,7 @@ export function radarBankedChangeTitle(
   change: Pick<RadarBankedGrant, "kind" | "previousCount" | "currentCount">,
 ): string {
   return change.kind === "drop" || change.currentCount < change.previousCount
-    ? "本机观察到重置卡减少"
+    ? "重置卡消耗"
     : "上次重置卡到账";
 }
 
@@ -330,9 +336,6 @@ export function radarBankedChangeMeta(
   clock: (ms: number) => string,
 ): string {
   const delta = `${change.previousCount}→${change.currentCount}`;
-  if (change.kind === "drop" || change.currentCount < change.previousCount) {
-    return `${clock(change.observedAt)} · ${delta} · 不能单独判定为已使用`;
-  }
   return `${clock(change.observedAt)} · ${delta}`;
 }
 
@@ -361,7 +364,7 @@ export function radarAccountBankedChangeNotes(
     item.lastBankedDecreaseTo != null
   ) {
     parts.push(
-      `减少 ${clock(item.lastBankedDecreaseAt)}（${item.lastBankedDecreaseFrom}→${item.lastBankedDecreaseTo}）`,
+      `消耗 ${clock(item.lastBankedDecreaseAt)}（${item.lastBankedDecreaseFrom}→${item.lastBankedDecreaseTo}）`,
     );
   }
   if (
