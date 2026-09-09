@@ -2817,6 +2817,15 @@ button.hb-status-chip:hover,
   margin-top: 8px;
 }
 
+/* 本机验证折叠体：账号/窗口双列卡片纵向排列，收起时不占高度。 */
+.hb-verification-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .hb-radar-recent-posts {
   display: flex;
   min-width: 0;

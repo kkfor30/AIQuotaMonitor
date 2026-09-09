@@ -1,8 +1,8 @@
 /**
  * 悬浮详情内的 GPT 重置雷达二级页。
  * 布局：sticky 工具栏 → 核心判断卡（结论+时间+确认操作）
- * → 本机验证卡（双列额度变化与重置卡直接可见）
  * → AI 分析卡（结论+依据+原帖引用直接可见）
+ * → 本机验证卡（默认折叠，双列额度变化与重置卡按需展开）
  * → 最新动态卡（精选动态直接可见）
  * → CodexRadar 公告（按需）→ 最近一次历史重置（按需折叠）。
  */
@@ -109,6 +109,7 @@ export function HoverbarRadarDetail({
 
   const pageRef = useRef<HTMLDivElement>(null);
   const [aiDetailOpen, setAiDetailOpen] = useState(false);
+  const [verificationOpen, setVerificationOpen] = useState(false);
   const [recentEventOpen, setRecentEventOpen] = useState(false);
   const [tiboLimit, setTiboLimit] = useState(4);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -274,33 +275,7 @@ export function HoverbarRadarDetail({
         )}
       </section>
 
-      {/* 2. 本机额度验证：双列卡片直出，无需层层打开 */}
-      <section className="hb-radar-card">
-        <div className="hb-radar-card-head">
-          <h3 className="hb-radar-card-title">本机验证</h3>
-          <span className="hb-radar-meta">{verificationSubtitle}</span>
-        </div>
-        {verifications.length === 0 ? (
-          <p className="hb-radar-meta">未接入 GPT 额度来源。</p>
-        ) : (
-          verifications.map((item) => <QuotaVerificationRow key={item.sourceId} item={item} />)
-        )}
-        {onRetryQuota && quotaUnavailable ? (
-          <div className="hb-radar-post-actions hb-quota-summary-actions">
-            <button
-              type="button"
-              className="hb-quota-retry"
-              onClick={onRetryQuota}
-              disabled={quotaRefreshing}
-            >
-              <RefreshCw size={12} aria-hidden className={quotaRefreshing ? "hb-spin" : ""} />
-              {quotaRefreshing ? "正在获取…" : "重试获取额度"}
-            </button>
-          </div>
-        ) : null}
-      </section>
-
-      {/* 3. AI 分析卡：结论与依据直接呈现，详细支持/反对项支持展开 */}
+      {/* 2. AI 分析卡：结论与依据直接呈现，详细支持/反对项支持展开 */}
       {aiAssessment?.enabled ? (
         <section className="hb-radar-card">
           <div className="hb-radar-card-head">
@@ -339,6 +314,45 @@ export function HoverbarRadarDetail({
           )}
         </section>
       ) : null}
+
+      {/* 3. 本机额度验证：默认折叠成单行，账号/窗口细节按需展开；重试动作保持常驻 */}
+      <section className="hb-radar-card hb-radar-card-compact">
+        <button
+          type="button"
+          className="hb-radar-card-toggle"
+          onClick={() => setVerificationOpen((open) => !open)}
+        >
+          <ChevronRight
+            size={13}
+            aria-hidden
+            className={verificationOpen ? "hb-rotate-90" : ""}
+          />
+          <span className="hb-radar-card-toggle-title">本机验证</span>
+          <span className="hb-radar-card-toggle-meta">{verificationSubtitle}</span>
+        </button>
+        <div className="hb-radar-collapse" data-open={verificationOpen || undefined} aria-hidden={!verificationOpen}>
+          <div className="hb-radar-collapse-inner hb-verification-body">
+            {verifications.length === 0 ? (
+              <p className="hb-radar-meta">未接入 GPT 额度来源。</p>
+            ) : (
+              verifications.map((item) => <QuotaVerificationRow key={item.sourceId} item={item} />)
+            )}
+          </div>
+        </div>
+        {onRetryQuota && quotaUnavailable ? (
+          <div className="hb-radar-post-actions hb-quota-summary-actions">
+            <button
+              type="button"
+              className="hb-quota-retry"
+              onClick={onRetryQuota}
+              disabled={quotaRefreshing}
+            >
+              <RefreshCw size={12} aria-hidden className={quotaRefreshing ? "hb-spin" : ""} />
+              {quotaRefreshing ? "正在获取…" : "重试获取额度"}
+            </button>
+          </div>
+        ) : null}
+      </section>
 
       {/* 4. 最新动态卡：首屏直出最新几条动态，免去折叠展开 */}
       <section className="hb-radar-card">
