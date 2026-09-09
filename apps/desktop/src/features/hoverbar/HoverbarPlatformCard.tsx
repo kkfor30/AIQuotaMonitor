@@ -604,10 +604,9 @@ function RadarStrip({
       : decision.recentSummaryText;
   const latestBankedChange = radarLatestBankedChange(decision);
   const recentGrantLine =
-    latestBankedChange == null
+    latestBankedChange == null || latestBankedChange.kind !== "grant"
       ? null
-      : latestBankedChange.kind === "grant" &&
-          decision.eventType === "banked_reset" &&
+      : decision.eventType === "banked_reset" &&
           (decision.status === "landed_observed" || decision.status === "user_confirmed")
         ? null
         : radarBankedChangeLine(latestBankedChange, formatHoverbarClock);

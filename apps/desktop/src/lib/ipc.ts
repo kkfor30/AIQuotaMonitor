@@ -424,7 +424,7 @@ export type RadarBankedGrant = {
   observedAt: number;
   /** 该来源当前可用张数；字段缺失为 null，禁止补零。 */
   liveCount: number | null;
-  /** grant = 到账；drop = 数量减少，不能单独判定为已使用。 */
+  /** grant = 到账；drop = 数量减少（消耗）。 */
   kind: "grant" | "drop" | string;
 };
 
@@ -449,7 +449,7 @@ export type RadarDecision = {
   recentReset: RadarRecentEvent | null;
   /** 最近一次本机观察到的重置卡发放；不得写入 recentReset。 */
   recentBankedGrant: RadarBankedGrant | null;
-  /** 最近一次本机观察到的重置卡数量减少；不得单独断言已使用。 */
+  /** 最近一次本机观察到的重置卡数量减少；记录流水，不得写入 recentReset。 */
   recentBankedDecrease: RadarBankedGrant | null;
   /** 最近关闭的普通雷达事件（invalid_historical_replay 等），只用于历史与来源声称提示。 */
   recentClosedEvent: RadarRecentEvent | null;
