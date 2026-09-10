@@ -716,6 +716,8 @@ fn bucket_cost(bucket: &Value) -> Decimal {
 
 fn parse_total_spend(json: &Value) -> Option<Decimal> {
     let keys = [
+        "total_costs",
+        "totalCosts",
         "total_usage",
         "totalUsage",
         "total_spend",
@@ -739,6 +741,19 @@ fn parse_total_spend(json: &Value) -> Option<Decimal> {
 fn money_value(value: &Value) -> Option<Decimal> {
     if let Some(amount) = json_decimal(value) {
         return Some(amount);
+    }
+    if let Some(list) = value.as_array() {
+        let preferred = list
+            .iter()
+            .find(|item| {
+                item.get("currency")
+                    .and_then(Value::as_str)
+                    .is_some_and(|c| c.eq_ignore_ascii_case("CNY"))
+            })
+            .or_else(|| list.first());
+        if let Some(item) = preferred {
+            return money_value(item);
+        }
     }
     first_value(value, &["amount", "value", "balance", "cost", "total"]).and_then(json_decimal)
 }
@@ -1178,6 +1193,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_official_summary_total_costs_array() {
+        let json = serde_json::json!({
+            "code": 0,
+            "data": {
+                "biz_code": 0,
+                "biz_data": {
+                    "bonus_wallets": [{"balance": "0", "currency": "CNY", "token_estimation": "0"}],
+                    "normal_wallets": [{"balance": "5.7562315200000000", "currency": "CNY", "token_estimation": "0"}],
+                    "total_costs": [{"amount": "104.2437684800000000", "currency": "CNY"}]
+                },
+                "biz_msg": ""
+            },
+            "msg": ""
+        });
+        assert_eq!(
+            parse_total_spend(&json).unwrap().to_string(),
+            "104.2437684800000000"
+        );
+    }
+
+    #[test]
     fn parses_official_summary_total_usage() {
         let json = serde_json::json!({
             "code": 0,
@@ -1188,3 +1224,5 @@ mod tests {
         assert_eq!(parse_total_spend(&nested).unwrap().to_string(), "12.50");
     }
 }
+
+
