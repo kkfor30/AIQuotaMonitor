@@ -386,6 +386,9 @@ pub fn repair_stale_announced_time(database: &Database, now: i64) -> Result<(), 
                 posts.push(post.clone());
             }
         }
+        // 只采用「发帖时间最新」且能解析出唯一发放时刻的帖。
+        // 不能因为该时刻已经等于当前 expected_at 就跳过最新帖，否则会回落到更早公告
+        //（例如 09-08 10:00），再被 timeout 关掉、再被修回 09-12，形成时间线抖动。
         let mut best: Option<(i64, i64, time_claims::ParsedTimeClaim)> = None;
         for post in &posts {
             let claims = time_claims::parse_post_time_claims_with_translation(
@@ -405,10 +408,7 @@ pub fn repair_stale_announced_time(database: &Database, now: i64) -> Result<(), 
                 continue;
             }
             let (at, claim) = grants.into_iter().next().expect("unique grant");
-            if at == old_at {
-                continue;
-            }
-            if now < old_at && post.posted_at <= old_at {
+            if now < old_at && post.posted_at <= old_at && at != old_at {
                 continue;
             }
             if best.as_ref().is_none_or(|(posted, _, _)| post.posted_at > *posted) {
@@ -640,6 +640,59 @@ mod tests {
         assert_eq!(updated.expected_at, Some(expected));
         assert_eq!(updated.phase, "upcoming");
         assert!(updated.closed_at.is_none());
+    }
+
+    #[test]
+    fn repair_does_not_revert_latest_midnight_to_older_pst_grant() {
+        let db = fixture();
+        let old_post_at = POSTED_AT;
+        let posted = chrono::DateTime::parse_from_rfc3339("2026-09-12T11:20:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        let now = chrono::DateTime::parse_from_rfc3339("2026-09-12T15:20:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        let latest = chrono::DateTime::parse_from_rfc3339("2026-09-12T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        db.connect().unwrap().execute(
+            "INSERT INTO tibo_posts(id,url,text,posted_at,kind,explicit_reset,is_reply,replies,reposts,likes,extra_json,synced_at,lifecycle_consumed_at)
+             VALUES('2097043464538264003','https://x.com/tibo/status/old','Lands around 6pm PST today.',?1,'direct',1,0,0,0,0,'{}',?1,?1)",
+            [old_post_at],
+        ).unwrap();
+        db.connect().unwrap().execute(
+            "INSERT INTO tibo_posts(id,url,text,posted_at,kind,explicit_reset,is_reply,replies,reposts,likes,extra_json,synced_at,lifecycle_consumed_at)
+             VALUES('midnight-today','https://x.com/tibo/status/new','And of course, a reset is also landing by midnight today.',?1,'direct',1,0,0,0,0,'{}',?1,?1)",
+            [posted],
+        ).unwrap();
+        let mut event = RadarEventRecord {
+            id: "event-oscillate".into(),
+            phase: "upcoming".into(),
+            title: "预计即将重置".into(),
+            summary: None,
+            first_signal_at: old_post_at,
+            latest_evidence_at: posted,
+            claimed_landed_at: None,
+            observed_reset_at: None,
+            closed_at: None,
+            close_reason: None,
+            expected_at: Some(latest),
+            expires_at: None,
+            state_revision: 1,
+            user_confirmed_reset_at: None,
+            event_type: "quota_reset".into(),
+        };
+        event.expires_at = event_expiry(&event);
+        db.insert_radar_event(&event).unwrap();
+        db.add_radar_event_evidence("event-oscillate", "2097043464538264003", "delta", "a1").unwrap();
+        db.add_radar_event_evidence("event-oscillate", "midnight-today", "delta", "a2").unwrap();
+        repair_stale_announced_time(&db, now).unwrap();
+        repair_stale_announced_time(&db, now).unwrap();
+        let updated = db.radar_event("event-oscillate").unwrap().unwrap();
+        assert_eq!(updated.expected_at, Some(latest));
+        assert_ne!(updated.expected_at, Some(EXPECTED_AT));
+        assert!(updated.closed_at.is_none());
+        assert_eq!(updated.state_revision, 1);
     }
 
     #[test]
