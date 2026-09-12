@@ -1016,6 +1016,32 @@ fn refresh_time_claims(database: &Database) -> Result<(), String> {
     Ok(())
 }
 
+/// 更早公告的发放时刻不能覆盖已经由更新帖子写上的预告（09-08 6pm PST 不得打回 09-12 midnight）。
+pub(super) fn announcement_post_is_stale(
+    database: &Database,
+    event: &RadarEventRecord,
+    post_id: &str,
+) -> bool {
+    let Ok(candidates) = database.tibo_posts_by_ids(&[post_id.to_string()]) else {
+        return false;
+    };
+    let Some(candidate) = candidates.first() else {
+        return false;
+    };
+    if let Ok(Some((Some(basis_id), _, _, _, _))) = database.radar_event_time_basis(&event.id) {
+        if basis_id != post_id {
+            if let Ok(basis_posts) = database.tibo_posts_by_ids(&[basis_id]) {
+                if let Some(basis) = basis_posts.first() {
+                    if candidate.posted_at < basis.posted_at {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 fn event_expiry(event: &RadarEventRecord) -> Option<i64> {
     let hour = 3_600_000;
     if event.phase != "closed" && event.observed_reset_at.is_none() {
@@ -3600,6 +3626,7 @@ fn apply_analysis_to_event(
         &cited_new,
         &cited_context,
         expected_at,
+        parsed.expected_time_post.as_deref(),
         analysis_id,
     )?;
     // v21 eventUpdates already apply each type independently; keep secondary_* only for legacy outputs.
@@ -3622,6 +3649,7 @@ fn advance_or_create_event(
     cited_new: &[&TiboPostView],
     cited_context: &[&TiboPostView],
     expected_at: Option<i64>,
+    expected_time_post: Option<&str>,
     analysis_id: &str,
 ) -> Result<(Option<String>, bool), String> {
     let newest_posted_at = cited_new.iter().map(|post| post.posted_at).max().unwrap_or(0);
@@ -3718,7 +3746,11 @@ fn advance_or_create_event(
             }
             if has_new_evidence && updated.observed_reset_at.is_none() && !matches!(delta_effect, Some("cancel")) {
                 if let Some(at) = expected_at {
-                    updated.expected_at = Some(at);
+                    let stale = expected_time_post
+                        .is_some_and(|post_id| announcement_post_is_stale(database, &updated, post_id));
+                    if !stale {
+                        updated.expected_at = Some(at);
+                    }
                 } else if updated.expected_at.is_some_and(|at| now >= at) {
                     // 新材料没有给出新的预告时间，旧预告已过期，不再继续展示过期时钟。
                     updated.expected_at = None;
@@ -3791,6 +3823,7 @@ fn apply_secondary_signal(
         &cited_new,
         &cited_context,
         expected_at,
+        parsed.expected_time_post.as_deref(),
         analysis_id,
     )?;
     Ok(outcome.0)

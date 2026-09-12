@@ -149,7 +149,8 @@ pub(super) fn commit(database: &Database, inputs: &DeltaInputs, parsed: &ModelJs
             }
             if let Some(id) = &event_id {
                 if let Some(mut event) = db.radar_event(id)? {
-                    if event.closed_at.is_none() && event.observed_reset_at.is_none() && (update.clear_time || selected.is_some()) && matches!(update.operation.as_str(), "create" | "reinforce" | "update_time" | "advance_phase" | "weaken") {
+                    let stale_time = selected.is_some_and(|claim| announcement_post_is_stale(db, &event, &claim.post_id));
+                    if event.closed_at.is_none() && event.observed_reset_at.is_none() && (update.clear_time || selected.is_some()) && !stale_time && matches!(update.operation.as_str(), "create" | "reinforce" | "update_time" | "advance_phase" | "weaken") {
                         event.expected_at = if update.clear_time { None } else { selected.and_then(|c|c.resolved_at) };
                         event.expires_at = event_expiry(&event);
                         event.state_revision += 1;
@@ -245,6 +246,57 @@ mod tests {
         let record=RadarAnalysisRecord{id:"late-time".into(),..record};
         commit(&db,&inputs,&parsed,&record,"late").unwrap();
         assert_eq!(db.radar_event(&event.id).unwrap().unwrap().expected_at,event.expected_at);
+    }
+
+    #[test]
+    fn older_pst_grant_cannot_overwrite_midnight_basis() {
+        let (db, _, parsed, record) = fixture();
+        commit(&db, &collect_delta_inputs(&db).unwrap(), &parsed, &record, "input").unwrap();
+        let midnight_posted = chrono::DateTime::parse_from_rfc3339("2026-09-12T11:20:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        let midnight_at = chrono::DateTime::parse_from_rfc3339("2026-09-12T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        let old_at = chrono::DateTime::parse_from_rfc3339("2026-09-08T10:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        db.connect().unwrap().execute(
+            "INSERT INTO tibo_posts(id,url,text,posted_at,kind,explicit_reset,is_reply,replies,reposts,likes,extra_json,synced_at)
+             VALUES('midnight-today','https://x.com/tibo/status/new','a reset is also landing by midnight today.',?1,'direct',1,0,0,0,0,'{}',?1)",
+            [midnight_posted],
+        ).unwrap();
+        db.connect().unwrap().execute(
+            "UPDATE tibo_posts SET posted_at=?1, text='Lands around 6pm PST today.' WHERE id='2097043464538264003'",
+            [old_at - 3_600_000],
+        ).unwrap();
+        let mut event = db.active_radar_event().unwrap().unwrap();
+        event.expected_at = Some(midnight_at);
+        event.latest_evidence_at = midnight_posted;
+        event.state_revision += 1;
+        db.update_radar_event(&event).unwrap();
+        db.connect().unwrap().execute(
+            "INSERT INTO radar_event_time_basis VALUES(?1,'midnight-today','midnight','assumed','PT',1)
+             ON CONFLICT(event_id) DO UPDATE SET post_id=excluded.post_id,raw_text=excluded.raw_text,precision=excluded.precision,timezone_kind=excluded.timezone_kind,timezone_assumed=excluded.timezone_assumed",
+            [&event.id],
+        ).unwrap();
+        refresh_time_claims(&db).unwrap();
+        let inputs = collect_delta_inputs(&db).unwrap();
+        let claim = inputs
+            .time_claims
+            .iter()
+            .find(|item| item.post_id == "2097043464538264003")
+            .expect("old pst claim");
+        let mut parsed = parsed;
+        parsed.event_updates[0].operation = "reinforce".into();
+        parsed.event_updates[0].time_post_id = Some(claim.post_id.clone());
+        parsed.event_updates[0].time_raw = Some(claim.raw_text.clone());
+        parsed.event_updates[0].citations = vec!["N1".into()];
+        let record = RadarAnalysisRecord { id: "old-grant".into(), ..record };
+        commit(&db, &inputs, &parsed, &record, "old").unwrap();
+        let updated = db.radar_event(&event.id).unwrap().unwrap();
+        assert_eq!(updated.expected_at, Some(midnight_at));
+        assert_ne!(updated.expected_at, claim.resolved_at);
     }
 
     #[test]

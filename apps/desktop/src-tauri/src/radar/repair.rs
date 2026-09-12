@@ -423,6 +423,11 @@ pub fn repair_stale_announced_time(database: &Database, now: i64) -> Result<(), 
         if next == event.expected_at {
             continue;
         }
+        if let Some((_, _, claim)) = &best {
+            if announcement_post_is_stale(database, &event, &claim.post_id) {
+                continue;
+            }
+        }
         event.expected_at = next;
         if event.closed_at.is_some() {
             if next.is_some_and(|at| now < at + 24 * 3_600_000) {
