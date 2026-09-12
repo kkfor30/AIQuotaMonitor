@@ -47,7 +47,14 @@ GPT 额外账号通过官方 Codex 组件打开浏览器登录，会话保存在
 
 五边形玻璃悬浮球支持顶、底、左、右停靠。展开后按平台与账号查看额度、余额和重置时间，也可刷新数据或进入雷达详情。
 
-<!-- 悬浮球 MP4 演示待提供后接入；不展示旧版截图或失效视频链接。 -->
+<p align="center">
+  <a href="docs/videos/hoverball-demo.mp4"><img src="docs/screenshots/hoverball-demo-poster.png" width="420" alt="点击查看悬浮球演示：多平台额度滚动、深浅主题切换、雷达详情与展开收起"></a>
+</p>
+
+<p align="center"><a href="docs/videos/hoverball-demo.mp4"><strong>观看悬浮球演示 · 34 秒 · MP4</strong></a></p>
+
+演示包含多平台额度滚动、深浅主题切换、雷达详情，以及小球展开与收起。
+
 
 ### GPT 重置雷达，判断有据可查
 
