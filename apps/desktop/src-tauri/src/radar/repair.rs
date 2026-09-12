@@ -504,7 +504,7 @@ mod tests {
         db.add_radar_event_evidence("event-stale", "tonight-post", "delta", "analysis-1").unwrap();
         repair_stale_announced_time(&db, now).unwrap();
         let updated = db.radar_event("event-stale").unwrap().unwrap();
-        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-12T15:00:00+08:00")
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-12T23:00:00+08:00")
             .unwrap()
             .timestamp_millis();
         assert_eq!(updated.expected_at, Some(expected));

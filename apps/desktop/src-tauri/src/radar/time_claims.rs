@@ -9,7 +9,7 @@ use chrono_tz::America::Los_Angeles;
 use regex::Regex;
 use std::sync::OnceLock;
 
-pub const TIMEZONE_POLICY_VERSION: &str = "time-v3";
+pub const TIMEZONE_POLICY_VERSION: &str = "time-v4";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedTimeClaim {
@@ -35,6 +35,7 @@ enum ZoneSpec {
     Pst,
     Pdt,
     Pacific,
+    Beijing,
 }
 
 #[derive(Debug)]
@@ -204,6 +205,9 @@ pub fn parse_post_time_claims(post_id: &str, text: &str, posted_at: i64) -> Vec<
             }
         }
         claim.claim_kind = classify_claim_kind(&lowered, &claim.raw_text.to_ascii_lowercase()).into();
+        if claim.date_relation.as_deref() == Some("tonight") && claim.timezone_kind.as_deref() == Some("CST") {
+            claim.precision = "approximate".into();
+        }
     }
     claims
 }
@@ -258,6 +262,7 @@ fn resolve_candidate(post_id: &str, candidate: Candidate, posted_at: i64) -> Par
         ZoneSpec::Pst => "PST",
         ZoneSpec::Pdt => "PDT",
         ZoneSpec::Pacific => "PT",
+        ZoneSpec::Beijing => "CST",
     };
     let ambiguous = || ParsedTimeClaim {
         post_id: post_id.to_string(),
@@ -284,6 +289,7 @@ fn resolve_candidate(post_id: &str, candidate: Candidate, posted_at: i64) -> Par
     let published_local = match candidate.zone {
         ZoneSpec::Pst => timestamp_in_fixed(posted_at, -8),
         ZoneSpec::Pdt => timestamp_in_fixed(posted_at, -7),
+        ZoneSpec::Beijing => timestamp_in_fixed(posted_at, 8),
         ZoneSpec::Pacific => chrono::DateTime::from_timestamp_millis(posted_at)
             .map(|value| value.with_timezone(&Los_Angeles).naive_local()),
     };
@@ -302,6 +308,7 @@ fn resolve_candidate(post_id: &str, candidate: Candidate, posted_at: i64) -> Par
     let timestamp = match candidate.zone {
         ZoneSpec::Pst => fixed_local_timestamp(naive, -8),
         ZoneSpec::Pdt => fixed_local_timestamp(naive, -7),
+        ZoneSpec::Beijing => fixed_local_timestamp(naive, 8),
         ZoneSpec::Pacific => match Los_Angeles.from_local_datetime(&naive) {
             LocalResult::Single(value) => Some(value.timestamp_millis()),
             LocalResult::Ambiguous(_, _) | LocalResult::None => None,
@@ -467,13 +474,13 @@ fn push_midnight_relations(text: &str, explicit_date: Option<(u32, u32)>, candid
         }
         candidates.push(Candidate {
             raw: full.as_str().to_string(),
-            hour: Some(0),
+            hour: Some(23),
             minute: Some(0),
             relation: Some("tonight".into()),
             weekday: None,
             explicit_date,
-            zone: ZoneSpec::Pacific,
-            assumed: true,
+            zone: ZoneSpec::Beijing,
+            assumed: false,
             ambiguous_clock: false,
         });
     }
@@ -495,13 +502,13 @@ fn push_midnight_relations(text: &str, explicit_date: Option<(u32, u32)>, candid
         };
         candidates.push(Candidate {
             raw: full.as_str().to_string(),
-            hour: Some(0),
+            hour: Some(23),
             minute: Some(0),
             relation,
             weekday: None,
             explicit_date,
-            zone: ZoneSpec::Pacific,
-            assumed: true,
+            zone: ZoneSpec::Beijing,
+            assumed: false,
             ambiguous_clock: false,
         });
     }
@@ -589,8 +596,8 @@ mod tests {
     }
 
     #[test]
-    fn tonight_reset_resolves_to_upcoming_pacific_midnight() {
-        // 北京 09-12 11:20 = 太平洋 09-11 20:20（PDT）；tonight → 当地即将到来的午夜 = 北京 09-12 15:00。
+    fn tonight_reset_uses_beijing_calendar_night() {
+        // 界面按北京时间展示发帖日；tonight / 今天午夜应对齐 9 月 12 日夜间，而不是太平洋日历的 9 月 11 日。
         let posted = ts("2026-09-12T11:20:00+08:00");
         let en = parse_post_time_claims(
             "p",
@@ -598,10 +605,11 @@ mod tests {
             posted,
         );
         assert_eq!(en[0].claim_kind, "grant");
-        assert_eq!(en[0].resolved_at, Some(ts("2026-09-12T15:00:00+08:00")));
+        assert_eq!(en[0].timezone_kind.as_deref(), Some("CST"));
+        assert_eq!(en[0].resolved_at, Some(ts("2026-09-12T23:00:00+08:00")));
         let zh = parse_post_time_claims("p", "今天午夜也会进行一次重置", posted);
         assert_eq!(zh[0].claim_kind, "grant");
-        assert_eq!(zh[0].resolved_at, Some(ts("2026-09-12T15:00:00+08:00")));
+        assert_eq!(zh[0].resolved_at, Some(ts("2026-09-12T23:00:00+08:00")));
     }
 }
 

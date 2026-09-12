@@ -1633,6 +1633,7 @@ fn upcoming_time_text(
         (Some("PST"), false) => "，按原文 PST 换算",
         (Some("PDT"), false) => "，按原文 PDT 换算",
         (Some("PT"), false) => "，按原文 PT 换算",
+        (Some("CST"), _) => "",
         (_, true) => "，按未标注时区假设为太平洋时间换算",
         _ => "",
     };
@@ -5695,7 +5696,7 @@ mod tests {
         parsed.expected_time_post = Some("tonight-post".into());
         let _ = apply_analysis_to_event(&database, &inputs, &parsed, "analysis-tonight").unwrap();
         let updated = database.radar_event("event-old").unwrap().unwrap();
-        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-12T15:00:00+08:00")
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-12T23:00:00+08:00")
             .unwrap()
             .timestamp_millis();
         assert_eq!(updated.expected_at, Some(expected));
