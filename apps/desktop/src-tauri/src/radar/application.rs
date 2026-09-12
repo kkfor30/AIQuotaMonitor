@@ -149,7 +149,7 @@ pub(super) fn commit(database: &Database, inputs: &DeltaInputs, parsed: &ModelJs
             }
             if let Some(id) = &event_id {
                 if let Some(mut event) = db.radar_event(id)? {
-                    if event.closed_at.is_none() && event.observed_reset_at.is_none() && (update.clear_time || selected.is_some()) && matches!(update.operation.as_str(), "create" | "update_time" | "advance_phase" | "weaken") {
+                    if event.closed_at.is_none() && event.observed_reset_at.is_none() && (update.clear_time || selected.is_some()) && matches!(update.operation.as_str(), "create" | "reinforce" | "update_time" | "advance_phase" | "weaken") {
                         event.expected_at = if update.clear_time { None } else { selected.and_then(|c|c.resolved_at) };
                         event.expires_at = event_expiry(&event);
                         event.state_revision += 1;

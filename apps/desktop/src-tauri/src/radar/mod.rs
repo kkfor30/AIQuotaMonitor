@@ -846,6 +846,7 @@ fn account_names(database: &Database) -> Result<std::collections::HashMap<String
 
 pub fn reconcile_event_state(database: &Database, now: i64) -> Result<(), String> {
     refresh_time_claims(database)?;
+    repair::repair_stale_announced_time(database, now)?;
     let events = database.active_radar_events()?;
     let quota_event = events
         .iter()
@@ -3710,8 +3711,13 @@ fn advance_or_create_event(
             if updated.phase != "closed" && updated.observed_reset_at.is_none() {
                 updated.title = event_title_for_phase(&updated.phase, &updated.event_type);
             }
-            if has_new_evidence && updated.observed_reset_at.is_none() && matches!(delta_effect, Some("update_time" | "advance_phase")) {
-                updated.expected_at = expected_at.or(updated.expected_at);
+            if has_new_evidence && updated.observed_reset_at.is_none() && !matches!(delta_effect, Some("cancel")) {
+                if let Some(at) = expected_at {
+                    updated.expected_at = Some(at);
+                } else if updated.expected_at.is_some_and(|at| now >= at) {
+                    // 新材料没有给出新的预告时间，旧预告已过期，不再继续展示过期时钟。
+                    updated.expected_at = None;
+                }
             }
             updated.expires_at = event_expiry(&updated);
             if updated.phase != old_phase || has_new_evidence {
@@ -5625,6 +5631,74 @@ mod tests {
             .quota_reset_observations(None, Some("event-late"))
             .unwrap();
         assert_eq!(again.len(), 1);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn reinforce_replaces_passed_forecast_with_tonight_grant() {
+        let (database, path) = temp_db();
+        let posted = chrono::DateTime::parse_from_rfc3339("2026-09-12T11:20:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        let old_at = chrono::DateTime::parse_from_rfc3339("2026-09-11T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        database
+            .replace_tibo_posts(
+                &[TiboPostRecord {
+                    id: "tonight-post".into(),
+                    url: "https://x.com/tibo/status/1".into(),
+                    text: "Of course, there will also be a reset tonight.".into(),
+                    posted_at: posted,
+                    kind: "direct".into(),
+                    tibo_lane: None,
+                    explicit_reset: true,
+                    verification_status: None,
+                    is_reply: false,
+                    replies: 0,
+                    reposts: 0,
+                    likes: 0,
+                    extra_json: json!({ "relevance": "direct" }).to_string(),
+                    synced_at: posted,
+                    translated_text: None,
+                    translated_at: None,
+                    translation_source: None,
+                    lifecycle_consumed_at: None,
+                }],
+                posted,
+            )
+            .unwrap();
+        refresh_time_claims(&database).unwrap();
+        let mut event = RadarEventRecord {
+            id: "event-old".into(),
+            phase: "upcoming".into(),
+            title: "预计即将重置".into(),
+            summary: None,
+            first_signal_at: old_at - 3_600_000,
+            latest_evidence_at: old_at - 3_600_000,
+            claimed_landed_at: None,
+            observed_reset_at: None,
+            closed_at: None,
+            close_reason: None,
+            expected_at: Some(old_at),
+            expires_at: None,
+            state_revision: 1,
+            user_confirmed_reset_at: None,
+            event_type: "quota_reset".into(),
+        };
+        event.expires_at = event_expiry(&event);
+        database.insert_radar_event(&event).unwrap();
+        let inputs = collect_delta_inputs(&database).unwrap();
+        let mut parsed = parsed_signal("same_event", vec!["tonight-post"]);
+        parsed.event_phase = Some("upcoming".into());
+        parsed.delta_effect = Some("reinforce".into());
+        parsed.expected_time_post = Some("tonight-post".into());
+        let _ = apply_analysis_to_event(&database, &inputs, &parsed, "analysis-tonight").unwrap();
+        let updated = database.radar_event("event-old").unwrap().unwrap();
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-12T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        assert_eq!(updated.expected_at, Some(expected));
         let _ = std::fs::remove_file(path);
     }
 
