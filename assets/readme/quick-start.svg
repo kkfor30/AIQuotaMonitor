@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="224" viewBox="0 0 1200 224" role="img" aria-labelledby="title desc">
+  <title id="title">接入三步：添加平台、验证来源、查看额度</title>
+  <desc id="desc">选择平台与账号，验证 API Key 或官方登录，然后在总览与悬浮球中查看额度。完整步骤见下方文字。</desc>
+  <rect width="1200" height="224" rx="24" fill="#edf5fc"/>
+  <g font-family="Segoe UI, Microsoft YaHei, PingFang SC, sans-serif">
+    <g transform="translate(48 48)"><text y="24" fill="#0a66ff" font-size="22" font-weight="700">01</text><text y="76" fill="#142d49" font-size="38" font-weight="600">添加平台</text><text y="118" fill="#48627d" font-size="22">选择平台与账号</text></g>
+    <g transform="translate(452 48)"><text y="24" fill="#0a66ff" font-size="22" font-weight="700">02</text><text y="76" fill="#142d49" font-size="38" font-weight="600">验证来源</text><text y="118" fill="#48627d" font-size="22">API Key / 官方登录</text></g>
+    <g transform="translate(856 48)"><text y="24" fill="#00a67d" font-size="22" font-weight="700">03</text><text y="76" fill="#142d49" font-size="38" font-weight="600">查看额度</text><text y="118" fill="#48627d" font-size="22">总览 / 悬浮球</text></g>
+  </g>
+  <g fill="none" stroke="#94b1cb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M337 111h52m-12-12 12 12-12 12"/><path d="M741 111h52m-12-12 12 12-12 12"/></g>
+</svg>
