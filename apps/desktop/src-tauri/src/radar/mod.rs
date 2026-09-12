@@ -1114,6 +1114,105 @@ fn event_temporal_phase(event: &RadarEventRecord, now: i64) -> String {
     }
 }
 
+/// 半小时内来回改写的预告/被马上重开的 timeout 不进入展示时间线。
+const RAPID_TIMELINE_MS: i64 = 30 * 60 * 1000;
+
+fn time_revision_label(before: Option<i64>, after: Option<i64>) -> String {
+    match (before, after) {
+        (_, None) => "时间承诺已撤销".into(),
+        (None, Some(next)) => format!("预计时间更正为 {}", format_clock(next)),
+        (Some(prev), Some(next)) if next < prev => {
+            format!("预计时间提前至 {}", format_clock(next))
+        }
+        (Some(_), Some(next)) => format!("预计时间延期至 {}", format_clock(next)),
+    }
+}
+
+fn compact_transition_nodes(
+    transitions: &[(i64, String, String, String)],
+    record: &RadarEventRecord,
+) -> Vec<RadarEventNodeView> {
+    struct Row {
+        at: i64,
+        before_expected: Option<i64>,
+        after_expected: Option<i64>,
+        after_phase: String,
+        reason: String,
+        expected_changed: bool,
+    }
+    let rows: Vec<Row> = transitions
+        .iter()
+        .map(|(at, before_json, after_json, reason)| {
+            let before: serde_json::Value = serde_json::from_str(before_json).unwrap_or_default();
+            let after: serde_json::Value = serde_json::from_str(after_json).unwrap_or_default();
+            let before_expected = before.get("expectedAt").and_then(serde_json::Value::as_i64);
+            let after_expected = after.get("expectedAt").and_then(serde_json::Value::as_i64);
+            Row {
+                at: *at,
+                before_expected,
+                after_expected,
+                after_phase: after
+                    .get("phase")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                reason: reason.clone(),
+                expected_changed: before_expected != after_expected,
+            }
+        })
+        .collect();
+    let expected_changes: Vec<(i64, Option<i64>)> = rows
+        .iter()
+        .filter(|row| row.expected_changed)
+        .map(|row| (row.at, row.after_expected))
+        .collect();
+    let mut nodes = Vec::new();
+    let mut kept_final_revision = false;
+    for row in &rows {
+        if row.expected_changed {
+            let next = expected_changes.iter().find(|(at, _)| *at > row.at);
+            let rapid = next.is_some_and(|(at, _)| *at - row.at < RAPID_TIMELINE_MS);
+            let is_final = row.after_expected == record.expected_at;
+            let keep = if is_final {
+                !kept_final_revision
+            } else {
+                !rapid
+            };
+            if keep {
+                if is_final {
+                    kept_final_revision = true;
+                }
+                nodes.push(RadarEventNodeView {
+                    at: row.at,
+                    kind: "time_revision".into(),
+                    label: time_revision_label(row.before_expected, row.after_expected),
+                });
+            }
+            continue;
+        }
+        if row.reason == "state_update" {
+            continue;
+        }
+        if row.reason.contains("timeout") {
+            let reopened = rows
+                .iter()
+                .any(|later| later.at > row.at && later.after_phase != "closed");
+            if record.closed_at.is_none() || reopened || record.closed_at == Some(row.at) {
+                continue;
+            }
+        }
+        if record.closed_at == Some(row.at) {
+            continue;
+        }
+        nodes.push(RadarEventNodeView {
+            at: row.at,
+            kind: "transition".into(),
+            label: row.reason.clone(),
+        });
+    }
+    nodes
+}
+
 /// 事件视图：从事件记录推导时间线节点，并挂上事件关联原帖。
 fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView {
     let mut timeline = vec![RadarEventNodeView {
@@ -1161,32 +1260,7 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
         });
     }
     if let Ok(transitions) = database.radar_event_transitions(&record.id) {
-        for (at, before_json, after_json, reason) in transitions {
-            let before: serde_json::Value = serde_json::from_str(&before_json).unwrap_or_default();
-            let after: serde_json::Value = serde_json::from_str(&after_json).unwrap_or_default();
-            let before_expected = before.get("expectedAt").and_then(serde_json::Value::as_i64);
-            let after_expected = after.get("expectedAt").and_then(serde_json::Value::as_i64);
-            if before_expected != after_expected {
-                timeline.push(RadarEventNodeView {
-                    at,
-                    kind: "time_revision".into(),
-                    label: match (before_expected, after_expected) {
-                        (_, None) => "时间承诺已撤销".into(),
-                        (None, Some(next)) => format!("预计时间更正为 {}", format_clock(next)),
-                        (Some(prev), Some(next)) if next < prev => {
-                            format!("预计时间提前至 {}", format_clock(next))
-                        }
-                        (Some(_), Some(next)) => format!("预计时间延期至 {}", format_clock(next)),
-                    },
-                });
-            } else if reason != "state_update" && !timeline.iter().any(|node| node.at == at && node.kind == "closed") {
-                timeline.push(RadarEventNodeView {
-                    at,
-                    kind: "transition".into(),
-                    label: reason,
-                });
-            }
-        }
+        timeline.extend(compact_transition_nodes(&transitions, record));
         timeline.sort_by_key(|node| node.at);
     }
     let post_ids = database
@@ -5332,6 +5406,45 @@ mod tests {
         }).unwrap();
         timed.await.unwrap();
         start_post_enrichment("success",async {}).unwrap().await.unwrap();
+    }
+
+    #[test]
+    fn oscillating_forecast_timeline_keeps_one_stable_revision() {
+        let t08 = 1_788_832_800_000;
+        let t12 = 1_789_196_400_000;
+        let json = |phase: &str, expected: i64| {
+            serde_json::json!({"phase": phase, "expectedAt": expected}).to_string()
+        };
+        let transitions = vec![
+            (1_000, json("upcoming", t12), json("upcoming", t08), "state_update".into()),
+            (1_001, json("upcoming", t08), json("closed", t08), "timeout_unverified".into()),
+            (2_000, json("closed", t08), json("upcoming", t12), "state_update".into()),
+            (2_001, json("upcoming", t12), json("upcoming", t08), "state_update".into()),
+            (2_002, json("upcoming", t08), json("closed", t08), "timeout_unverified".into()),
+            (3_000, json("closed", t08), json("upcoming", t12), "state_update".into()),
+        ];
+        let record = super::RadarEventRecord {
+            id: "event".into(),
+            phase: "landed_observed".into(),
+            title: "本机已观察到额度重置".into(),
+            summary: None,
+            first_signal_at: 0,
+            latest_evidence_at: 3_000,
+            claimed_landed_at: None,
+            observed_reset_at: Some(4_000),
+            closed_at: None,
+            close_reason: None,
+            expected_at: Some(t12),
+            expires_at: None,
+            state_revision: 10,
+            user_confirmed_reset_at: None,
+            event_type: "quota_reset".into(),
+        };
+        let nodes = super::compact_transition_nodes(&transitions, &record);
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].kind, "time_revision");
+        assert!(nodes[0].label.contains("09-12 15:00"), "{}", nodes[0].label);
+        assert!(!nodes.iter().any(|node| node.label.contains("09-08") || node.label == "timeout_unverified"));
     }
 
     #[test]
