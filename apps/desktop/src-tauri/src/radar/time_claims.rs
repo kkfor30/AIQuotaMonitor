@@ -9,7 +9,7 @@ use chrono_tz::America::Los_Angeles;
 use regex::Regex;
 use std::sync::OnceLock;
 
-pub const TIMEZONE_POLICY_VERSION: &str = "time-v2";
+pub const TIMEZONE_POLICY_VERSION: &str = "time-v5";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedTimeClaim {
@@ -48,6 +48,27 @@ struct Candidate {
     zone: ZoneSpec,
     assumed: bool,
     ambiguous_clock: bool,
+}
+
+/// 原文与译文都解析：官方帖常把 tonight 放在原文、把「午夜」放在译文。
+pub fn parse_post_time_claims_with_translation(
+    post_id: &str,
+    text: &str,
+    translated_text: Option<&str>,
+    posted_at: i64,
+) -> Vec<ParsedTimeClaim> {
+    let mut claims = parse_post_time_claims(post_id, text, posted_at);
+    let Some(translated) = translated_text.map(str::trim).filter(|value| !value.is_empty()) else {
+        return claims;
+    };
+    for claim in parse_post_time_claims(post_id, translated, posted_at) {
+        if !claims.iter().any(|existing| {
+            existing.raw_text == claim.raw_text && existing.resolved_at == claim.resolved_at
+        }) {
+            claims.push(claim);
+        }
+    }
+    claims
 }
 
 pub fn parse_post_time_claims(post_id: &str, text: &str, posted_at: i64) -> Vec<ParsedTimeClaim> {
@@ -161,6 +182,8 @@ pub fn parse_post_time_claims(post_id: &str, text: &str, posted_at: i64) -> Vec<
         });
     }
 
+    push_midnight_relations(text, explicit_date, &mut candidates);
+
     let mut claims = candidates
         .into_iter()
         .map(|mut candidate| {
@@ -247,7 +270,7 @@ fn classify_claim_kind(lowered_text: &str, raw_lower: &str) -> &'static str {
     if HISTORICAL_MARKERS.iter().any(|marker| window.contains(marker)) {
         return "historical";
     }
-    if ["reset", "lands", "landing", "will receive", "grant", "roll out", "rollout", "available"].iter().any(|m|window.contains(m)) { return "grant"; }
+    if ["reset", "lands", "landing", "will receive", "grant", "roll out", "rollout", "available", "重置"].iter().any(|m|window.contains(m)) { return "grant"; }
     "unknown"
 }
 
@@ -354,7 +377,25 @@ fn resolve_date(
     }
     if let Some(relation) = candidate.relation.as_deref() {
         return match relation {
-            "today" | "tonight" => Some(published_date),
+            "today" => {
+                // "midnight today" / "by midnight today" after local midnight already started
+                // means the upcoming midnight, not 00:00 of the current local date.
+                if announced_time == NaiveTime::from_hms_opt(0, 0, 0).expect("midnight")
+                    && announced_time <= published_time
+                {
+                    published_date.checked_add_signed(Duration::days(1))
+                } else {
+                    Some(published_date)
+                }
+            }
+            // tonight + midnight is the upcoming midnight, not 00:00 of the already-started local day.
+            "tonight" => {
+                if announced_time <= published_time {
+                    published_date.checked_add_signed(Duration::days(1))
+                } else {
+                    Some(published_date)
+                }
+            }
             "tomorrow" => published_date.checked_add_signed(Duration::days(1)),
             _ => None,
         };
@@ -367,6 +408,14 @@ fn resolve_date(
             days = 7;
         }
         return published_date.checked_add_signed(Duration::days(days));
+    }
+    // 单独的 midnight（无 today/tonight）按即将到来的午夜理解。
+    if announced_time == NaiveTime::from_hms_opt(0, 0, 0).expect("midnight") {
+        return if announced_time <= published_time {
+            published_date.checked_add_signed(Duration::days(1))
+        } else {
+            Some(published_date)
+        };
     }
     // 没有日期表达时仅在钟点尚未过去的情况下按发帖当地同日解析；
     // 钟点已过去时无法确定是在回顾还是预告次日，主动降级。
@@ -444,6 +493,73 @@ fn clock24_regex() -> &'static Regex {
     VALUE.get_or_init(|| Regex::new(r"(?i)\b(?:(today|tonight|tomorrow)\s+(?:at\s+)?)?(?:(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(?:at\s+)?)?([01]?\d|2[0-3]):([0-5]\d)\b(?:\s*(pst|pdt|pt|pacific(?:\s+time)?))?").expect("valid 24h regex"))
 }
 
+fn push_midnight_relations(text: &str, explicit_date: Option<(u32, u32)>, candidates: &mut Vec<Candidate>) {
+    for captures in tonight_regex().captures_iter(text) {
+        let Some(full) = captures.get(0) else {
+            continue;
+        };
+        if candidates
+            .iter()
+            .any(|candidate| overlaps(text, &candidate.raw, full.as_str()))
+        {
+            continue;
+        }
+        candidates.push(Candidate {
+            raw: full.as_str().to_string(),
+            hour: Some(0),
+            minute: Some(0),
+            relation: Some("tonight".into()),
+            weekday: None,
+            explicit_date,
+            zone: ZoneSpec::Pacific,
+            assumed: true,
+            ambiguous_clock: false,
+        });
+    }
+    for captures in midnight_zh_regex().captures_iter(text) {
+        let Some(full) = captures.get(0) else {
+            continue;
+        };
+        if candidates
+            .iter()
+            .any(|candidate| overlaps(text, &candidate.raw, full.as_str()))
+        {
+            continue;
+        }
+        let prefix = captures.get(1).map(|value| value.as_str()).unwrap_or("");
+        let relation = match prefix {
+            "明天" | "明日" => Some("tomorrow".into()),
+            "今天" | "今晚" | "" => Some("tonight".into()),
+            _ => Some("tonight".into()),
+        };
+        candidates.push(Candidate {
+            raw: full.as_str().to_string(),
+            hour: Some(0),
+            minute: Some(0),
+            relation,
+            weekday: None,
+            explicit_date,
+            zone: ZoneSpec::Pacific,
+            assumed: true,
+            ambiguous_clock: false,
+        });
+    }
+}
+
+fn tonight_regex() -> &'static Regex {
+    static VALUE: OnceLock<Regex> = OnceLock::new();
+    VALUE.get_or_init(|| {
+        Regex::new(r"(?i)\btonight\b").expect("valid tonight regex")
+    })
+}
+
+fn midnight_zh_regex() -> &'static Regex {
+    static VALUE: OnceLock<Regex> = OnceLock::new();
+    VALUE.get_or_init(|| {
+        Regex::new(r"(今天|今晚|明天|明日)?午夜").expect("valid zh midnight regex")
+    })
+}
+
 fn named_clock_regex() -> &'static Regex {
     static VALUE: OnceLock<Regex> = OnceLock::new();
     VALUE.get_or_init(|| Regex::new(r"(?i)\b(?:(today|tonight|tomorrow)\s+(?:at\s+)?)?(?:(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(?:at\s+)?)?(noon|midnight)\b(?:\s*(pst|pdt|pt|pacific(?:\s+time)?))?").expect("valid named clock regex"))
@@ -509,6 +625,36 @@ mod tests {
         let posted = ts("2026-01-10T00:00:00-08:00");
         let claims = parse_post_time_claims("p", "today at 6am PST", posted);
         assert_eq!(claims[0].resolved_at, Some(ts("2026-01-10T22:00:00+08:00")));
+    }
+
+    #[test]
+    fn tonight_reset_converts_author_midnight_to_beijing_afternoon() {
+        // Tibo 发帖时太平洋为 09-11 20:20；tonight = 当地即将到来的午夜 09-12 00:00 PDT = 北京 09-12 15:00。
+        let posted = ts("2026-09-12T11:20:00+08:00");
+        let en = parse_post_time_claims(
+            "p",
+            "Of course, there will also be a reset tonight.",
+            posted,
+        );
+        assert_eq!(en[0].claim_kind, "grant");
+        assert_eq!(en[0].resolved_at, Some(ts("2026-09-12T15:00:00+08:00")));
+        let zh = parse_post_time_claims("p", "今天午夜也会进行一次重置", posted);
+        assert_eq!(zh[0].claim_kind, "grant");
+        assert_eq!(zh[0].resolved_at, Some(ts("2026-09-12T15:00:00+08:00")));
+        let both = parse_post_time_claims_with_translation(
+            "p",
+            "Of course, there will also be a reset tonight.",
+            Some("今天午夜也会重置"),
+            posted,
+        );
+        assert!(both.iter().any(|claim| claim.resolved_at == Some(ts("2026-09-12T15:00:00+08:00"))));
+        let actual = parse_post_time_claims(
+            "p",
+            "And of course, a reset is also landing by midnight today.",
+            posted,
+        );
+        assert_eq!(actual[0].claim_kind, "grant");
+        assert_eq!(actual[0].resolved_at, Some(ts("2026-09-12T15:00:00+08:00")));
     }
 }
 

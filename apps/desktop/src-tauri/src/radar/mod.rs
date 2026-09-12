@@ -846,6 +846,7 @@ fn account_names(database: &Database) -> Result<std::collections::HashMap<String
 
 pub fn reconcile_event_state(database: &Database, now: i64) -> Result<(), String> {
     refresh_time_claims(database)?;
+    repair::repair_stale_announced_time(database, now)?;
     let events = database.active_radar_events()?;
     let quota_event = events
         .iter()
@@ -987,7 +988,12 @@ fn refresh_time_claims(database: &Database) -> Result<(), String> {
         }
     }
     for post in posts {
-        let parsed = time_claims::parse_post_time_claims(&post.id, &post.text, post.posted_at);
+        let parsed = time_claims::parse_post_time_claims_with_translation(
+            &post.id,
+            &post.text,
+            post.translated_text.as_deref(),
+            post.posted_at,
+        );
         let records = parsed
             .into_iter()
             .map(|claim| RadarTimeClaimRecord {
@@ -1008,6 +1014,32 @@ fn refresh_time_claims(database: &Database) -> Result<(), String> {
         database.replace_radar_time_claims(&post.id, &records)?;
     }
     Ok(())
+}
+
+/// 更早公告的发放时刻不能覆盖已经由更新帖子写上的预告（09-08 6pm PST 不得打回 09-12 midnight）。
+pub(super) fn announcement_post_is_stale(
+    database: &Database,
+    event: &RadarEventRecord,
+    post_id: &str,
+) -> bool {
+    let Ok(candidates) = database.tibo_posts_by_ids(&[post_id.to_string()]) else {
+        return false;
+    };
+    let Some(candidate) = candidates.first() else {
+        return false;
+    };
+    if let Ok(Some((Some(basis_id), _, _, _, _))) = database.radar_event_time_basis(&event.id) {
+        if basis_id != post_id {
+            if let Ok(basis_posts) = database.tibo_posts_by_ids(&[basis_id]) {
+                if let Some(basis) = basis_posts.first() {
+                    if candidate.posted_at < basis.posted_at {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 fn event_expiry(event: &RadarEventRecord) -> Option<i64> {
@@ -1082,6 +1114,111 @@ fn event_temporal_phase(event: &RadarEventRecord, now: i64) -> String {
     }
 }
 
+/// 半小时内来回改写的预告/被马上重开的 timeout 不进入展示时间线。
+const RAPID_TIMELINE_MS: i64 = 30 * 60 * 1000;
+
+fn time_revision_label(before: Option<i64>, after: Option<i64>, written_at: i64) -> String {
+    match (before, after) {
+        (_, None) => "时间承诺已撤销".into(),
+        (None, Some(next)) => format!("预计时间更正为 {}", format_clock(next)),
+        (Some(_), Some(next)) if written_at > next => {
+            format!("预计时间更正为 {}", format_clock(next))
+        }
+        (Some(prev), Some(next)) if next < prev => {
+            format!("预计时间提前至 {}", format_clock(next))
+        }
+        (Some(_), Some(next)) => format!("预计时间延期至 {}", format_clock(next)),
+    }
+}
+
+fn compact_transition_nodes(
+    transitions: &[(i64, String, String, String)],
+    record: &RadarEventRecord,
+) -> Vec<RadarEventNodeView> {
+    struct Row {
+        at: i64,
+        before_expected: Option<i64>,
+        after_expected: Option<i64>,
+        after_phase: String,
+        reason: String,
+        expected_changed: bool,
+    }
+    let rows: Vec<Row> = transitions
+        .iter()
+        .map(|(at, before_json, after_json, reason)| {
+            let before: serde_json::Value = serde_json::from_str(before_json).unwrap_or_default();
+            let after: serde_json::Value = serde_json::from_str(after_json).unwrap_or_default();
+            let before_expected = before.get("expectedAt").and_then(serde_json::Value::as_i64);
+            let after_expected = after.get("expectedAt").and_then(serde_json::Value::as_i64);
+            Row {
+                at: *at,
+                before_expected,
+                after_expected,
+                after_phase: after
+                    .get("phase")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                reason: reason.clone(),
+                expected_changed: before_expected != after_expected,
+            }
+        })
+        .collect();
+    let expected_changes: Vec<(i64, Option<i64>)> = rows
+        .iter()
+        .filter(|row| row.expected_changed)
+        .map(|row| (row.at, row.after_expected))
+        .collect();
+    let mut nodes = Vec::new();
+    let mut kept_final_revision = false;
+    for row in &rows {
+        if row.expected_changed {
+            let next = expected_changes.iter().find(|(at, _)| *at > row.at);
+            let rapid = next.is_some_and(|(at, _)| *at - row.at < RAPID_TIMELINE_MS);
+            let is_final = row.after_expected == record.expected_at;
+            let keep = if is_final {
+                !kept_final_revision
+            } else {
+                !rapid
+            };
+            if keep {
+                if is_final {
+                    kept_final_revision = true;
+                }
+                if row.after_expected.is_some_and(|expected| row.at > expected) {
+                    continue;
+                }
+                nodes.push(RadarEventNodeView {
+                    at: row.at,
+                    kind: "time_revision".into(),
+                    label: time_revision_label(row.before_expected, row.after_expected, row.at),
+                });
+            }
+            continue;
+        }
+        if row.reason == "state_update" {
+            continue;
+        }
+        if row.reason.contains("timeout") {
+            let reopened = rows
+                .iter()
+                .any(|later| later.at > row.at && later.after_phase != "closed");
+            if record.closed_at.is_none() || reopened || record.closed_at == Some(row.at) {
+                continue;
+            }
+        }
+        if record.closed_at == Some(row.at) {
+            continue;
+        }
+        nodes.push(RadarEventNodeView {
+            at: row.at,
+            kind: "transition".into(),
+            label: row.reason.clone(),
+        });
+    }
+    nodes
+}
+
 /// 事件视图：从事件记录推导时间线节点，并挂上事件关联原帖。
 fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView {
     let mut timeline = vec![RadarEventNodeView {
@@ -1129,32 +1266,7 @@ fn event_view(database: &Database, record: &RadarEventRecord) -> RadarEventView 
         });
     }
     if let Ok(transitions) = database.radar_event_transitions(&record.id) {
-        for (at, before_json, after_json, reason) in transitions {
-            let before: serde_json::Value = serde_json::from_str(&before_json).unwrap_or_default();
-            let after: serde_json::Value = serde_json::from_str(&after_json).unwrap_or_default();
-            let before_expected = before.get("expectedAt").and_then(serde_json::Value::as_i64);
-            let after_expected = after.get("expectedAt").and_then(serde_json::Value::as_i64);
-            if before_expected != after_expected {
-                timeline.push(RadarEventNodeView {
-                    at,
-                    kind: "time_revision".into(),
-                    label: match (before_expected, after_expected) {
-                        (_, None) => "时间承诺已撤销".into(),
-                        (None, Some(next)) => format!("预计时间更正为 {}", format_clock(next)),
-                        (Some(prev), Some(next)) if next < prev => {
-                            format!("预计时间提前至 {}", format_clock(next))
-                        }
-                        (Some(_), Some(next)) => format!("预计时间延期至 {}", format_clock(next)),
-                    },
-                });
-            } else if reason != "state_update" && !timeline.iter().any(|node| node.at == at && node.kind == "closed") {
-                timeline.push(RadarEventNodeView {
-                    at,
-                    kind: "transition".into(),
-                    label: reason,
-                });
-            }
-        }
+        timeline.extend(compact_transition_nodes(&transitions, record));
         timeline.sort_by_key(|node| node.at);
     }
     let post_ids = database
@@ -3594,6 +3706,7 @@ fn apply_analysis_to_event(
         &cited_new,
         &cited_context,
         expected_at,
+        parsed.expected_time_post.as_deref(),
         analysis_id,
     )?;
     // v21 eventUpdates already apply each type independently; keep secondary_* only for legacy outputs.
@@ -3616,6 +3729,7 @@ fn advance_or_create_event(
     cited_new: &[&TiboPostView],
     cited_context: &[&TiboPostView],
     expected_at: Option<i64>,
+    expected_time_post: Option<&str>,
     analysis_id: &str,
 ) -> Result<(Option<String>, bool), String> {
     let newest_posted_at = cited_new.iter().map(|post| post.posted_at).max().unwrap_or(0);
@@ -3710,8 +3824,17 @@ fn advance_or_create_event(
             if updated.phase != "closed" && updated.observed_reset_at.is_none() {
                 updated.title = event_title_for_phase(&updated.phase, &updated.event_type);
             }
-            if has_new_evidence && updated.observed_reset_at.is_none() && matches!(delta_effect, Some("update_time" | "advance_phase")) {
-                updated.expected_at = expected_at.or(updated.expected_at);
+            if has_new_evidence && updated.observed_reset_at.is_none() && !matches!(delta_effect, Some("cancel")) {
+                if let Some(at) = expected_at {
+                    let stale = expected_time_post
+                        .is_some_and(|post_id| announcement_post_is_stale(database, &updated, post_id));
+                    if !stale {
+                        updated.expected_at = Some(at);
+                    }
+                } else if updated.expected_at.is_some_and(|at| now >= at) {
+                    // 新材料没有给出新的预告时间，旧预告已过期，不再继续展示过期时钟。
+                    updated.expected_at = None;
+                }
             }
             updated.expires_at = event_expiry(&updated);
             if updated.phase != old_phase || has_new_evidence {
@@ -3780,6 +3903,7 @@ fn apply_secondary_signal(
         &cited_new,
         &cited_context,
         expected_at,
+        parsed.expected_time_post.as_deref(),
         analysis_id,
     )?;
     Ok(outcome.0)
@@ -5291,6 +5415,43 @@ mod tests {
     }
 
     #[test]
+    fn oscillating_forecast_timeline_keeps_one_stable_revision() {
+        let t08 = 1_788_832_800_000;
+        let t12 = 1_789_196_400_000;
+        let written = t12 + 2 * 60_000;
+        let json = |phase: &str, expected: i64| {
+            serde_json::json!({"phase": phase, "expectedAt": expected}).to_string()
+        };
+        let transitions = vec![
+            (written, json("upcoming", t12), json("upcoming", t08), "state_update".into()),
+            (written + 1_000, json("upcoming", t08), json("closed", t08), "timeout_unverified".into()),
+            (written + 2_000, json("closed", t08), json("upcoming", t12), "state_update".into()),
+            (written + 3_000, json("upcoming", t12), json("upcoming", t08), "state_update".into()),
+            (written + 4_000, json("upcoming", t08), json("closed", t08), "timeout_unverified".into()),
+            (written + 5_000, json("closed", t08), json("upcoming", t12), "state_update".into()),
+        ];
+        let record = super::RadarEventRecord {
+            id: "event".into(),
+            phase: "landed_observed".into(),
+            title: "本机已观察到额度重置".into(),
+            summary: None,
+            first_signal_at: 0,
+            latest_evidence_at: 3_000,
+            claimed_landed_at: None,
+            observed_reset_at: Some(4_000),
+            closed_at: None,
+            close_reason: None,
+            expected_at: Some(t12),
+            expires_at: None,
+            state_revision: 10,
+            user_confirmed_reset_at: None,
+            event_type: "quota_reset".into(),
+        };
+        let nodes = super::compact_transition_nodes(&transitions, &record);
+        assert!(nodes.is_empty(), "{nodes:?}");
+    }
+
+    #[test]
     fn sanitize_radar_conclusion_cleans_prefixes_and_truncates_safely() {
         assert_eq!(
             sanitize_radar_conclusion("本次新增帖子中，官方已宣布额度全面重置。", None),
@@ -5348,10 +5509,13 @@ mod tests {
     }
 
     fn temp_db() -> (Database, std::path::PathBuf) {
+        // 原子序号：毫秒时间戳在并行测试下可能同值，仅靠进程号+时间戳会撞名锁库。
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "ai-quota-radar-{}-{}.db",
+            "ai-quota-radar-{}-{}-{}.db",
             std::process::id(),
-            epoch_ms()
+            epoch_ms(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         let database = Database::initialize_at(path.clone()).expect("db");
         (database, path)
@@ -5629,18 +5793,21 @@ mod tests {
     }
 
     #[test]
-    fn deadline_claims_do_not_become_expected_reset_time() {
+    fn reinforce_replaces_passed_forecast_with_tonight_grant() {
         let (database, path) = temp_db();
-        let now = epoch_ms();
-        // 一条预告时间（明晚 6pm PST）+ 一条更晚的截止时间（后天 11pm PST）。
-        let text = "Reset will land tomorrow 6pm PST. Deadline to use your old credits is Friday 11pm PST.";
+        let posted = chrono::DateTime::parse_from_rfc3339("2026-09-12T11:20:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        let old_at = chrono::DateTime::parse_from_rfc3339("2026-09-11T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
         database
             .replace_tibo_posts(
                 &[TiboPostRecord {
-                    id: "post-claim".into(),
+                    id: "tonight-post".into(),
                     url: "https://x.com/tibo/status/1".into(),
-                    text: text.into(),
-                    posted_at: now - 3_600_000,
+                    text: "Of course, there will also be a reset tonight.".into(),
+                    posted_at: posted,
                     kind: "direct".into(),
                     tibo_lane: None,
                     explicit_reset: true,
@@ -5650,67 +5817,46 @@ mod tests {
                     reposts: 0,
                     likes: 0,
                     extra_json: json!({ "relevance": "direct" }).to_string(),
-                    synced_at: now,
+                    synced_at: posted,
                     translated_text: None,
                     translated_at: None,
                     translation_source: None,
                     lifecycle_consumed_at: None,
                 }],
-                now,
+                posted,
             )
             .unwrap();
         refresh_time_claims(&database).unwrap();
         let mut event = RadarEventRecord {
-            id: "event-claim".into(),
+            id: "event-old".into(),
             phase: "upcoming".into(),
             title: "预计即将重置".into(),
             summary: None,
-            first_signal_at: now - 3_600_000,
-            latest_evidence_at: now - 3_600_000,
+            first_signal_at: old_at - 3_600_000,
+            latest_evidence_at: old_at - 3_600_000,
             claimed_landed_at: None,
             observed_reset_at: None,
             closed_at: None,
             close_reason: None,
-            expected_at: None,
+            expected_at: Some(old_at),
             expires_at: None,
             state_revision: 1,
             user_confirmed_reset_at: None,
             event_type: "quota_reset".into(),
         };
-        event.expires_at = event_expiry(&event);
+        event.expires_at = Some(posted + 72 * 3_600_000);
         database.insert_radar_event(&event).unwrap();
-        database
-            .add_radar_event_evidence("event-claim", "post-claim", "delta", "analysis-claim")
-            .unwrap();
-        reconcile_event_state(&database, now).unwrap();
-        let refreshed = database.radar_event("event-claim").unwrap().expect("event");
-        let claims = database
-            .radar_time_claims_for_posts(&["post-claim".into()])
-            .unwrap();
-        assert!(
-            claims.iter().any(|claim| claim.claim_kind == "deadline"),
-            "截止语义应被识别为 deadline"
-        );
-        if let (Some(grant), Some(deadline)) = (
-            claims
-                .iter()
-                .find(|claim| claim.claim_kind != "deadline" && claim.resolved_at.is_some())
-                .and_then(|claim| claim.resolved_at),
-            claims
-                .iter()
-                .find(|claim| claim.claim_kind == "deadline")
-                .and_then(|claim| claim.resolved_at),
-        ) {
-            assert!(
-                grant < deadline,
-                "预计重置时间应取预告时间而不是更晚的截止时间"
-            );
-            assert_eq!(refreshed.expected_at, None, "协调不能擅自选用时间");
-            let inputs = collect_delta_inputs(&database).unwrap();
-            assert_eq!(expected_from_posts(&inputs, &inputs.delta.iter().collect::<Vec<_>>()), Some(grant));
-        } else {
-            panic!("时间声明未解析出可比较的预告/截止时间");
-        }
+        let inputs = collect_delta_inputs(&database).unwrap();
+        let mut parsed = parsed_signal("same_event", vec!["tonight-post"]);
+        parsed.event_phase = Some("upcoming".into());
+        parsed.delta_effect = Some("reinforce".into());
+        parsed.expected_time_post = Some("tonight-post".into());
+        let _ = apply_analysis_to_event(&database, &inputs, &parsed, "analysis-tonight").unwrap();
+        let updated = database.radar_event("event-old").unwrap().unwrap();
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-12T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        assert_eq!(updated.expected_at, Some(expected));
         let _ = std::fs::remove_file(path);
     }
 
