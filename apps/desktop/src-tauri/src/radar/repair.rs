@@ -494,10 +494,13 @@ mod tests {
     const EXPECTED_AT: i64 = 1_788_832_800_000;
 
     fn fixture() -> Database {
+        // 原子序号：时钟精度下并行测试可能拿到同值时间戳，撞名会锁库。
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "aqm-repair-{}-{}.db",
+            "aqm-repair-{}-{}-{}.db",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         Database::initialize_at(path).unwrap()
     }

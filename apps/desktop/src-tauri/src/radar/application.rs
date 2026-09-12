@@ -207,7 +207,9 @@ pub(super) fn replay_prepared(db: &Database, inputs: &DeltaInputs, key: &str) ->
 mod tests {
     use super::*;
     fn fixture() -> (Database, DeltaInputs, ModelJson, RadarAnalysisRecord) {
-        let path = std::env::temp_dir().join(format!("aqm-application-{}-{}.db",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        // 原子序号：时钟精度下并行测试可能拿到同值时间戳，撞名会锁库。
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!("aqm-application-{}-{}-{}.db",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),SEQ.fetch_add(1,std::sync::atomic::Ordering::Relaxed)));
         let db = Database::initialize_at(path).unwrap();
         let now = epoch_ms();
         db.connect().unwrap().execute("INSERT INTO tibo_posts(id,url,text,posted_at,kind,explicit_reset,is_reply,replies,reposts,likes,extra_json,synced_at) VALUES('2097043464538264003','https://x.com/thstottiaux/status/2097043464538264003','We will do a global reset of the usage for all paid subscriptions.',?1,'unknown',0,0,0,0,0,'{}',?1)",[now]).unwrap();

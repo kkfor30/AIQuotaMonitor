@@ -5509,10 +5509,13 @@ mod tests {
     }
 
     fn temp_db() -> (Database, std::path::PathBuf) {
+        // 原子序号：毫秒时间戳在并行测试下可能同值，仅靠进程号+时间戳会撞名锁库。
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "ai-quota-radar-{}-{}.db",
+            "ai-quota-radar-{}-{}-{}.db",
             std::process::id(),
-            epoch_ms()
+            epoch_ms(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         let database = Database::initialize_at(path.clone()).expect("db");
         (database, path)

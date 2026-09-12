@@ -560,13 +560,16 @@ mod tests {
     }
 
     fn temp_db() -> (Database, std::path::PathBuf) {
+        // 原子序号：时钟精度下并行测试可能拿到同值时间戳，撞名会锁库。
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "ai-quota-banked-{}-{}.db",
+            "ai-quota-banked-{}-{}-{}.db",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         let database = Database::initialize_at(path.clone()).expect("db");
         (database, path)
