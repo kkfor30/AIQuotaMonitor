@@ -988,7 +988,12 @@ fn refresh_time_claims(database: &Database) -> Result<(), String> {
         }
     }
     for post in posts {
-        let parsed = time_claims::parse_post_time_claims(&post.id, &post.text, post.posted_at);
+        let parsed = time_claims::parse_post_time_claims_with_translation(
+            &post.id,
+            &post.text,
+            post.translated_text.as_deref(),
+            post.posted_at,
+        );
         let records = parsed
             .into_iter()
             .map(|claim| RadarTimeClaimRecord {
@@ -5686,7 +5691,7 @@ mod tests {
             user_confirmed_reset_at: None,
             event_type: "quota_reset".into(),
         };
-        event.expires_at = event_expiry(&event);
+        event.expires_at = Some(posted + 72 * 3_600_000);
         database.insert_radar_event(&event).unwrap();
         let inputs = collect_delta_inputs(&database).unwrap();
         let mut parsed = parsed_signal("same_event", vec!["tonight-post"]);

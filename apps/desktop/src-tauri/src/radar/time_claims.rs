@@ -50,6 +50,27 @@ struct Candidate {
     ambiguous_clock: bool,
 }
 
+/// 原文与译文都解析：官方帖常把 tonight 放在原文、把「午夜」放在译文。
+pub fn parse_post_time_claims_with_translation(
+    post_id: &str,
+    text: &str,
+    translated_text: Option<&str>,
+    posted_at: i64,
+) -> Vec<ParsedTimeClaim> {
+    let mut claims = parse_post_time_claims(post_id, text, posted_at);
+    let Some(translated) = translated_text.map(str::trim).filter(|value| !value.is_empty()) else {
+        return claims;
+    };
+    for claim in parse_post_time_claims(post_id, translated, posted_at) {
+        if !claims.iter().any(|existing| {
+            existing.raw_text == claim.raw_text && existing.resolved_at == claim.resolved_at
+        }) {
+            claims.push(claim);
+        }
+    }
+    claims
+}
+
 pub fn parse_post_time_claims(post_id: &str, text: &str, posted_at: i64) -> Vec<ParsedTimeClaim> {
     if posted_at <= 0 { return Vec::new(); }
     let mut candidates = Vec::new();
@@ -356,7 +377,17 @@ fn resolve_date(
     }
     if let Some(relation) = candidate.relation.as_deref() {
         return match relation {
-            "today" => Some(published_date),
+            "today" => {
+                // "midnight today" / "by midnight today" after local midnight already started
+                // means the upcoming midnight, not 00:00 of the current local date.
+                if announced_time == NaiveTime::from_hms_opt(0, 0, 0).expect("midnight")
+                    && announced_time <= published_time
+                {
+                    published_date.checked_add_signed(Duration::days(1))
+                } else {
+                    Some(published_date)
+                }
+            }
             // tonight + midnight is the upcoming midnight, not 00:00 of the already-started local day.
             "tonight" => {
                 if announced_time <= published_time {
@@ -377,6 +408,14 @@ fn resolve_date(
             days = 7;
         }
         return published_date.checked_add_signed(Duration::days(days));
+    }
+    // 单独的 midnight（无 today/tonight）按即将到来的午夜理解。
+    if announced_time == NaiveTime::from_hms_opt(0, 0, 0).expect("midnight") {
+        return if announced_time <= published_time {
+            published_date.checked_add_signed(Duration::days(1))
+        } else {
+            Some(published_date)
+        };
     }
     // 没有日期表达时仅在钟点尚未过去的情况下按发帖当地同日解析；
     // 钟点已过去时无法确定是在回顾还是预告次日，主动降级。
@@ -602,6 +641,20 @@ mod tests {
         let zh = parse_post_time_claims("p", "今天午夜也会进行一次重置", posted);
         assert_eq!(zh[0].claim_kind, "grant");
         assert_eq!(zh[0].resolved_at, Some(ts("2026-09-12T15:00:00+08:00")));
+        let both = parse_post_time_claims_with_translation(
+            "p",
+            "Of course, there will also be a reset tonight.",
+            Some("今天午夜也会重置"),
+            posted,
+        );
+        assert!(both.iter().any(|claim| claim.resolved_at == Some(ts("2026-09-12T15:00:00+08:00"))));
+        let actual = parse_post_time_claims(
+            "p",
+            "And of course, a reset is also landing by midnight today.",
+            posted,
+        );
+        assert_eq!(actual[0].claim_kind, "grant");
+        assert_eq!(actual[0].resolved_at, Some(ts("2026-09-12T15:00:00+08:00")));
     }
 }
 

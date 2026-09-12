@@ -349,50 +349,96 @@ pub fn repair_damaged_conclusions(database: &Database, now: i64) -> Result<(), S
     })
 }
 
-/// 活动事件的预告时间已过，但最新证据帖给出了新的发放时间（或完全没有时间）时，
-/// 用最新证据覆盖过期时钟。不会给 expected_at 为空的事件填时间。
+/// 活动事件仍挂着已经过期的预告时，用监控窗口里更新的发放时间覆盖。
+/// 不只看已经挂到事件上的证据：新官方帖可能已被识别为信号，却还没写进 evidence。
+/// 不会给本来没有 expected_at 的事件填时间。
 pub fn repair_stale_announced_time(database: &Database, now: i64) -> Result<(), String> {
-    let events = database.active_radar_events()?;
+    let mut events = database.active_radar_events()?;
+    if !events.iter().any(|event| event.event_type != "banked_reset") {
+        if let Some(closed) = database.latest_closed_radar_event()? {
+            if closed.event_type != "banked_reset"
+                && closed.observed_reset_at.is_none()
+                && closed.close_reason.as_deref() == Some("timeout_unverified")
+            {
+                events.push(closed);
+            }
+        }
+    }
+    let recent = database.list_tibo_posts(80)?;
     for mut event in events {
-        if event.observed_reset_at.is_some() || event.phase == "closed" {
+        if event.observed_reset_at.is_some() {
+            continue;
+        }
+        if event.phase == "closed" && event.close_reason.as_deref() != Some("timeout_unverified") {
             continue;
         }
         let Some(old_at) = event.expected_at else {
             continue;
         };
-        if now < old_at {
-            continue;
-        }
         let ids = database.radar_event_post_ids(&event.id)?;
-        if ids.is_empty() {
-            continue;
+        let mut posts = database.tibo_posts_by_ids(&ids)?;
+        let linked_latest = posts.iter().map(|post| post.posted_at).max();
+        for post in &recent {
+            if !(post.explicit_reset || post.kind == "direct") {
+                continue;
+            }
+            if !posts.iter().any(|existing| existing.id == post.id) {
+                posts.push(post.clone());
+            }
         }
-        let posts = database.tibo_posts_by_ids(&ids)?;
-        let Some(latest) = posts.into_iter().max_by_key(|post| post.posted_at) else {
-            continue;
-        };
-        if latest.posted_at <= old_at {
-            continue;
+        let mut best: Option<(i64, i64, time_claims::ParsedTimeClaim)> = None;
+        for post in &posts {
+            let claims = time_claims::parse_post_time_claims_with_translation(
+                &post.id,
+                &post.text,
+                post.translated_text.as_deref(),
+                post.posted_at,
+            );
+            let grants: Vec<_> = claims
+                .iter()
+                .filter(|claim| claim.claim_kind == "grant")
+                .filter_map(|claim| claim.resolved_at.map(|at| (at, claim.clone())))
+                .collect();
+            let unique: std::collections::HashSet<i64> =
+                grants.iter().map(|(at, _)| *at).collect();
+            if unique.len() != 1 {
+                continue;
+            }
+            let (at, claim) = grants.into_iter().next().expect("unique grant");
+            if at == old_at {
+                continue;
+            }
+            if now < old_at && post.posted_at <= old_at {
+                continue;
+            }
+            if best.as_ref().is_none_or(|(posted, _, _)| post.posted_at > *posted) {
+                best = Some((post.posted_at, at, claim));
+            }
         }
-        let claims = time_claims::parse_post_time_claims(&latest.id, &latest.text, latest.posted_at);
-        let grants: std::collections::HashSet<i64> = claims
-            .iter()
-            .filter(|claim| claim.claim_kind == "grant")
-            .filter_map(|claim| claim.resolved_at)
-            .collect();
-        let next = if grants.len() == 1 {
-            grants.into_iter().next()
-        } else {
-            None
+        let next = match best {
+            Some((_, at, _)) => Some(at),
+            None if now >= old_at && linked_latest.is_some_and(|posted| posted > old_at) => None,
+            None => continue,
         };
         if next == event.expected_at {
             continue;
         }
         event.expected_at = next;
+        if event.closed_at.is_some() {
+            if next.is_some_and(|at| now < at + 24 * 3_600_000) {
+                event.closed_at = None;
+                event.close_reason = None;
+                event.phase = "upcoming".into();
+                event.title = event_title_for_phase("upcoming", &event.event_type);
+            } else {
+                continue;
+            }
+        }
         event.expires_at = event_expiry(&event);
         event.state_revision += 1;
         database.update_radar_event(&event)?;
-        if let Some(claim) = claims.iter().find(|item| item.resolved_at == next && item.claim_kind == "grant") {
+        if let Some((_, at, claim)) = best.filter(|_| next.is_some()) {
+            let _ = at;
             database.connect()?.execute(
                 "INSERT INTO radar_event_time_basis VALUES(?1,?2,?3,?4,?5,?6)
                  ON CONFLICT(event_id) DO UPDATE SET post_id=excluded.post_id,raw_text=excluded.raw_text,precision=excluded.precision,timezone_kind=excluded.timezone_kind,timezone_assumed=excluded.timezone_assumed",
@@ -508,6 +554,92 @@ mod tests {
             .unwrap()
             .timestamp_millis();
         assert_eq!(updated.expected_at, Some(expected));
+    }
+
+    #[test]
+    fn stale_forecast_uses_unlinked_direct_tonight_post() {
+        let db = fixture();
+        let posted = chrono::DateTime::parse_from_rfc3339("2026-09-12T11:20:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        let now = posted + 60_000;
+        let old_at = chrono::DateTime::parse_from_rfc3339("2026-09-11T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        db.connect().unwrap().execute(
+            "INSERT INTO tibo_posts(id,url,text,posted_at,kind,explicit_reset,is_reply,replies,reposts,likes,extra_json,synced_at,lifecycle_consumed_at,translated_text)
+             VALUES('tonight-unlinked','https://x.com/tibo/status/2','Of course, there will also be a reset tonight.',?1,'direct',1,0,0,0,0,'{}',?1,?1,'今天午夜也会重置')",
+            [posted],
+        ).unwrap();
+        let mut event = RadarEventRecord {
+            id: "event-unlinked".into(),
+            phase: "upcoming".into(),
+            title: "预计即将重置".into(),
+            summary: None,
+            first_signal_at: old_at - 3_600_000,
+            latest_evidence_at: old_at - 3_600_000,
+            claimed_landed_at: None,
+            observed_reset_at: None,
+            closed_at: None,
+            close_reason: None,
+            expected_at: Some(old_at),
+            expires_at: None,
+            state_revision: 1,
+            user_confirmed_reset_at: None,
+            event_type: "quota_reset".into(),
+        };
+        event.expires_at = event_expiry(&event);
+        db.insert_radar_event(&event).unwrap();
+        repair_stale_announced_time(&db, now).unwrap();
+        let updated = db.radar_event("event-unlinked").unwrap().unwrap();
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-12T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        assert_eq!(updated.expected_at, Some(expected));
+    }
+
+    #[test]
+    fn timeout_closed_event_reopens_on_midnight_today_grant() {
+        let db = fixture();
+        let posted = chrono::DateTime::parse_from_rfc3339("2026-09-12T11:20:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        let now = posted + 60_000;
+        let old_at = chrono::DateTime::parse_from_rfc3339("2026-09-11T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        db.connect().unwrap().execute(
+            "INSERT INTO tibo_posts(id,url,text,posted_at,kind,explicit_reset,is_reply,replies,reposts,likes,extra_json,synced_at,lifecycle_consumed_at)
+             VALUES('midnight-today','https://x.com/tibo/status/3','And of course, a reset is also landing by midnight today.',?1,'direct',1,0,0,0,0,'{}',?1,?1)",
+            [posted],
+        ).unwrap();
+        let event = RadarEventRecord {
+            id: "event-timeout".into(),
+            phase: "closed".into(),
+            title: "预计即将重置".into(),
+            summary: None,
+            first_signal_at: old_at - 3_600_000,
+            latest_evidence_at: posted,
+            claimed_landed_at: None,
+            observed_reset_at: None,
+            closed_at: Some(now),
+            close_reason: Some("timeout_unverified".into()),
+            expected_at: Some(old_at),
+            expires_at: Some(now),
+            state_revision: 1,
+            user_confirmed_reset_at: None,
+            event_type: "quota_reset".into(),
+        };
+        db.insert_radar_event(&event).unwrap();
+        db.add_radar_event_evidence("event-timeout", "midnight-today", "delta", "analysis-1").unwrap();
+        repair_stale_announced_time(&db, now).unwrap();
+        let updated = db.radar_event("event-timeout").unwrap().unwrap();
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-12T15:00:00+08:00")
+            .unwrap()
+            .timestamp_millis();
+        assert_eq!(updated.expected_at, Some(expected));
+        assert_eq!(updated.phase, "upcoming");
+        assert!(updated.closed_at.is_none());
     }
 
     #[test]
