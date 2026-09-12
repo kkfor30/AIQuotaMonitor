@@ -1185,12 +1185,11 @@ fn compact_transition_nodes(
                 if is_final {
                     kept_final_revision = true;
                 }
-                let display_at = match row.after_expected {
-                    Some(expected) if row.at > expected => expected,
-                    _ => row.at,
-                };
+                if row.after_expected.is_some_and(|expected| row.at > expected) {
+                    continue;
+                }
                 nodes.push(RadarEventNodeView {
-                    at: display_at,
+                    at: row.at,
                     kind: "time_revision".into(),
                     label: time_revision_label(row.before_expected, row.after_expected, row.at),
                 });
@@ -5449,11 +5448,7 @@ mod tests {
             event_type: "quota_reset".into(),
         };
         let nodes = super::compact_transition_nodes(&transitions, &record);
-        assert_eq!(nodes.len(), 1);
-        assert_eq!(nodes[0].kind, "time_revision");
-        assert_eq!(nodes[0].at, t12);
-        assert_eq!(nodes[0].label, "预计时间更正为 09-12 15:00");
-        assert!(!nodes.iter().any(|node| node.label.contains("延期") || node.label.contains("09-08") || node.label == "timeout_unverified"));
+        assert!(nodes.is_empty(), "{nodes:?}");
     }
 
     #[test]
