@@ -1117,10 +1117,13 @@ fn event_temporal_phase(event: &RadarEventRecord, now: i64) -> String {
 /// 半小时内来回改写的预告/被马上重开的 timeout 不进入展示时间线。
 const RAPID_TIMELINE_MS: i64 = 30 * 60 * 1000;
 
-fn time_revision_label(before: Option<i64>, after: Option<i64>) -> String {
+fn time_revision_label(before: Option<i64>, after: Option<i64>, written_at: i64) -> String {
     match (before, after) {
         (_, None) => "时间承诺已撤销".into(),
         (None, Some(next)) => format!("预计时间更正为 {}", format_clock(next)),
+        (Some(_), Some(next)) if written_at > next => {
+            format!("预计时间更正为 {}", format_clock(next))
+        }
         (Some(prev), Some(next)) if next < prev => {
             format!("预计时间提前至 {}", format_clock(next))
         }
@@ -1182,10 +1185,14 @@ fn compact_transition_nodes(
                 if is_final {
                     kept_final_revision = true;
                 }
+                let display_at = match row.after_expected {
+                    Some(expected) if row.at > expected => expected,
+                    _ => row.at,
+                };
                 nodes.push(RadarEventNodeView {
-                    at: row.at,
+                    at: display_at,
                     kind: "time_revision".into(),
-                    label: time_revision_label(row.before_expected, row.after_expected),
+                    label: time_revision_label(row.before_expected, row.after_expected, row.at),
                 });
             }
             continue;
@@ -5412,16 +5419,17 @@ mod tests {
     fn oscillating_forecast_timeline_keeps_one_stable_revision() {
         let t08 = 1_788_832_800_000;
         let t12 = 1_789_196_400_000;
+        let written = t12 + 2 * 60_000;
         let json = |phase: &str, expected: i64| {
             serde_json::json!({"phase": phase, "expectedAt": expected}).to_string()
         };
         let transitions = vec![
-            (1_000, json("upcoming", t12), json("upcoming", t08), "state_update".into()),
-            (1_001, json("upcoming", t08), json("closed", t08), "timeout_unverified".into()),
-            (2_000, json("closed", t08), json("upcoming", t12), "state_update".into()),
-            (2_001, json("upcoming", t12), json("upcoming", t08), "state_update".into()),
-            (2_002, json("upcoming", t08), json("closed", t08), "timeout_unverified".into()),
-            (3_000, json("closed", t08), json("upcoming", t12), "state_update".into()),
+            (written, json("upcoming", t12), json("upcoming", t08), "state_update".into()),
+            (written + 1_000, json("upcoming", t08), json("closed", t08), "timeout_unverified".into()),
+            (written + 2_000, json("closed", t08), json("upcoming", t12), "state_update".into()),
+            (written + 3_000, json("upcoming", t12), json("upcoming", t08), "state_update".into()),
+            (written + 4_000, json("upcoming", t08), json("closed", t08), "timeout_unverified".into()),
+            (written + 5_000, json("closed", t08), json("upcoming", t12), "state_update".into()),
         ];
         let record = super::RadarEventRecord {
             id: "event".into(),
@@ -5443,8 +5451,9 @@ mod tests {
         let nodes = super::compact_transition_nodes(&transitions, &record);
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].kind, "time_revision");
-        assert!(nodes[0].label.contains("09-12 15:00"), "{}", nodes[0].label);
-        assert!(!nodes.iter().any(|node| node.label.contains("09-08") || node.label == "timeout_unverified"));
+        assert_eq!(nodes[0].at, t12);
+        assert_eq!(nodes[0].label, "预计时间更正为 09-12 15:00");
+        assert!(!nodes.iter().any(|node| node.label.contains("延期") || node.label.contains("09-08") || node.label == "timeout_unverified"));
     }
 
     #[test]
