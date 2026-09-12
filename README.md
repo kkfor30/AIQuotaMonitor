@@ -1,126 +1,166 @@
-# AIQuotaMonitor
+<p align="center">
+  <img src="apps/desktop/public/assets/brand/logo-aiquota-liquid-glass.png" width="88" alt="AIQuotaMonitor 应用图标">
+</p>
 
-> 多模型平台统一额度监控中心 —— 常驻 Windows 托盘的桌面监控器，统一查看各模型平台的额度、订阅窗口与消费趋势，并内置「GPT 重置雷达」防止错过额度重置窗口。
+<h1 align="center">AIQuotaMonitor</h1>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB)](https://tauri.app)
-![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4)
+<p align="center"><strong>多平台 AI 额度，一处看清。</strong><br>余额、订阅窗口、消费趋势与 GPT 重置信号，常驻你的 Windows 桌面。</p>
 
-## 功能
+<p align="center">
+  <a href="https://github.com/curry880314/AIQuotaMonitor/releases/latest"><img src="https://img.shields.io/badge/下载-Windows_安装包-0A66FF?style=for-the-badge" alt="下载 Windows 安装包"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-334155?style=for-the-badge" alt="MIT 许可证"></a>
+</p>
 
-- **平台中心**：从注册表平台中按需添加（DeepSeek、GLM、Kimi、MiMo、MiniMax、SiliconFlow、StepFun、OpenRouter、Novita），API Key 填写后先验证连接再保存；平台、来源、账号按 `Platform → Account → Source → Capability → Snapshot` 领域模型组织。
-- **本地订阅检测**：GPT/Codex（app-server 优先、WHAM 回退）、Claude Code、Grok CLI 自动检测本机登录；GPT 额外账号由应用调用官方 Codex 组件拉起浏览器 OAuth，并保存到独立目录，不覆盖本机账号。本应用不代管第三方登录。
-- **多账号**：同平台多账号分组展示、重命名、独立会话，异常隔离到 Source 级——单个来源失败不影响其他来源的成功快照。
-- **真实快照语义**：全部数据为真实快照；失败时保留最后成功快照并标记 `stale`，无真实值时为 `missing`，从不补零或伪造数据；金额全部使用定点 Decimal 计算。
-- **安全存储**：API Key 等凭据存入 Windows Credential Manager，SQLite 只保存凭据引用；数据库存储本机数据，应用不向任何服务器上传数据。
-- **悬浮球**：五边形玻璃小球常驻屏幕，悬停查看额度摘要、四级停靠（顶/底/左/右）、刷新与确认操作。
-- **GPT 重置雷达**：同步 CodexRadar 与 WillCodex 公开页面（分来源记录成功与失败状态），应用运行期间每 15 分钟自动检查，三路证据（来源声称 / 本机额度观察 / 可选 AI 辅助分析）综合研判重置卡与额度重置信号，事件按「已观察落地 / 用户确认 / 已撤回 / 超时未验证」归档历史；**雷达只提供推测，不冒充官方结论**，AI 分析默认关闭、始终可替代。
-- **设置**：主题（浅色 / 深色）、平台排序、自动刷新、开机自启、本机数据目录查看。
+<p align="center">
+  <a href="#快速开始">快速开始</a> · <a href="#桌面速览">桌面速览</a> · <a href="#平台支持">平台支持</a> · <a href="#从源码运行">从源码运行</a>
+</p>
+
+![AIQuotaMonitor 总览：多平台账户额度、窗口压力、消费趋势与刷新记录](docs/screenshots/overview.png)
+
+<p align="center"><sub>Windows 10 / 11 · Tauri 2 + React + Rust · 浅色 / 深色主题</sub></p>
+
+## 额度、余额和重置时间，放在一起
+
+同时使用 Codex、Claude Code 和多个 API 平台时，AIQuotaMonitor 帮你集中查看各账号还剩多少额度、窗口何时刷新，以及消费如何变化。
+
+| 你关心的事 | 在这里查看 |
+| --- | --- |
+| 哪个账号快用完了？ | 总览按平台与账号展示额度窗口、剩余比例和重置时间 |
+| API 余额还剩多少？ | 平台中心查看余额、消费、模型用量与缓存效率，按来源能力展示 |
+| 工作时想随手看一眼？ | 悬浮球停靠屏幕四边，悬停展开额度卡片 |
+| GPT 是否有新的重置信号？ | 重置雷达汇集公开动态、本机观察与可选 AI 分析 |
+
+## 快速开始
+
+1. 从 [Releases 下载 Windows 安装包](https://github.com/curry880314/AIQuotaMonitor/releases/latest)，完成安装并启动。
+2. 打开 **平台中心 → 添加平台**，选择正在使用的平台。
+3. API 平台填写 Key 并验证后保存；GPT / Codex、Claude Code、Grok 检测本机官方组件的登录状态；需要网页会话的来源按提示登录。
+4. 返回 **总览** 查看额度，在 **设置 → 悬浮球** 中开启桌面速览。
+
+GPT 额外账号通过官方 Codex 组件打开浏览器登录，会话保存在独立目录，不覆盖本机账号。不同平台可查询的字段见下方支持表。
+
+## 桌面速览
+
+### 屏幕边缘，随时展开
+
+五边形玻璃悬浮球支持顶、底、左、右停靠。展开后按平台与账号查看额度、余额和重置时间，也可刷新数据或进入雷达详情。
+
+<p align="center">
+  <a href="docs/screenshots/hoverbar.png"><img src="docs/screenshots/hoverbar.png" width="360" alt="悬浮额度卡：Codex 窗口进度、可用重置卡与额外余额"></a>
+  <a href="docs/screenshots/hoverbar-glm.png"><img src="docs/screenshots/hoverbar-glm.png" width="360" alt="悬浮多平台卡：GLM 账号额度、余额与雷达状态"></a>
+</p>
+
+### 从总览深入到每个账号
+
+平台中心把窗口额度、资金余额和用量明细放在同一处；同平台多账号分组展示，来源可独立配置和刷新。
+
+![DeepSeek 平台中心：余额、模型用量、消费与缓存效率](docs/screenshots/platform-center.png)
+
+<details>
+<summary>查看 Codex 多账号界面</summary>
+
+![Codex 平台中心：按账号展示订阅窗口与可用重置卡](docs/screenshots/platform-center-codex.png)
+
+</details>
+
+### GPT 重置雷达，判断有据可查
+
+汇集 CodexRadar、WillCodex 公开页面，结合本机额度观察，分别追踪 **额度重置** 与 **重置卡到账**。可以查看引用原文、检查历史，并记录或撤销自己的确认。
+
+**雷达判断仅为推测，不代表官方结论。** AI 分析默认关闭；关闭后仍可同步来源与查看本机观察。
+
+![GPT 重置雷达：当前信号、判断依据与本机验证](docs/screenshots/radar-signal.png)
+
+<details>
+<summary>查看完整动态与悬浮雷达详情</summary>
+
+![雷达动态列表：原文、来源与发布时间](docs/screenshots/radar-posts.png)
+
+<p align="center">
+  <a href="docs/screenshots/hoverbar-radar.png"><img src="docs/screenshots/hoverbar-radar.png" width="360" alt="悬浮雷达详情：核心判断与本机验证"></a>
+  <a href="docs/screenshots/hoverbar-radar-ai.png"><img src="docs/screenshots/hoverbar-radar-ai.png" width="360" alt="悬浮雷达 AI 分析：结论、依据与原帖引用"></a>
+</p>
+
+</details>
+
+截图展示拍摄时的界面与数据；当前账号额度以应用刷新结果为准。点击图片可查看原图。
 
 ## 平台支持
 
-| 平台 | 额度来源 | 展示能力 |
+| 平台 | 额度来源 | 可查看的能力 |
 | --- | --- | --- |
-| GPT / Codex | 本机 app-server / WHAM | 5 小时、7 天窗口，额外余额，可用重置卡 |
-| Claude Code | 本机 CLI OAuth | 5 小时 / 7 天 / Opus / Sonnet 窗口 |
-| Grok | 本机 CLI | SuperGrok 7 天窗口 |
-| DeepSeek | 官方余额 API + 网页用量 | 余额、消费、模型 Token、缓存命中率、消费趋势 |
-| GLM | 官方 Coding/Token Plan + 网页个人余额 | 窗口额度、剩余百分比 |
-| Kimi | 官方 Coding Plan + Moonshot 余额 | 窗口额度、余额 |
-| MiniMax | 官方 Coding/Token Plan（国内/国际） | 窗口额度 |
-| MiMo | 网页会话余额 | 余额 |
-| SiliconFlow / StepFun / OpenRouter / Novita | 官方余额 API | 余额、累计消费（OpenRouter） |
+| **GPT / Codex** | 本机 app-server / WHAM | 5 小时、7 天窗口，额外余额，可用重置卡 |
+| **Claude Code** | 本机 CLI OAuth | 5 小时 / 7 天 / Opus / Sonnet 窗口 |
+| **Grok** | 本机 CLI | SuperGrok 7 天窗口 |
+| **DeepSeek** | 官方余额 API + 网页用量 | 余额、消费、模型 Token、缓存命中率、消费趋势 |
+| **GLM** | 官方 Coding / Token Plan + 网页个人余额 | 窗口额度、剩余比例、个人余额 |
+| **Kimi** | 官方 Coding Plan + Moonshot 余额 | 窗口额度、余额 |
+| **MiniMax** | 官方 Coding / Token Plan（国内 / 国际） | 窗口额度 |
+| **MiMo** | 网页会话 | 余额 |
+| **SiliconFlow / StepFun / OpenRouter / Novita** | 官方余额 API | 余额；OpenRouter 另有累计消费 |
 
-各平台仅调用官方公开接口或本机 CLI/官方网页登录会话；网页登录在隔离窗口内完成，登录窗口不授予应用 IPC。
+展示能力取决于账号套餐和来源实际返回的字段。部分网页能力及 Codex WHAM 依赖内部接口，可能随平台调整变化。接入细节见 [平台接入说明](docs/product/platform-access.md)。
 
-## 界面
+## 数据如何处理
 
-**总览** —— 所有平台的门户：额度卡片、消费趋势与最近刷新记录。
+- **失败保留上次结果**：来源独立刷新与缓存，一个来源失败不清空其他来源的成功数据。有历史快照时标记 `stale`，从未取得真实值时显示 `missing`，不补零。
+- **凭据与快照分开存储**：API Key、Token、Cookie 存入 Windows Credential Manager；SQLite 保存配置、快照与凭据引用。前端只接收脱敏数据，金额使用 Decimal / 文本定点值。
+- **联网用途明确**：额度查询访问对应平台，雷达读取公开页面；开启可选 AI 时，将分析所需的原文与上下文发给你配置的模型服务。额度快照存储在本机。
+- **网页登录隔离**：登录窗口不授予应用 Tauri IPC 权限。平台 Logo 仅用于识别，商标归各平台所有者。
 
-![总览](docs/screenshots/overview.png)
+安全问题请按 [安全策略](SECURITY.md) 使用私密渠道报告。
 
-**平台中心** —— 单平台深度视图：账户窗口额度、资金余额、模型用量与缓存效率。
+## 从源码运行
 
-![平台中心 · DeepSeek](docs/screenshots/platform-center.png)
-
-![平台中心 · Codex](docs/screenshots/platform-center-codex.png)
-
-**GPT 重置雷达** —— 重置判断中心：Codex Radar 来源、本机额度观察与可选 AI 分析三路证据。
-
-![雷达 · 当前信号](docs/screenshots/radar-signal.png)
-
-![雷达 · 全部动态](docs/screenshots/radar-posts.png)
-
-**悬浮球** —— 常驻屏幕边缘的即时额度速览，悬停展开详情：
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/hoverbar.png" alt="悬浮球额度卡" width="48%"><br><sub>额度卡：窗口进度、可用重置卡、额外余额</sub></td>
-    <td align="center"><img src="docs/screenshots/hoverbar-glm.png" alt="悬浮球 GLM 卡" width="48%"><br><sub>多平台卡片：额度与雷达状态速览</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/hoverbar-radar.png" alt="悬浮球雷达详情" width="48%"><br><sub>雷达详情：核心判断与本机验证</sub></td>
-    <td align="center"><img src="docs/screenshots/hoverbar-radar-ai.png" alt="悬浮球雷达 AI 分析" width="48%"><br><sub>AI 分析：结论、依据与原帖引用</sub></td>
-  </tr>
-</table>
-
-## 安装与运行
-
-从 [Releases](../../releases/latest) 下载 Windows 安装包（NSIS），或从源码构建：
+需要 Windows 10 / 11、Node.js ≥ 20、pnpm、Rust 1.85+，以及 [Tauri 前置依赖](https://tauri.app/start/prerequisites/)（WebView2、Visual Studio C++ Build Tools）。
 
 ```powershell
+git clone https://github.com/curry880314/AIQuotaMonitor.git
+cd AIQuotaMonitor
 pnpm install
-pnpm package            # 构建发布包，产物在 src-tauri/target/release/bundle/
+pnpm dev
 ```
 
-本地开发：
+<details>
+<summary>构建安装包与开发检查</summary>
 
 ```powershell
-pnpm install
+# 构建 Windows 安装包
+pnpm package
+
+# TypeScript、前端构建与 Rust 检查
 pnpm --filter @ai-quota-monitor/desktop typecheck
 pnpm --filter @ai-quota-monitor/desktop build
 cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
-pnpm dev                # tauri dev，热更新
 ```
 
-前置要求：Windows 10/11、Node.js ≥ 20、pnpm、Rust 1.85+、[Tauri 前置依赖](https://tauri.app/start/prerequisites/)（WebView2、Visual Studio C++ Build Tools）。
+默认安装包产物目录：`apps/desktop/src-tauri/target/release/bundle/`。
 
-## 目录
+</details>
+
+<details>
+<summary>代码结构与设计文档</summary>
 
 ```text
-AIQuotaMonitor/
-├─ apps/
-│  └─ desktop/
-│     ├─ src/              # React 后台看板、悬浮球和前端组件
-│     └─ src-tauri/src/    # Rust 命令、窗口、存储、刷新和平台适配器
-├─ docs/
-│  ├─ architecture/        # 架构与决策
-│  ├─ product/             # 产品需求与平台接入说明
-│  └─ ui-design/           # 设计稿归档
-├─ tooling/                # 开发、迁移和打包脚本
-├─ LICENSE
-└─ docs/                   # 各迁移文件头保留来源与许可声明
+apps/desktop/
+├─ src/              React 主窗口、悬浮球与共享组件
+└─ src-tauri/src/    Rust 平台适配器、刷新、存储与窗口管理
+docs/
+├─ architecture/     架构与技术选型
+├─ product/          产品需求与平台接入
+├─ screenshots/      README 产品截图
+└─ ui-design/        设计稿归档
+tooling/             开发、迁移与打包脚本
 ```
 
-详细说明见 [架构概览](docs/architecture/overview.md)、[技术选型](docs/architecture/technology-decision.md)、[产品需求](docs/product/requirements.md) 与 [平台接入说明](docs/product/platform-access.md)。
+领域模型：`Platform → Account → Source → Capability → Snapshot`。React 通过 Tauri IPC 消费脱敏 ViewModel；平台差异由 Rust Source adapter 处理，应用不启动独立 HTTP 后端。
 
-## 安全与边界
+[架构概览](docs/architecture/overview.md) · [技术选型](docs/architecture/technology-decision.md) · [产品需求](docs/product/requirements.md)
 
-- **凭据**：仅存入 Windows Credential Manager，代码中不存在明文密钥；应用不向外部服务上传任何数据（雷达同步仅抓取公开页面）。
-- **平台接口**：部分能力（GLM、MiMo 网页余额、Codex WHAM 等）依赖平台内部接口或公开页面，可能随平台调整失效；应用对结构变化回报 `structure_changed` 错误并保留最后成功快照，不会崩溃或清空数据。
-- **平台商标**：`apps/desktop/public/assets/providers/` 下各平台 Logo 仅用于识别对应平台，版权与商标归各平台所有者。
-- **雷达推测**：GPT 重置雷达的判断基于来源、本机观察与可选 AI，可能误判；展示层明确标注「仅为推测」。
+</details>
 
-发现安全漏洞请通过 GitHub Issue（限定 `Security` 标签）或直接私信仓库维护者报告敏感信息，不要公开描述可利用细节。
+## 参与项目
 
-## 许可证
+[报告 Bug](.github/ISSUE_TEMPLATE/bug_report.md) · [贡献指南](CONTRIBUTING.md) · [行为准则](CODE_OF_CONDUCT.md) · [版本变更](CHANGELOG.md)
 
-MIT License，详见 [LICENSE](LICENSE)。
-
-## 参与贡献
-
-- 提交 Bug / 功能建议：请使用 [Issue 模板](.github/ISSUE_TEMPLATE/bug_report.md)，安全问题请走 [SECURITY.md](SECURITY.md) 私密渠道；
-- 提交代码：阅读 [CONTRIBUTING.md](CONTRIBUTING.md)；
-- 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)；
-- 版本变更：[CHANGELOG.md](CHANGELOG.md)。
-
+采用 [MIT License](LICENSE)。迁移的第三方代码在对应文件头保留来源与许可声明。
