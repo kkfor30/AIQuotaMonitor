@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/desktop/public/assets/brand/logo-aiquota-liquid-glass.png" width="88" alt="AIQuotaMonitor 应用图标">
+  <img src="assets/readme/hero.svg" width="100%" alt="AIQuotaMonitor：多平台 AI 额度，一处看清；订阅窗口、API 余额与 GPT 重置雷达">
 </p>
 
 <h1 align="center">AIQuotaMonitor</h1>
@@ -32,6 +32,8 @@
 
 ## 快速开始
 
+![接入三步：添加平台 → 验证来源 → 查看额度](assets/readme/quick-start.svg)
+
 1. 从 [Releases 下载 Windows 安装包](https://github.com/curry880314/AIQuotaMonitor/releases/latest)，完成安装并启动。
 2. 打开 **平台中心 → 添加平台**，选择正在使用的平台。
 3. API 平台填写 Key 并验证后保存；GPT / Codex、Claude Code、Grok 检测本机官方组件的登录状态；需要网页会话的来源按提示登录。
@@ -45,23 +47,7 @@ GPT 额外账号通过官方 Codex 组件打开浏览器登录，会话保存在
 
 五边形玻璃悬浮球支持顶、底、左、右停靠。展开后按平台与账号查看额度、余额和重置时间，也可刷新数据或进入雷达详情。
 
-<p align="center">
-  <a href="docs/screenshots/hoverbar.png"><img src="docs/screenshots/hoverbar.png" width="360" alt="悬浮额度卡：Codex 窗口进度、可用重置卡与额外余额"></a>
-  <a href="docs/screenshots/hoverbar-glm.png"><img src="docs/screenshots/hoverbar-glm.png" width="360" alt="悬浮多平台卡：GLM 账号额度、余额与雷达状态"></a>
-</p>
-
-### 从总览深入到每个账号
-
-平台中心把窗口额度、资金余额和用量明细放在同一处；同平台多账号分组展示，来源可独立配置和刷新。
-
-![DeepSeek 平台中心：余额、模型用量、消费与缓存效率](docs/screenshots/platform-center.png)
-
-<details>
-<summary>查看 Codex 多账号界面</summary>
-
-![Codex 平台中心：按账号展示订阅窗口与可用重置卡](docs/screenshots/platform-center-codex.png)
-
-</details>
+<!-- 悬浮球 MP4 演示待提供后接入；不展示旧版截图或失效视频链接。 -->
 
 ### GPT 重置雷达，判断有据可查
 
@@ -72,14 +58,9 @@ GPT 额外账号通过官方 Codex 组件打开浏览器登录，会话保存在
 ![GPT 重置雷达：当前信号、判断依据与本机验证](docs/screenshots/radar-signal.png)
 
 <details>
-<summary>查看完整动态与悬浮雷达详情</summary>
+<summary>查看事件历史：从首次信号到本机观察</summary>
 
-![雷达动态列表：原文、来源与发布时间](docs/screenshots/radar-posts.png)
-
-<p align="center">
-  <a href="docs/screenshots/hoverbar-radar.png"><img src="docs/screenshots/hoverbar-radar.png" width="360" alt="悬浮雷达详情：核心判断与本机验证"></a>
-  <a href="docs/screenshots/hoverbar-radar-ai.png"><img src="docs/screenshots/hoverbar-radar-ai.png" width="360" alt="悬浮雷达 AI 分析：结论、依据与原帖引用"></a>
-</p>
+![GPT 雷达历史：事件时间线、原始信号、本机观察与当时的 AI 研判](docs/screenshots/radar-history.png)
 
 </details>
 

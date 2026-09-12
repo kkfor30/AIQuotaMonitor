@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="title desc">
+  <title id="title">AIQuotaMonitor · 多平台 AI 额度，一处看清</title>
+  <desc id="desc">冰蓝色品牌头图。额度窗口的蓝绿进度轨道与五边形悬浮球构成示意图形，不代表真实账号数据。</desc>
+  <defs>
+    <linearGradient id="canvas" x2="1" y2="1"><stop stop-color="#edf5ff"/><stop offset="1" stop-color="#e3f3f3"/></linearGradient>
+    <linearGradient id="orb" x2="1" y2="1"><stop stop-color="#0a66ff"/><stop offset="1" stop-color="#00a67d"/></linearGradient>
+  </defs>
+  <rect width="1200" height="440" rx="28" fill="url(#canvas)"/>
+  <g font-family="Segoe UI, Microsoft YaHei, PingFang SC, sans-serif">
+    <text x="64" y="76" fill="#42617e" font-size="20" letter-spacing="3">WINDOWS · AI QUOTA MONITOR</text>
+    <text x="60" y="163" fill="#142d49" font-size="70" font-weight="700" letter-spacing="-3">AIQuotaMonitor</text>
+    <text x="64" y="231" fill="#142d49" font-size="40" font-weight="600">多平台 AI 额度，一处看清。</text>
+    <text x="64" y="284" fill="#48627d" font-size="25">订阅窗口 / API 余额 / GPT 重置雷达</text>
+    <path d="M64 339H681" stroke="#c5d7e7"/>
+    <text x="64" y="384" fill="#345572" font-size="22">桌面总览</text>
+    <circle cx="191" cy="376" r="3" fill="#8aabc3"/>
+    <text x="213" y="384" fill="#345572" font-size="22">屏幕边缘速览</text>
+    <circle cx="386" cy="376" r="3" fill="#8aabc3"/>
+    <text x="408" y="384" fill="#345572" font-size="22">多账号独立刷新</text>
+  </g>
+  <!-- Abstract quota tracks and the product's pentagonal desktop anchor. -->
+  <g id="quota-motif">
+    <rect x="809" y="78" width="327" height="289" rx="24" fill="#f8fcff" stroke="#ccdeec"/>
+    <path d="M839 121H1037M839 179H1102M839 237H1102M839 295H1102" fill="none" stroke="#e1eaf1" stroke-width="12" stroke-linecap="round"/>
+    <path d="M839 121H982M839 179H1075M839 237H934M839 295H1006" fill="none" stroke="#0a66ff" stroke-width="12" stroke-linecap="round"/>
+    <path d="M839 179H1075" stroke="#00a67d" stroke-width="12" stroke-linecap="round"/>
+    <path d="M1090 298L1147 339L1125 406H1055L1033 339Z" fill="url(#orb)" stroke="#f8fcff" stroke-width="6"/>
+    <path d="M1064 361L1080 345L1094 358L1118 333" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
