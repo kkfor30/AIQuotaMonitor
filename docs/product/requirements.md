@@ -45,7 +45,7 @@ AIQuotaMonitor 是一个 Windows 多模型平台统一额度监控中心。用�
 平台专属要求：
 
 - DeepSeek：余额、当日/月度消费、模型 Token、请求数、缓存命中/未命中、输出 Token、最近趋势。
-- GPT/Codex：窗口额度、Credits、可重置次数和重置信号摘要。
+- GPT/Codex：窗口额度、Credits、可重置次数和重置信号摘要。本机 CLI 与额外账号各自按最近一次成功刷新返回的窗口集合展示；套餐升级、降级或窗口调整后，成功刷新即移除不再返回的窗口，不保留「暂不可用」占位，也不按套餐名推断。刷新失败或刷新中保留该集合的真实缓存并标记 stale，不恢复更早已移除的窗口。
 - Claude Code：当前会话和周窗口。
 - GLM/Kimi/MiniMax：Token Plan 或 Coding Plan 窗口。
 - MiMo：网页登录来源与余额/额度能力。
