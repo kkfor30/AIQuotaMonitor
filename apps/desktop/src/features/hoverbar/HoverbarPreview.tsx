@@ -979,7 +979,7 @@ function PreviewPanel({
           </div>
           {/* 预览页脚：全部为示例文案，仅供四边/主题人工检查 */}
           <footer className="hb-foot">
-            <span>数据仅供参考 · v1.0.0</span>
+            <span>数据仅供参考 · v1.0.1</span>
             <span>共 {platforms.length} 个平台</span>
             <span className="hb-foot-time">最后更新：11:51</span>
           </footer>

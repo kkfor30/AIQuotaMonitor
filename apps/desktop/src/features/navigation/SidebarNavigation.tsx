@@ -116,7 +116,7 @@ export function SidebarNavigation({
       </div>
 
       <p className="px-2 pb-1 text-center text-[10px] leading-4 text-q-text-muted">
-        数据仅保存在本机 · v1.0.0
+        数据仅保存在本机 · v1.0.1
       </p>
     </nav>
   );
