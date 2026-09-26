@@ -2,6 +2,18 @@
 
 本文件记录值得注意的变更（Keep a Changelog 风格）。版本号遵循语义化版本。
 
+## [1.0.1] - 2026-09-26
+
+### 修复
+
+- GPT/Codex 本机与额外账号随最新成功刷新动态调整额度窗口，升级、降级后不再显示已失效窗口；刷新失败保留最近有效缓存，真实 0% 仍显示。
+- 修复重置雷达待分析缓存死锁、过期预告时间与历史时间线反复修正的问题，并调整悬浮雷达本机验证区的默认折叠状态。
+- 兼容 DeepSeek 累计消费数组响应，修复对应快照解析。
+
+### 文档
+
+- 更新仓库首页、产品截图、GitHub 内联悬浮球演示与仓库链接。
+
 ## [1.0.0] - 2026-09-08
 
 首个正式版本（Windows / Tauri 2 + React + Rust）。
@@ -27,4 +39,5 @@
 - 以 MIT License 发布。
 - 迁移代码（DeepSeekMonitorWindows 系列、cc-switch）的来源与许可保留在各迁移文件头注释中。
 
+[1.0.1]: https://github.com/kkfor30/AIQuotaMonitor/releases/tag/v1.0.1
 [1.0.0]: https://github.com/kkfor30/AIQuotaMonitor/releases/tag/v1.0.0
