@@ -883,6 +883,32 @@ impl Database {
             .map_err(|err| format!("读取能力历史失败: {err}"))
     }
 
+    /// 最近一次写入快照的刷新所返回的窗口集合。适用于 Codex 这类整批刷新来源：
+    /// 失败不写快照，继续保留上次集合；只返回套餐的成功刷新则不再展示旧窗口。
+    pub fn latest_refresh_window_snapshots(
+        &self,
+        source_id: &str,
+    ) -> Result<Vec<SnapshotRecord>, String> {
+        let connection = self.connect()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT capability_id, display_name, value_kind, primary_value, secondary_value,
+                        progress, trend_json, captured_at, window_seconds, reset_at
+                 FROM capability_snapshots
+                 WHERE source_id = ?1 AND capability_id LIKE 'quota_window_%'
+                   AND generation = (
+                       SELECT MAX(generation) FROM capability_snapshots WHERE source_id = ?1
+                   )
+                 ORDER BY id",
+            )
+            .map_err(|err| format!("准备最近刷新窗口查询失败: {err}"))?;
+        let rows = statement
+            .query_map(params![source_id], map_snapshot_record)
+            .map_err(|err| format!("读取最近刷新窗口失败: {err}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("读取最近刷新窗口失败: {err}"))
+    }
+
     pub fn latest_window_snapshots(&self, source_id: &str) -> Result<Vec<SnapshotRecord>, String> {
         let connection = self.connect()?;
         let mut statement = connection

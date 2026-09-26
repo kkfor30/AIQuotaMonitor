@@ -49,7 +49,7 @@ https://github.com/user-attachments/assets/2f077e10-41da-48a3-897b-021cf6d3fd29
 
 | 平台 | 接入方式 | 可查看内容 |
 | --- | --- | --- |
-| GPT / Codex | 本机 app-server / WHAM | 5 小时、7 天窗口，额外余额，重置卡 |
+| GPT / Codex | 本机 app-server / WHAM | 当前账号实际返回的额度窗口（如 5 小时、7 天、30 天），额外余额，重置卡 |
 | Claude Code | 本机 CLI OAuth | 5 小时、7 天、Opus、Sonnet 窗口 |
 | Grok | 本机 CLI | SuperGrok 7 天窗口 |
 | DeepSeek | 官方 API + 网页用量 | 余额、消费、模型 Token、缓存命中率与趋势 |

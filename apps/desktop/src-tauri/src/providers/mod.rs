@@ -13,6 +13,9 @@ pub mod kimi;
 pub mod mimo;
 pub mod money;
 
+#[cfg(test)]
+mod codex_windows_tests;
+
 use crate::domain::{
     AccountSummaryViewModel, CapabilityDisplayValue, CapabilitySnapshotViewModel,
     CredentialInputViewModel, DataFreshness, PlatformAggregateStatus, PlatformSummaryViewModel,
@@ -350,7 +353,7 @@ fn openai_templates(
         .iter()
         .filter(|source| source.adapter_id == codex::SOURCE_ID)
     {
-        for snapshot in database.latest_window_snapshots(&source.id)? {
+        for snapshot in database.latest_refresh_window_snapshots(&source.id)? {
             templates.push(template(
                 &snapshot.capability_id,
                 &source.id,
@@ -781,7 +784,14 @@ fn real_platform(
                         trend: vec![],
                     }
                 } else {
-                    let fresh = current || source.state == "ready";
+                    let fresh = if source.adapter_id == codex::SOURCE_ID
+                        && template.id.starts_with("quota_window_")
+                    {
+                        // Codex 整批成功才更新窗口；同毫秒发生的失败也必须标为缓存。
+                        source.state == "ready"
+                    } else {
+                        current || source.state == "ready"
+                    };
                     CapabilitySnapshotViewModel {
                         capability_id: snapshot.capability_id,
                         source_id: source.id.clone(),
